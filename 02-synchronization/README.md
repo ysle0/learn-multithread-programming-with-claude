@@ -100,6 +100,20 @@
 
 ---
 
+### [07. Futex (Fast Userspace Mutex)](./07-futex.md)
+**핵심 개념**: Futex는 Linux의 저수준 동기화 프리미티브로, 유저 스페이스와 커널 스페이스를 결합한 하이브리드 메커니즘입니다.
+
+**다루는 내용**:
+- Futex의 동작 원리 (Fast Path vs Slow Path)
+- Futex 기반 Mutex, Semaphore, Condition Variable 구현
+- FUTEX_WAIT, FUTEX_WAKE, FUTEX_REQUEUE 연산
+- Priority Inheritance (FUTEX_LOCK_PI)
+- 플랫폼별 유사 메커니즘 (Windows WaitOnAddress, macOS ulock)
+
+**왜 중요한가**: pthread mutex 등 모든 고수준 동기화 도구의 기반이며, Linux 동기화 성능의 핵심입니다.
+
+---
+
 ## 🔍 핵심 개념 요약
 
 ### 동기화 기법 비교
@@ -112,6 +126,7 @@
 | **Atomic** | Lock-Free 동기화 | 매우 높음 | 높음 | 카운터, 플래그 |
 | **Memory Barrier** | 순서 보장 | 높음 | 매우 높음 | Lock-Free 자료구조 |
 | **RWLock** | 읽기/쓰기 분리 | 높음 (읽기 많을 때) | 중간 | 캐시, 설정 |
+| **Futex** | 커널 동기화 기반 | 매우 높음 (경합 없을 때) | 매우 높음 | Mutex/Semaphore 구현 |
 
 ### 선택 가이드
 
@@ -152,10 +167,12 @@ Lock-Free 자료구조?
    ↓
 6. Reader-Writer Lock (권장)
    ↓
+7. Futex (고급, Linux 특화)
+   ↓
 다음 섹션: 03-concurrency-problems/
 ```
 
-**권장**: 1-3은 필수, 4-6은 성능 최적화가 필요할 때 학습하세요.
+**권장**: 1-3은 필수, 4-6은 성능 최적화가 필요할 때, 7은 저수준 구현을 이해하고 싶을 때 학습하세요.
 
 ---
 
