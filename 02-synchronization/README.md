@@ -100,17 +100,18 @@
 
 ---
 
-### [07. Futex (Fast Userspace Mutex)](./07-futex.md)
-**핵심 개념**: Futex는 Linux의 저수준 동기화 프리미티브로, 유저 스페이스와 커널 스페이스를 결합한 하이브리드 메커니즘입니다.
+### [07. Windows 동기화 프리미티브](./07-windows-synchronization-primitives.md)
+**핵심 개념**: Windows의 하이브리드 동기화 메커니즘 (CRITICAL_SECTION, WaitOnAddress, SRW Lock)을 다룹니다.
 
 **다루는 내용**:
-- Futex의 동작 원리 (Fast Path vs Slow Path)
-- Futex 기반 Mutex, Semaphore, Condition Variable 구현
-- FUTEX_WAIT, FUTEX_WAKE, FUTEX_REQUEUE 연산
-- Priority Inheritance (FUTEX_LOCK_PI)
-- 플랫폼별 유사 메커니즘 (Windows WaitOnAddress, macOS ulock)
+- CRITICAL_SECTION의 동작 원리 (Fast Path vs Slow Path)
+- WaitOnAddress API (Windows 8+, Linux futex와 동등)
+- SRW Lock (Slim Reader/Writer Lock)
+- 커스텀 Mutex, Semaphore, Condition Variable 구현
+- Interlocked API (Atomic Operations)
+- 플랫폼별 유사 메커니즘 (Linux futex, macOS ulock)
 
-**왜 중요한가**: pthread mutex 등 모든 고수준 동기화 도구의 기반이며, Linux 동기화 성능의 핵심입니다.
+**왜 중요한가**: Windows 동기화의 기반이며, .NET과 Win32 애플리케이션 성능의 핵심입니다.
 
 ---
 
@@ -126,7 +127,7 @@
 | **Atomic** | Lock-Free 동기화 | 매우 높음 | 높음 | 카운터, 플래그 |
 | **Memory Barrier** | 순서 보장 | 높음 | 매우 높음 | Lock-Free 자료구조 |
 | **RWLock** | 읽기/쓰기 분리 | 높음 (읽기 많을 때) | 중간 | 캐시, 설정 |
-| **Futex** | 커널 동기화 기반 | 매우 높음 (경합 없을 때) | 매우 높음 | Mutex/Semaphore 구현 |
+| **Windows 동기화** | 하이브리드 메커니즘 | 매우 높음 (경합 없을 때) | 중간 | CRITICAL_SECTION, WaitOnAddress |
 
 ### 선택 가이드
 
@@ -167,12 +168,12 @@ Lock-Free 자료구조?
    ↓
 6. Reader-Writer Lock (권장)
    ↓
-7. Futex (고급, Linux 특화)
+7. Windows 동기화 프리미티브 (고급, 플랫폼 특화)
    ↓
 다음 섹션: 03-concurrency-problems/
 ```
 
-**권장**: 1-3은 필수, 4-6은 성능 최적화가 필요할 때, 7은 저수준 구현을 이해하고 싶을 때 학습하세요.
+**권장**: 1-3은 필수, 4-6은 성능 최적화가 필요할 때, 7은 Windows 플랫폼에서 저수준 구현을 이해하고 싶을 때 학습하세요.
 
 ---
 
@@ -261,10 +262,10 @@ void increment() {
 | **Memory Barrier (fence)** | ~20-40 cycles (~10-20ns) | N/A | 없음 | 파이프라인 정리 |
 | **Spinlock (획득)** | ~20-50 cycles (~10-25ns) | N/A (busy-wait) | 없음 | CPU 계속 사용 |
 | **Spinlock (대기)** | ~1000+ cycles/iter | N/A | 없음 | CPU 낭비 심각 |
-| **Futex (fast path)** | ~25-50 cycles (~12-25ns) | 없음 | 없음 | 유저 공간 CAS만 |
-| **Futex (slow path)** | ~50 cycles (유저) | ~1000-2000 cycles (커널) | 필요시 | syscall + 대기 큐 |
-| **pthread_mutex (fast)** | ~50-100 cycles (~25-50ns) | 없음 | 없음 | 내부적으로 futex 사용 |
-| **pthread_mutex (slow)** | ~100 cycles (유저) | ~2000-5000 cycles (커널) | 필요 | futex syscall |
+| **CRITICAL_SECTION (fast)** | ~25-50 cycles (~12-25ns) | 없음 | 없음 | Interlocked만 사용 |
+| **CRITICAL_SECTION (slow)** | ~50 cycles (유저) | ~2000-4000 cycles (커널) | 필요시 | Event 대기 |
+| **WaitOnAddress (fast)** | ~25-50 cycles (~12-25ns) | 없음 | 없음 | 유저 공간 Interlocked |
+| **WaitOnAddress (slow)** | ~50 cycles (유저) | ~2000-4000 cycles (커널) | 필요시 | 커널 대기 큐 |
 | **POSIX Semaphore (fast)** | ~50-100 cycles (~25-50ns) | 없음 | 없음 | sem_wait 성공 |
 | **POSIX Semaphore (slow)** | ~100 cycles (유저) | ~2000-5000 cycles (커널) | 필요 | futex 대기 |
 | **Condition Variable (signal)** | ~100-200 cycles (~50-100ns) | ~1000-2000 cycles | 아님 | 대기자 깨우기 |
@@ -280,27 +281,28 @@ void increment() {
 ### 비용 분석 요약
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│ 비용 계층 (낮음 → 높음)                                      │
-├─────────────────────────────────────────────────────────────┤
-│ 1. Atomic Load          : ~1-2 cycles    (유저)             │
-│ 2. Atomic CAS           : ~10-20 cycles  (유저)             │
-│ 3. Memory Barrier       : ~20-40 cycles  (유저)             │
-│ 4. Spinlock (획득)      : ~20-50 cycles  (유저, 경합 없음)  │
-│ 5. Futex/Mutex (fast)   : ~50-100 cycles (유저, 경합 없음)  │
-│ ─────────────────────── [커널 경계] ──────────────────────── │
-│ 6. Futex (slow)         : ~1000-3000 cycles (커널 호출)     │
-│ 7. Mutex (slow)         : ~2000-5000 cycles (커널 블로킹)   │
-│ 8. Condition Variable   : ~2000-5000 cycles (항상 커널)     │
-│ 9. Context Switch       : ~3000-10000 cycles (스케줄러)     │
-│ 10. Spinlock (대기)     : 무한정 증가 (CPU 낭비)            │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│ 비용 계층 (낮음 → 높음)                                              │
+├─────────────────────────────────────────────────────────────────────┤
+│ 1. Atomic Load              : ~1-2 cycles    (유저)                 │
+│ 2. Atomic CAS               : ~10-20 cycles  (유저)                 │
+│ 3. Memory Barrier           : ~20-40 cycles  (유저)                 │
+│ 4. Spinlock (획득)          : ~20-50 cycles  (유저, 경합 없음)      │
+│ 5. CRITICAL_SECTION (fast)  : ~25-50 cycles  (유저, 경합 없음)      │
+│ 6. WaitOnAddress (fast)     : ~25-50 cycles  (유저, 경합 없음)      │
+│ ────────────────────────── [커널 경계] ───────────────────────────── │
+│ 7. CRITICAL_SECTION (slow)  : ~2000-4000 cycles (커널 Event 대기)   │
+│ 8. WaitOnAddress (slow)     : ~2000-4000 cycles (커널 대기 큐)      │
+│ 9. Condition Variable       : ~2000-5000 cycles (항상 커널)         │
+│ 10. Context Switch          : ~3000-10000 cycles (스케줄러)         │
+│ 11. Spinlock (대기)         : 무한정 증가 (CPU 낭비)                │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ### 핵심 인사이트
 
 1. **커널 호출은 비싸다**: 유저→커널 전환은 ~1000 cycles 이상
-2. **Futex의 장점**: 경합 없을 때 커널 호출 회피 (~20배 빠름)
+2. **하이브리드 메커니즘의 장점**: 경합 없을 때 커널 호출 회피 (~20배 빠름)
 3. **Spinlock의 함정**: 대기 시 CPU를 계속 소비 (단기 대기만 유리)
 4. **Atomic의 효율성**: 단순 연산은 lock보다 10배 이상 빠름
 5. **Context Switch 비용**: 동기화 중 가장 비쌈 (~1-5μs)
@@ -539,32 +541,48 @@ cv.wait(lock, []{
 
 ---
 
-### 7. Futex (저수준 프리미티브)
+### 7. Windows 동기화 프리미티브
 
 **최적 사용 사례**:
-- ✅ **커스텀 동기화 구현** (Mutex, Semaphore 구현)
-  ```c
-  // 직접 Mutex 구현
-  void my_mutex_lock(atomic_int* futex) {
-      int c = 0;
-      if ((c = atomic_exchange(futex, 1)) == 0)
-          return;  // Fast path: 획득 성공
+- ✅ **CRITICAL_SECTION** (일반적 동기화)
+  ```cpp
+  CRITICAL_SECTION cs;
+  InitializeCriticalSection(&cs);
 
-      // Slow path: 커널 대기
-      do {
-          if (c == 2 || atomic_exchange(futex, 2) != 0)
-              futex_wait(futex, 2);
-      } while ((c = atomic_exchange(futex, 2)) != 0);
-  }
+  EnterCriticalSection(&cs);
+  // Critical section
+  LeaveCriticalSection(&cs);
+
+  DeleteCriticalSection(&cs);
   ```
-- ✅ **최고 성능 필요** (언어 런타임, 시스템 라이브러리)
-- ✅ **플랫폼 특화 최적화**
-- ✅ **glibc pthread, Go runtime, Rust std::sync**
+- ✅ **WaitOnAddress** (커스텀 동기화 구현, Windows 8+)
+  ```cpp
+  volatile LONG flag = 0;
 
-**일반 개발자는 사용하지 말 것**:
-- ❌ 복잡하고 오류 가능성 높음
-- ❌ 플랫폼 종속적 (Linux 전용)
-- ❌ pthread 사용으로 충분
+  // Wait
+  LONG expected = 0;
+  WaitOnAddress(&flag, &expected, sizeof(LONG), INFINITE);
+
+  // Wake
+  InterlockedExchange(&flag, 1);
+  WakeByAddressSingle((PVOID)&flag);
+  ```
+- ✅ **SRW Lock** (읽기 위주 워크로드)
+  ```cpp
+  SRWLOCK srw = SRWLOCK_INIT;
+
+  AcquireSRWLockShared(&srw);    // Reader
+  ReleaseSRWLockShared(&srw);
+
+  AcquireSRWLockExclusive(&srw); // Writer
+  ReleaseSRWLockExclusive(&srw);
+  ```
+
+**사용 권장**:
+- ✅ **CRITICAL_SECTION**: 대부분의 경우 (가장 권장)
+- ✅ **SRW Lock**: 읽기가 90% 이상
+- ✅ **WaitOnAddress**: 특수 커스텀 동기화 (Win8+)
+- ❌ **Named Mutex**: 프로세스 간 동기화만
 
 ---
 
@@ -607,20 +625,22 @@ cv.wait(lock, []{
 
 ### 9. 플랫폼별 메커니즘
 
-#### Windows CRITICAL_SECTION
-- ✅ Windows 전용 고성능 Mutex
-- ✅ pthread_mutex보다 약간 빠름 (Windows에서)
-- ✅ 재귀 락 기본 지원
+#### Windows
+- ✅ **CRITICAL_SECTION**: 고성능 Mutex (재진입 지원)
+- ✅ **WaitOnAddress**: futex와 동등 (Windows 8+)
+- ✅ **SRW Lock**: 경량 Reader/Writer Lock
+- ✅ **Event**: Manual-Reset / Auto-Reset 이벤트
 
-#### Windows Event
-- ✅ Manual-Reset / Auto-Reset 이벤트
-- ✅ 여러 스레드 동시 깨우기
-- ✅ Condition Variable과 유사하지만 더 유연
+#### Linux
+- ✅ **futex**: 하이브리드 동기화 프리미티브
+- ✅ **pthread_mutex**: futex 기반 구현
+- ✅ **eventfd**: 파일 디스크립터 기반 이벤트
+- ✅ **semaphore**: futex 기반 구현
 
-#### eventfd (Linux)
-- ✅ 파일 디스크립터 기반 이벤트
-- ✅ epoll과 통합 가능
-- ✅ 프로세스 간 이벤트 전달
+#### 크로스 플랫폼
+- ✅ **C++11 std::mutex**: 플랫폼별 최적 구현
+- ✅ **C++17 std::shared_mutex**: Reader/Writer Lock
+- ✅ **C++20 std::atomic::wait**: 크로스 플랫폼 wait/notify
 
 ---
 
@@ -635,7 +655,7 @@ cv.wait(lock, []{
     │
     NO
     ↓
-읽기가 90% 이상? ──YES──→ Reader-Writer Lock
+읽기가 90% 이상? ──YES──→ Reader-Writer Lock (SRW Lock)
     │
     NO
     ↓
@@ -647,9 +667,15 @@ cv.wait(lock, []{
     │
     NO
     ↓
-일반적인 상호 배제 ──→ Mutex (pthread_mutex)
+일반적인 상호 배제 ──→ Mutex
+    │                     - Windows: CRITICAL_SECTION
+    │                     - Linux: pthread_mutex
+    │                     - C++: std::mutex
     │
-    └──→ 최고 성능 필요? ──YES──→ 직접 Futex 구현 (전문가만)
+    └──→ 커스텀 동기화? ──YES──→ 플랫폼별 저수준 API
+                                - Windows: WaitOnAddress (Win8+)
+                                - Linux: futex
+                                - 크로스: C++20 atomic::wait
 ```
 
 ---
