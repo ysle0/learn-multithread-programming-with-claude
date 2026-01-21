@@ -120,11 +120,23 @@ learn-multithread-programming-with-claude/
 │   ├── 05-xsync.md                  # xsync (Go)
 │   └── 06-recommended-repos.md      # 추천 레포지토리 목록
 │
-└── 09-appendix/                     # 부록
-    ├── debugging-tools.md           # 디버깅 도구
-    ├── testing-strategies.md        # 테스트 전략
-    ├── performance-tuning.md        # 성능 튜닝
-    └── references.md                # 참고 자료 링크
+├── 09-appendix/                     # 부록
+│   ├── debugging-tools.md           # 디버깅 도구
+│   ├── testing-strategies.md        # 테스트 전략
+│   ├── performance-tuning.md        # 성능 튜닝
+│   └── references.md                # 참고 자료 링크
+│
+└── 10-platform-differences/         # 플랫폼 차이 (Windows vs POSIX)
+    ├── README.md
+    ├── 01-thread-creation.md        # CreateThread vs pthread_create
+    ├── 02-synchronization-primitives.md  # Mutex, Event, Semaphore
+    ├── 03-thread-local-storage.md   # TLS 비교
+    ├── 04-ipc.md                    # 프로세스 간 통신
+    ├── 05-scheduling.md             # 스케줄링 및 우선순위
+    ├── 06-error-handling.md         # GetLastError vs errno
+    ├── 07-portability-layer.md      # 크로스 플랫폼 추상화
+    ├── 08-performance-comparison.md # 성능 벤치마크
+    └── examples/
 ```
 
 ---
@@ -231,6 +243,19 @@ learn-multithread-programming-with-claude/
 | [xsync](https://github.com/puzpuzpuz/xsync) | Go | 동시성 데이터 구조 |
 | [xenium](https://github.com/mpoeter/xenium) | C++ | Memory Reclamation 기법들 |
 
+### 9. 플랫폼 차이 (10-platform-differences/)
+
+| 문서 | 내용 | 심화 주제 |
+|------|------|-----------|
+| 스레드 생성 | CreateThread vs pthread_create | 스레드 속성, Detached vs Joinable |
+| 동기화 프리미티브 | CRITICAL_SECTION vs pthread_mutex_t, Event 구현 | WaitForMultipleObjects 대체 |
+| TLS | TlsAlloc vs pthread_key_create | __declspec(thread) vs __thread |
+| IPC | Named Objects vs POSIX IPC | Shared Memory, Pipes, Message Queue |
+| 스케줄링 | Priority Classes vs Nice Values | Thread Affinity, Real-Time Scheduling |
+| 에러 처리 | GetLastError vs errno | 스레드 안전 에러 처리 |
+| 이식성 레이어 | C++11 std::thread, 조건부 컴파일 | CMake 플랫폼 감지 |
+| 성능 비교 | 벤치마크 결과 | 플랫폼별 최적화 전략 |
+
 ---
 
 ## 📊 언어별 비교 요약 (미리보기)
@@ -264,6 +289,8 @@ learn-multithread-programming-with-claude/
 7. 게임 서버 적용 (도메인 특화)
    ↓
 8. 오픈소스 분석 (심화 학습)
+   ↓
+9. 플랫폼 차이 (크로스 플랫폼 개발 시 필수)
 ```
 
 ---
@@ -292,16 +319,17 @@ learn-multithread-programming-with-claude/
 
 ## ⏱️ 작업 체크리스트
 
-- [ ] README.md 메인 페이지 작성
-- [ ] 01-fundamentals/ 섹션 완성
-- [ ] 02-synchronization/ 섹션 완성
-- [ ] 03-concurrency-problems/ 섹션 완성
-- [ ] 04-concurrency-patterns/ 섹션 완성
-- [ ] 05-lock-free-programming/ 섹션 완성
-- [ ] 06-language-implementations/ 섹션 완성
-- [ ] 07-game-server-applications/ 섹션 완성
-- [ ] 08-open-source-analysis/ 섹션 완성
-- [ ] 09-appendix/ 섹션 완성
+- [x] README.md 메인 페이지 작성
+- [x] 01-fundamentals/ 섹션 완성
+- [x] 02-synchronization/ 섹션 완성
+- [x] 03-concurrency-problems/ 섹션 완성
+- [x] 04-concurrency-patterns/ 섹션 완성
+- [x] 05-lock-free-programming/ 섹션 완성
+- [x] 06-language-implementations/ 섹션 완성
+- [x] 07-game-server-applications/ 섹션 완성
+- [x] 08-open-source-analysis/ 섹션 완성
+- [x] 09-appendix/ 섹션 완성
+- [x] 10-platform-differences/ 섹션 완성
 - [ ] 예시 코드 작성 및 테스트
 
 ---

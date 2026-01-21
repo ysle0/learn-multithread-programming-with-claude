@@ -21,6 +21,7 @@
 - ✅ Producer-Consumer, Thread Pool 등의 동시성 패턴 구현
 - ✅ Lock-Free/Wait-Free 자료구조 이해 및 설계
 - ✅ C++, C#, Go, JavaScript 등 여러 언어의 동시성 모델 비교
+- ✅ Windows와 POSIX 플랫폼 차이 이해 및 크로스 플랫폼 개발
 - ✅ 실시간 게임 서버와 MMO 아키텍처 설계
 - ✅ 오픈소스 프로젝트(Folly, libcds, Nakama) 분석
 
@@ -98,11 +99,21 @@ learn-multithread-programming-with-claude/
 │   ├── 04-colyseus.md               (Multiplayer Framework)
 │   └── 05-xsync.md                  (Go sync)
 │
-└── 09-appendix/                     ← 부록
-    ├── debugging-tools.md           (ThreadSanitizer, Valgrind)
-    ├── testing-strategies.md
-    ├── performance-tuning.md
-    └── references.md
+├── 09-appendix/                     ← 부록
+│   ├── debugging-tools.md           (ThreadSanitizer, Valgrind)
+│   ├── testing-strategies.md
+│   ├── performance-tuning.md
+│   └── references.md
+│
+└── 10-platform-differences/         ← 플랫폼 차이 (Windows vs POSIX)
+    ├── 01-thread-creation.md        (CreateThread vs pthread)
+    ├── 02-synchronization-primitives.md
+    ├── 03-thread-local-storage.md
+    ├── 04-ipc.md
+    ├── 05-scheduling.md
+    ├── 06-error-handling.md
+    ├── 07-portability-layer.md
+    └── 08-performance-comparison.md
 ```
 
 ---
@@ -363,6 +374,27 @@ C++, C#, Go, JavaScript의 동시성 모델을 비교 학습합니다.
 | [테스트 전략](./09-appendix/testing-strategies.md) | Stress Testing, Property-Based Testing |
 | [성능 튜닝](./09-appendix/performance-tuning.md) | Profiling, False Sharing, Lock Contention |
 | [참고 자료](./09-appendix/references.md) | 책, 논문, 강의, 블로그 |
+
+---
+
+### [10. 플랫폼 차이 (Windows vs POSIX)](./10-platform-differences/README.md)
+
+크로스 플랫폼 멀티스레드 프로그래밍을 위한 플랫폼별 차이점을 학습합니다.
+
+| 문서 | 핵심 내용 | 난이도 |
+|------|----------|--------|
+| [스레드 생성](./10-platform-differences/01-thread-creation.md) | CreateThread vs pthread_create | ⭐⭐ |
+| [동기화 프리미티브](./10-platform-differences/02-synchronization-primitives.md) | CRITICAL_SECTION vs pthread_mutex_t | ⭐⭐⭐ |
+| [Thread Local Storage](./10-platform-differences/03-thread-local-storage.md) | TlsAlloc vs pthread_key_create | ⭐⭐⭐ |
+| [IPC](./10-platform-differences/04-ipc.md) | Named Objects vs POSIX IPC | ⭐⭐⭐ |
+| [스케줄링](./10-platform-differences/05-scheduling.md) | Priority Classes vs Nice Values | ⭐⭐⭐⭐ |
+| [에러 처리](./10-platform-differences/06-error-handling.md) | GetLastError vs errno | ⭐⭐ |
+| [이식성 레이어](./10-platform-differences/07-portability-layer.md) | C++11 std::thread, 조건부 컴파일 | ⭐⭐⭐ |
+| [성능 비교](./10-platform-differences/08-performance-comparison.md) | 플랫폼별 벤치마크 | ⭐⭐⭐⭐ |
+
+**학습 목표**: Windows와 POSIX의 차이를 이해하고 이식 가능한 코드를 작성할 수 있어야 합니다.
+
+**💡 권장**: C++11 `std::thread`를 사용하면 대부분의 플랫폼 차이를 걱정하지 않아도 됩니다.
 
 ---
 
