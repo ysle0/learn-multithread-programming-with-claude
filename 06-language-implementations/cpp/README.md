@@ -43,6 +43,35 @@ C++ concurrency evolved significantly:
 - Launch policies (async vs. deferred)
 - Shared futures and packaged tasks
 
+## 병렬 프로그래밍 도구 (Parallel Programming Tools)
+
+### 6. [C++17/20 병렬 알고리즘](./06-parallel-algorithms.md) 🌟
+- 실행 정책 (seq, par, par_unseq)
+- 병렬 sort, reduce, transform
+- 성능 벤치마크 및 최적화
+- 실전 예제: 이미지 처리, 통계 계산
+
+### 7. [C++20/23 동기화 기능](./07-cpp20-synchronization.md) 🆕
+- `std::jthread` - 자동 조인 스레드
+- `std::stop_token` - 협력적 취소
+- `std::counting_semaphore`, `std::binary_semaphore`
+- `std::latch`, `std::barrier` - 동기화 지점
+- `std::atomic<std::shared_ptr<T>>`
+
+### 8. [Intel TBB](./08-intel-tbb.md) 🚀
+- 태스크 기반 병렬화
+- parallel_for, parallel_reduce, parallel_scan
+- concurrent_vector, concurrent_hash_map
+- task_group, parallel_pipeline
+- Work-stealing 스케줄러
+
+### 9. [OpenMP](./09-openmp.md) ⚡
+- Pragma 기반 병렬화
+- parallel for, reduction, sections
+- schedule 최적화 (static, dynamic, guided)
+- collapse, task, critical
+- 가장 간단한 병렬화 방법
+
 ## Quick Comparison with Other Languages
 
 | Feature | C++ | Comparison |
@@ -228,11 +257,27 @@ Task<int> async_computation() {
 }
 ```
 
+## 병렬 프로그래밍 도구 선택 가이드
+
+| 도구 | 난이도 | 성능 | 이식성 | 사용 사례 |
+|-----|-------|-----|--------|----------|
+| **OpenMP** | ⭐ 쉬움 | ⭐⭐⭐⭐ 우수 | ⭐⭐⭐⭐⭐ 최고 | 과학 계산, 간단한 병렬화 |
+| **C++17 Parallel Algorithms** | ⭐⭐ 보통 | ⭐⭐⭐⭐ 우수 | ⭐⭐⭐⭐⭐ 최고 | STL 알고리즘 병렬화 |
+| **Intel TBB** | ⭐⭐⭐ 중간 | ⭐⭐⭐⭐⭐ 최고 | ⭐⭐⭐⭐ 좋음 | 복잡한 병렬화, 태스크 기반 |
+| **C++20 Features** | ⭐⭐ 보통 | ⭐⭐⭐⭐ 우수 | ⭐⭐⭐ 보통 | 현대적인 동기화 (C++20+) |
+| **std::thread** | ⭐⭐⭐⭐ 어려움 | ⭐⭐⭐ 보통 | ⭐⭐⭐⭐⭐ 최고 | 저수준 제어 필요 시 |
+
+### 추천 사용 순서
+1. **초급자**: OpenMP로 시작 → C++17 Parallel Algorithms
+2. **중급자**: Intel TBB → C++20 Features
+3. **고급자**: 상황에 맞게 조합 사용
+
 ## Recommended Libraries
 
 While C++ standard library is powerful, these libraries can help:
 
-- **Intel TBB**: Thread building blocks for parallel algorithms
+- **Intel TBB**: Thread building blocks for parallel algorithms ⭐ 추천
+- **OpenMP**: Compiler directives for easy parallelization ⭐ 추천
 - **Boost.Thread**: Extended threading utilities
 - **Boost.Asio**: Async I/O and networking
 - **folly**: Facebook's C++ library with concurrent data structures
@@ -278,9 +323,14 @@ thread apply all bt   # Backtrace of all threads
 ## Navigation
 
 - [Back to Language Implementations](../)
-- Next Topics:
+- Core Topics:
   - [std::thread](./01-std-thread.md)
   - [Mutex and Lock Guard](./02-mutex-lock-guard.md)
   - [Atomic Operations](./03-atomic.md)
   - [Condition Variables](./04-condition-variable.md)
   - [Async and Future](./05-async-future.md)
+- Parallel Programming Tools:
+  - [C++17/20 Parallel Algorithms](./06-parallel-algorithms.md)
+  - [C++20/23 Synchronization Features](./07-cpp20-synchronization.md)
+  - [Intel TBB](./08-intel-tbb.md)
+  - [OpenMP](./09-openmp.md)
