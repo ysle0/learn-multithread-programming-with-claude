@@ -1,19 +1,19 @@
-# Thread and Task in C#
+# C#의 스레드와 태스크
 
-C# provides both low-level `Thread` class and high-level `Task` abstraction. Modern C# strongly favors tasks over threads for most scenarios.
+C#은 저수준 `Thread` 클래스와 고수준 `Task` 추상화를 모두 제공합니다. 현대 C#은 대부분의 시나리오에서 스레드보다 태스크를 강력히 선호합니다.
 
-## Table of Contents
-- [Thread Class](#thread-class)
+## 목차
+- [Thread 클래스](#thread-클래스)
 - [Task Parallel Library](#task-parallel-library)
 - [Task vs Thread](#task-vs-thread)
-- [Parallel Class](#parallel-class)
-- [Comparison with Other Languages](#comparison-with-other-languages)
-- [Best Practices](#best-practices)
-- [Common Pitfalls](#common-pitfalls)
+- [Parallel 클래스](#parallel-클래스)
+- [다른 언어와의 비교](#다른-언어와의-비교)
+- [모범 사례](#모범-사례)
+- [일반적인 함정](#일반적인-함정)
 
-## Thread Class
+## Thread 클래스
 
-### Creating Threads
+### 스레드 생성
 
 ```csharp
 using System;
@@ -32,11 +32,11 @@ class Program
 
     static void Main()
     {
-        // Create and start thread
+        // 스레드 생성 및 시작
         var thread = new Thread(PrintNumbers);
         thread.Start();
 
-        // Wait for completion
+        // 완료 대기
         thread.Join();
 
         Console.WriteLine("Thread completed");
@@ -44,7 +44,7 @@ class Program
 }
 ```
 
-### Passing Parameters
+### 매개변수 전달
 
 ```csharp
 using System;
@@ -64,7 +64,7 @@ class Program
         thread.Start("Hello from thread!");
         thread.Join();
 
-        // With lambda (better)
+        // 람다 사용 (더 좋음)
         string msg = "Hello from lambda!";
         var thread2 = new Thread(() => Console.WriteLine(msg));
         thread2.Start();
@@ -73,7 +73,7 @@ class Program
 }
 ```
 
-### Thread Properties
+### 스레드 속성
 
 ```csharp
 using System;
@@ -85,19 +85,19 @@ var thread = new Thread(() => {
     Console.WriteLine($"Priority: {Thread.CurrentThread.Priority}");
 });
 
-// Set properties
+// 속성 설정
 thread.Name = "Worker Thread";
-thread.IsBackground = true;  // Won't prevent process from exiting
+thread.IsBackground = true;  // 프로세스 종료를 막지 않음
 thread.Priority = ThreadPriority.AboveNormal;
 
 thread.Start();
 thread.Join();
 ```
 
-### Background vs. Foreground
+### 백그라운드 vs. 포그라운드
 
 ```csharp
-// Foreground thread - keeps process alive
+// 포그라운드 스레드 - 프로세스를 유지
 var foregroundThread = new Thread(() => {
     Thread.Sleep(5000);
     Console.WriteLine("Foreground done");
@@ -105,20 +105,20 @@ var foregroundThread = new Thread(() => {
 foregroundThread.IsBackground = false;
 foregroundThread.Start();
 
-// Background thread - doesn't keep process alive
+// 백그라운드 스레드 - 프로세스를 유지하지 않음
 var backgroundThread = new Thread(() => {
     Thread.Sleep(5000);
-    Console.WriteLine("Background done");  // May not print
+    Console.WriteLine("Background done");  // 출력되지 않을 수 있음
 });
 backgroundThread.IsBackground = true;
 backgroundThread.Start();
 
-// Process exits when all foreground threads complete
+// 모든 포그라운드 스레드가 완료되면 프로세스 종료
 ```
 
 ## Task Parallel Library
 
-### Basic Task Creation
+### 기본 태스크 생성
 
 ```csharp
 using System;
@@ -128,25 +128,25 @@ class Program
 {
     static async Task Main()
     {
-        // Method 1: Task.Run
+        // 방법 1: Task.Run
         var task1 = Task.Run(() => {
             Console.WriteLine("Task 1 running");
             return 42;
         });
 
-        // Method 2: Task.Factory.StartNew (more options)
+        // 방법 2: Task.Factory.StartNew (더 많은 옵션)
         var task2 = Task.Factory.StartNew(() => {
             Console.WriteLine("Task 2 running");
             return 100;
         });
 
-        // Method 3: Create and start separately
+        // 방법 3: 별도로 생성 및 시작
         var task3 = new Task(() => {
             Console.WriteLine("Task 3 running");
         });
         task3.Start();
 
-        // Wait for all
+        // 모두 대기
         await Task.WhenAll(task1, task2, task3);
 
         Console.WriteLine($"Results: {task1.Result}, {task2.Result}");
@@ -154,7 +154,7 @@ class Program
 }
 ```
 
-### Task with Return Value
+### 반환 값이 있는 태스크
 
 ```csharp
 using System;
@@ -169,16 +169,16 @@ static async Task Main()
 
     Console.WriteLine("Task started");
 
-    // Await result
+    // 결과 대기
     int result = await task;
     Console.WriteLine($"Result: {result}");
 
-    // Or use .Result (blocks, can deadlock)
-    // int result = task.Result;  // Don't do this if avoidable
+    // 또는 .Result 사용 (블록, 데드락 가능)
+    // int result = task.Result;  // 가능하면 하지 마세요
 }
 ```
 
-### Task Continuation
+### 태스크 연속
 
 ```csharp
 using System;
@@ -201,7 +201,7 @@ var task = Task.Run(() => {
 await task;
 ```
 
-### Task Cancellation
+### 태스크 취소
 
 ```csharp
 using System;
@@ -215,7 +215,7 @@ static async Task Main()
     var task = Task.Run(async () => {
         for (int i = 0; i < 100; i++)
         {
-            // Check for cancellation
+            // 취소 확인
             cts.Token.ThrowIfCancellationRequested();
 
             Console.WriteLine($"Working: {i}");
@@ -223,7 +223,7 @@ static async Task Main()
         }
     }, cts.Token);
 
-    // Cancel after 1 second
+    // 1초 후 취소
     await Task.Delay(1000);
     cts.Cancel();
 
@@ -238,7 +238,7 @@ static async Task Main()
 }
 ```
 
-### Task.WhenAll and Task.WhenAny
+### Task.WhenAll과 Task.WhenAny
 
 ```csharp
 using System;
@@ -250,17 +250,17 @@ static async Task Main()
     var task2 = Task.Delay(2000).ContinueWith(_ => "Task 2");
     var task3 = Task.Delay(1500).ContinueWith(_ => "Task 3");
 
-    // Wait for all tasks
+    // 모든 태스크 대기
     string[] results = await Task.WhenAll(task1, task2, task3);
     Console.WriteLine($"All done: {string.Join(", ", results)}");
 
-    // Or wait for first to complete
+    // 또는 첫 번째 완료 대기
     var firstTask = await Task.WhenAny(task1, task2, task3);
     Console.WriteLine($"First done: {firstTask.Result}");
 }
 ```
 
-### Exception Handling
+### 예외 처리
 
 ```csharp
 using System;
@@ -281,7 +281,7 @@ static async Task Main()
         Console.WriteLine($"Caught: {ex.Message}");
     }
 
-    // Multiple tasks with exceptions
+    // 예외가 있는 여러 태스크
     var task1 = Task.Run(() => throw new Exception("Error 1"));
     var task2 = Task.Run(() => throw new Exception("Error 2"));
 
@@ -291,10 +291,10 @@ static async Task Main()
     }
     catch (Exception ex)
     {
-        // Only first exception caught
+        // 첫 번째 예외만 캐치됨
         Console.WriteLine($"First exception: {ex.Message}");
 
-        // Get all exceptions from task
+        // 태스크에서 모든 예외 가져오기
         if (task1.IsFaulted)
         {
             foreach (var inner in task1.Exception!.InnerExceptions)
@@ -306,60 +306,60 @@ static async Task Main()
 
 ## Task vs Thread
 
-### Comparison
+### 비교
 
 ```csharp
-// Thread: Low-level, manual management
+// Thread: 저수준, 수동 관리
 var thread = new Thread(() => {
-    // Work
+    // 작업
 });
 thread.Start();
 thread.Join();
 
-// Task: High-level, uses thread pool
+// Task: 고수준, 스레드 풀 사용
 var task = Task.Run(() => {
-    // Work
+    // 작업
 });
 await task;
 ```
 
-### When to Use Thread
+### Thread를 사용해야 하는 경우
 
 ```csharp
-// Use Thread when you need:
-// 1. Long-running operation (not suitable for thread pool)
+// Thread를 사용하는 경우:
+// 1. 장기 실행 작업 (스레드 풀에 적합하지 않음)
 var longRunningThread = new Thread(() => {
-    // Long-running work
+    // 장기 실행 작업
 });
 longRunningThread.IsBackground = true;
 longRunningThread.Start();
 
-// Or use Task with LongRunning hint
+// 또는 LongRunning 힌트와 함께 Task 사용
 var longRunningTask = Task.Factory.StartNew(() => {
-    // Long-running work
+    // 장기 실행 작업
 }, TaskCreationOptions.LongRunning);
 
-// 2. Specific thread configuration
+// 2. 특정 스레드 구성
 var thread = new Thread(() => {
-    // Work
+    // 작업
 });
 thread.Priority = ThreadPriority.Highest;
-thread.SetApartmentState(ApartmentState.STA);  // For COM interop
+thread.SetApartmentState(ApartmentState.STA);  // COM interop용
 thread.Start();
 ```
 
-### Thread Pool
+### 스레드 풀
 
 ```csharp
 using System;
 using System.Threading;
 
-// Queue work to thread pool directly
+// 스레드 풀에 직접 작업 큐잉
 ThreadPool.QueueUserWorkItem(state => {
     Console.WriteLine("Work item executing");
 });
 
-// Get thread pool info
+// 스레드 풀 정보 가져오기
 ThreadPool.GetMinThreads(out int minWorker, out int minIO);
 ThreadPool.GetMaxThreads(out int maxWorker, out int maxIO);
 ThreadPool.GetAvailableThreads(out int availWorker, out int availIO);
@@ -367,7 +367,7 @@ ThreadPool.GetAvailableThreads(out int availWorker, out int availIO);
 Console.WriteLine($"Thread pool: min={minWorker}, max={maxWorker}, avail={availWorker}");
 ```
 
-## Parallel Class
+## Parallel 클래스
 
 ### Parallel.For
 
@@ -377,18 +377,18 @@ using System.Threading.Tasks;
 
 static void Main()
 {
-    // Sequential
+    // 순차
     for (int i = 0; i < 100; i++)
     {
         ProcessItem(i);
     }
 
-    // Parallel
+    // 병렬
     Parallel.For(0, 100, i => {
         ProcessItem(i);
     });
 
-    // With options
+    // 옵션 포함
     var options = new ParallelOptions {
         MaxDegreeOfParallelism = Environment.ProcessorCount
     };
@@ -413,13 +413,13 @@ using System.Threading.Tasks;
 
 var items = new List<string> { "apple", "banana", "cherry", "date" };
 
-// Parallel foreach
+// 병렬 foreach
 Parallel.ForEach(items, item => {
     Console.WriteLine($"Processing {item}");
-    // Process item
+    // 항목 처리
 });
 
-// With degree of parallelism
+// 병렬 처리 정도 지정
 var options = new ParallelOptions {
     MaxDegreeOfParallelism = 2
 };
@@ -435,7 +435,7 @@ Parallel.ForEach(items, options, item => {
 using System;
 using System.Threading.Tasks;
 
-// Execute methods in parallel
+// 메서드를 병렬로 실행
 Parallel.Invoke(
     () => Method1(),
     () => Method2(),
@@ -449,7 +449,7 @@ static void Method2() => Console.WriteLine("Method 2");
 static void Method3() => Console.WriteLine("Method 3");
 ```
 
-### Breaking Parallel Loops
+### 병렬 루프 중단
 
 ```csharp
 using System;
@@ -459,7 +459,7 @@ Parallel.For(0, 1000, (i, state) => {
     if (i == 100)
     {
         Console.WriteLine("Breaking at 100");
-        state.Break();  // Or state.Stop()
+        state.Break();  // 또는 state.Stop()
         return;
     }
 
@@ -467,89 +467,89 @@ Parallel.For(0, 1000, (i, state) => {
 });
 ```
 
-## Comparison with Other Languages
+## 다른 언어와의 비교
 
 ### C# vs. C++
 ```csharp
-// C#: Task-based
+// C#: 태스크 기반
 var task = Task.Run(() => Compute());
 var result = await task;
 
-// C++ equivalent (async):
+// C++ 동등 (async):
 // auto future = std::async(compute);
 // auto result = future.get();
 ```
 
 ### C# vs. Go
 ```csharp
-// C#: Tasks
+// C#: 태스크
 var task = Task.Run(() => Work());
 await task;
 
-// Go equivalent (goroutines):
+// Go 동등 (고루틴):
 // go work()
-// (No direct await; use channels or sync.WaitGroup)
+// (직접적인 await 없음; 채널 또는 sync.WaitGroup 사용)
 ```
 
 ### C# vs. JavaScript
 ```csharp
-// C#: async/await (very similar!)
+// C#: async/await (매우 유사!)
 var result = await FetchDataAsync();
 
 // JavaScript:
 // const result = await fetchData();
 ```
 
-## Best Practices
+## 모범 사례
 
-### 1. Prefer Task Over Thread
+### 1. Thread보다 Task 선호
 
 ```csharp
-// GOOD: Use Task
+// 좋음: Task 사용
 var task = Task.Run(() => Work());
 await task;
 
-// LESS GOOD: Manual thread (only when necessary)
+// 덜 좋음: 수동 스레드 (필요할 때만)
 var thread = new Thread(() => Work());
 thread.Start();
 thread.Join();
 ```
 
-### 2. Use Async All the Way
+### 2. 끝까지 비동기 사용
 
 ```csharp
-// GOOD: Async all the way
+// 좋음: 끝까지 비동기
 public async Task<string> GetDataAsync()
 {
     return await httpClient.GetStringAsync(url);
 }
 
-// BAD: Blocking in async method
+// 나쁨: 비동기 메서드에서 블록
 public async Task<string> GetDataBad()
 {
-    return httpClient.GetString(url);  // Blocking!
+    return httpClient.GetString(url);  // 블록!
 }
 ```
 
-### 3. ConfigureAwait in Library Code
+### 3. 라이브러리 코드에서 ConfigureAwait
 
 ```csharp
-// In library code
+// 라이브러리 코드에서
 public async Task<string> GetDataAsync()
 {
     return await httpClient.GetStringAsync(url)
                            .ConfigureAwait(false);
 }
 
-// In application code (UI), default is fine
+// 애플리케이션 코드(UI)에서는 기본값이 괜찮음
 public async Task Button_Click(object sender, EventArgs e)
 {
-    var data = await GetDataAsync();  // Resumes on UI thread
+    var data = await GetDataAsync();  // UI 스레드에서 재개
     textBox.Text = data;
 }
 ```
 
-### 4. Handle Cancellation
+### 4. 취소 처리
 
 ```csharp
 public async Task ProcessAsync(CancellationToken ct)
@@ -562,52 +562,52 @@ public async Task ProcessAsync(CancellationToken ct)
 }
 ```
 
-### 5. Don't Block on Tasks
+### 5. 태스크를 블록하지 마세요
 
 ```csharp
-// BAD: Can deadlock
+// 나쁨: 데드락 가능
 public void BadMethod()
 {
-    var result = GetDataAsync().Result;  // Deadlock in UI/ASP.NET!
+    var result = GetDataAsync().Result;  // UI/ASP.NET에서 데드락!
 }
 
-// GOOD: Async all the way
+// 좋음: 끝까지 비동기
 public async Task GoodMethod()
 {
     var result = await GetDataAsync();
 }
 
-// If you MUST block (console app), use GetAwaiter().GetResult()
+// 반드시 블록해야 하는 경우 (콘솔 앱), GetAwaiter().GetResult() 사용
 public void ConsoleMain()
 {
     var result = GetDataAsync().GetAwaiter().GetResult();
 }
 ```
 
-## Common Pitfalls
+## 일반적인 함정
 
-### 1. Thread Pool Starvation
+### 1. 스레드 풀 기아
 
 ```csharp
-// BAD: Blocking thread pool threads
+// 나쁨: 스레드 풀 스레드 블록
 Parallel.For(0, 1000, i => {
-    Thread.Sleep(10000);  // Blocks thread pool thread!
+    Thread.Sleep(10000);  // 스레드 풀 스레드 블록!
 });
 
-// GOOD: Use async
+// 좋음: async 사용
 await Task.WhenAll(Enumerable.Range(0, 1000).Select(async i => {
     await Task.Delay(10000);
 }));
 ```
 
-### 2. Not Disposing Tasks
+### 2. 태스크를 Dispose하지 않음
 
 ```csharp
-// Generally OK: Tasks don't need disposal
+// 일반적으로 괜찮음: 태스크는 해제가 필요 없음
 var task = Task.Run(() => Work());
 await task;
 
-// Exception: TaskCompletionSource and cancellation tokens
+// 예외: TaskCompletionSource와 취소 토큰
 using var cts = new CancellationTokenSource();
 var task = LongRunningWorkAsync(cts.Token);
 ```
@@ -615,7 +615,7 @@ var task = LongRunningWorkAsync(cts.Token);
 ### 3. Fire and Forget
 
 ```csharp
-// BAD: Exceptions lost
+// 나쁨: 예외가 손실됨
 public void BadMethod()
 {
     Task.Run(() => {
@@ -623,7 +623,7 @@ public void BadMethod()
     });
 }
 
-// GOOD: Await or handle
+// 좋음: 대기 또는 처리
 public async Task GoodMethod()
 {
     await Task.Run(() => {
@@ -631,7 +631,7 @@ public async Task GoodMethod()
     });
 }
 
-// If truly fire-and-forget, at least log exceptions
+// 정말 fire-and-forget이라면, 최소한 예외 로깅
 public void FireAndForget()
 {
     Task.Run(async () => {
@@ -647,40 +647,40 @@ public void FireAndForget()
 }
 ```
 
-### 4. Closure Capture Issues
+### 4. 클로저 캡처 문제
 
 ```csharp
-// BAD: Captures loop variable incorrectly (before C# 5)
+// 나쁨: 루프 변수를 잘못 캡처 (C# 5 이전)
 for (int i = 0; i < 10; i++)
 {
-    Task.Run(() => Console.WriteLine(i));  // May print wrong values
+    Task.Run(() => Console.WriteLine(i));  // 잘못된 값 출력 가능
 }
 
-// GOOD: Capture copy
+// 좋음: 복사본 캡처
 for (int i = 0; i < 10; i++)
 {
     int copy = i;
     Task.Run(() => Console.WriteLine(copy));
 }
 
-// Note: In C# 5+, foreach captures correctly
+// 참고: C# 5+에서 foreach는 올바르게 캡처
 foreach (var item in items)
 {
-    Task.Run(() => Console.WriteLine(item));  // OK
+    Task.Run(() => Console.WriteLine(item));  // 괜찮음
 }
 ```
 
-### 5. Task.Run in ASP.NET
+### 5. ASP.NET에서 Task.Run
 
 ```csharp
-// BAD: Don't use Task.Run in ASP.NET
+// 나쁨: ASP.NET에서 Task.Run 사용하지 마세요
 public async Task<IActionResult> Index()
 {
-    var data = await Task.Run(() => GetData());  // Wastes threads!
+    var data = await Task.Run(() => GetData());  // 스레드 낭비!
     return View(data);
 }
 
-// GOOD: Just make GetData async
+// 좋음: GetData를 비동기로 만들기
 public async Task<IActionResult> Index()
 {
     var data = await GetDataAsync();
@@ -688,20 +688,20 @@ public async Task<IActionResult> Index()
 }
 ```
 
-## Performance Considerations
+## 성능 고려사항
 
-### Task Overhead
+### 태스크 오버헤드
 
 ```csharp
-// Task overhead: ~1 μs
-// Only worth it if work > 100 μs
+// 태스크 오버헤드: ~1 μs
+// 작업이 100 μs 이상일 때만 가치 있음
 
-// TOO SMALL: Overhead dominates
+// 너무 작음: 오버헤드가 지배적
 Parallel.For(0, 1000000, i => {
-    result[i] = i * 2;  // Too simple
+    result[i] = i * 2;  // 너무 단순
 });
 
-// BETTER: Larger chunks
+// 더 나음: 더 큰 청크
 var chunkSize = 10000;
 Parallel.For(0, 1000000 / chunkSize, chunk => {
     for (int i = chunk * chunkSize; i < (chunk + 1) * chunkSize; i++)
@@ -711,20 +711,20 @@ Parallel.For(0, 1000000 / chunkSize, chunk => {
 });
 ```
 
-### ValueTask for Hot Paths
+### 핫 패스에 ValueTask
 
 ```csharp
-// Use ValueTask when result often available synchronously
+// 결과가 자주 동기적으로 사용 가능할 때 ValueTask 사용
 public ValueTask<int> GetCachedAsync(string key)
 {
     if (cache.TryGetValue(key, out int value))
-        return new ValueTask<int>(value);  // No allocation
+        return new ValueTask<int>(value);  // 할당 없음
 
     return new ValueTask<int>(FetchFromDbAsync(key));
 }
 ```
 
-## Complete Example: Parallel Sum
+## 완전한 예제: 병렬 합계
 
 ```csharp
 using System;
@@ -737,12 +737,12 @@ class Program
     {
         int[] numbers = Enumerable.Range(1, 10_000_000).ToArray();
 
-        // Sequential
+        // 순차
         var sw = System.Diagnostics.Stopwatch.StartNew();
         long sum1 = numbers.Sum(x => (long)x);
         Console.WriteLine($"Sequential: {sum1} in {sw.ElapsedMilliseconds}ms");
 
-        // Parallel with Parallel.For
+        // Parallel.For를 사용한 병렬
         sw.Restart();
         long sum2 = 0;
         object lockObj = new object();
@@ -753,7 +753,7 @@ class Program
         });
         Console.WriteLine($"Parallel.For: {sum2} in {sw.ElapsedMilliseconds}ms");
 
-        // Parallel with Tasks
+        // 태스크를 사용한 병렬
         sw.Restart();
         int numTasks = Environment.ProcessorCount;
         var tasks = new Task<long>[numTasks];
@@ -776,7 +776,7 @@ class Program
         long sum3 = results.Sum();
         Console.WriteLine($"Tasks: {sum3} in {sw.ElapsedMilliseconds}ms");
 
-        // PLINQ (easiest!)
+        // PLINQ (가장 쉬움!)
         sw.Restart();
         long sum4 = numbers.AsParallel().Sum(x => (long)x);
         Console.WriteLine($"PLINQ: {sum4} in {sw.ElapsedMilliseconds}ms");
@@ -784,13 +784,13 @@ class Program
 }
 ```
 
-## Further Reading
+## 추가 읽을거리
 
 - [Async/Await](./02-async-await.md)
-- [Lock and Monitor](./03-lock-monitor.md)
+- [Lock과 Monitor](./03-lock-monitor.md)
 - Microsoft Docs: Task Parallel Library
 
-## Navigation
+## 네비게이션
 
-- [Back to C# Overview](./README.md)
-- Next: [Async/Await](./02-async-await.md)
+- [C# 개요로 돌아가기](./README.md)
+- 다음: [Async/Await](./02-async-await.md)
