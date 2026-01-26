@@ -1,12 +1,12 @@
-# Livelock
+# 라이브락 (Livelock)
 
-## What is Livelock?
+## 라이브락이란 무엇인가?
 
-**Livelock** is a situation where threads are not blocked (unlike deadlock), but they continuously change state in response to each other without making any meaningful progress. Threads remain active and consume CPU resources, but the system as a whole doesn't advance toward completion.
+**라이브락(Livelock)**은 스레드가 차단되지 않지만(교착 상태와 달리) 서로에게 응답하여 상태를 지속적으로 변경하면서도 의미 있는 진전을 이루지 못하는 상황입니다. 스레드는 활성 상태를 유지하고 CPU 자원을 소비하지만 시스템 전체가 완료를 향해 전진하지 못합니다.
 
-Think of it as two people trying to pass each other in a narrow hallway - they both step to the same side simultaneously, then both step to the other side, repeating forever without actually passing.
+이는 좁은 복도에서 두 사람이 서로를 지나치려고 할 때 - 둘 다 동시에 같은 쪽으로 이동하고, 그 다음 둘 다 반대쪽으로 이동하며 영원히 반복하면서 실제로는 지나가지 못하는 것과 같습니다.
 
-## Livelock vs Deadlock
+## 라이브락 vs 교착 상태
 
 ```
 ┌──────────────────┬───────────────────┬──────────────────┐
@@ -21,9 +21,9 @@ Think of it as two people trying to pass each other in a narrow hallway - they b
 └──────────────────┴───────────────────┴──────────────────┘
 ```
 
-### Visual Comparison
+### 시각적 비교
 
-**Deadlock:**
+**교착 상태:**
 ```
 Thread 1: [BLOCKED] ━━━━━━━━━━━━━━━━━ (waiting forever)
 Thread 2: [BLOCKED] ━━━━━━━━━━━━━━━━━ (waiting forever)
@@ -32,7 +32,7 @@ CPU: Idle
 Progress: NONE
 ```
 
-**Livelock:**
+**라이브락:**
 ```
 Thread 1: [ACTIVE] ──↺──↺──↺──↺──↺── (busy but no progress)
 Thread 2: [ACTIVE] ──↺──↺──↺──↺──↺── (busy but no progress)
@@ -41,7 +41,7 @@ CPU: 100% busy
 Progress: NONE
 ```
 
-## Classic Example: The Hallway Problem
+## 고전적 예제: 복도 문제
 
 ```
 Person A ←─────────────────→ Person B
@@ -53,7 +53,7 @@ Step 3: A moves left, B moves left   (both still blocked)
 ...repeats forever...
 ```
 
-### Code Implementation
+### 코드 구현
 
 ```c
 #include <pthread.h>
@@ -111,11 +111,11 @@ void* person_b_walk(void* arg) {
 // This creates LIVELOCK - both keep moving but never pass!
 ```
 
-## Common Livelock Patterns
+## 일반적인 라이브락 패턴
 
-### Pattern 1: Collision Avoidance
+### 패턴 1: 충돌 회피
 
-When threads detect conflicts and back off, but do so in a synchronized manner.
+스레드가 충돌을 감지하고 백오프하지만 동기화된 방식으로 수행할 때 발생합니다.
 
 ```c
 #include <pthread.h>
@@ -155,7 +155,7 @@ void* thread_with_livelock(void* arg) {
 // LIVELOCK: If both threads retry at same time, they collide repeatedly
 ```
 
-**Timeline:**
+**타임라인:**
 ```
 Time    Thread 1                Thread 2
 ----    --------                --------
@@ -169,9 +169,9 @@ Time    Thread 1                Thread 2
   8     ...repeats...           ...repeats...
 ```
 
-### Pattern 2: Polite Threads
+### 패턴 2: 정중한 스레드
 
-Threads try to be "polite" and yield to others, but all do it simultaneously.
+스레드가 "정중하게" 다른 스레드에게 양보하려고 하지만 모두 동시에 수행합니다.
 
 ```c
 #include <pthread.h>
@@ -222,9 +222,9 @@ void* polite_thread2(void* arg) {
 // LIVELOCK: Both keep yielding to each other!
 ```
 
-### Pattern 3: Message Retransmission
+### 패턴 3: 메시지 재전송
 
-In distributed systems, nodes retransmit on collision but create more collisions.
+분산 시스템에서 노드가 충돌 시 재전송하지만 더 많은 충돌을 생성합니다.
 
 ```c
 #include <stdio.h>
@@ -262,11 +262,11 @@ void node_send_with_livelock(Node* node) {
 }
 ```
 
-## Solutions and Prevention
+## 해결책 및 예방
 
-### Solution 1: Random Backoff
+### 해결책 1: 랜덤 백오프
 
-Introduce randomness to break synchronization.
+무작위성을 도입하여 동기화를 깹니다.
 
 ```c
 #include <pthread.h>
@@ -305,9 +305,9 @@ void* thread_with_random_backoff(void* arg) {
 }
 ```
 
-### Solution 2: Exponential Backoff
+### 해결책 2: 지수 백오프
 
-Increase backoff time with each retry (like Ethernet CSMA/CD).
+각 재시도마다 백오프 시간을 증가시킵니다 (이더넷 CSMA/CD처럼).
 
 ```c
 #include <pthread.h>
@@ -345,9 +345,9 @@ void* thread_with_exponential_backoff(void* arg) {
 }
 ```
 
-### Solution 3: Priority-Based Resolution
+### 해결책 3: 우선순위 기반 해결
 
-Give one thread higher priority.
+하나의 스레드에 더 높은 우선순위를 부여합니다.
 
 ```c
 #include <pthread.h>
@@ -394,9 +394,9 @@ void* high_priority_thread(void* arg) {
 // NO LIVELOCK: High priority always proceeds
 ```
 
-### Solution 4: Lock Ordering
+### 해결책 4: 락 순서 지정
 
-Use consistent lock ordering to avoid retries.
+재시도를 피하기 위해 일관된 락 순서를 사용합니다.
 
 ```c
 #include <pthread.h>
@@ -421,9 +421,9 @@ void* thread_with_ordering(void* arg) {
 // NO LIVELOCK: No trylock, no retries needed
 ```
 
-### Solution 5: Timeout with Randomization
+### 해결책 5: 무작위화를 사용한 타임아웃
 
-Combine timeout with random retry.
+타임아웃과 랜덤 재시도를 결합합니다.
 
 ```c
 #include <pthread.h>
@@ -462,9 +462,9 @@ void* thread_with_timeout(void* arg) {
 }
 ```
 
-## Real-World Examples
+## 실제 사례
 
-### Example 1: Network Collision (Ethernet)
+### 예제 1: 네트워크 충돌 (이더넷)
 
 ```c
 // Simplified CSMA/CD (Carrier Sense Multiple Access with Collision Detection)
@@ -510,7 +510,7 @@ void transmit_with_csma_cd(NetworkNode* node) {
 }
 ```
 
-### Example 2: Database Retry Logic
+### 예제 2: 데이터베이스 재시도 로직
 
 ```c
 #include <pthread.h>
@@ -578,7 +578,7 @@ bool update_records_fixed(int id1, int id2, int delta) {
 }
 ```
 
-### Example 3: Distributed Consensus
+### 예제 3: 분산 합의
 
 ```c
 #include <stdio.h>
@@ -650,9 +650,9 @@ void reach_consensus_good(Node* nodes, int num_nodes) {
 }
 ```
 
-## Detection Strategies
+## 탐지 전략
 
-### 1. Progress Monitoring
+### 1. 진행 상황 모니터링
 
 ```c
 #include <time.h>
@@ -662,7 +662,7 @@ typedef struct {
     time_t last_progress;
 } ProgressMonitor;
 
-ProgressMonitor monitor = {0, 0};
+ ProgressMonitor monitor = {0, 0};
 
 void check_for_livelock() {
     time_t now = time(NULL);
@@ -677,7 +677,7 @@ void check_for_livelock() {
 }
 ```
 
-### 2. Retry Counter
+### 2. 재시도 카운터
 
 ```c
 #define MAX_RETRIES 1000
@@ -695,7 +695,7 @@ void detect_excessive_retries() {
 }
 ```
 
-### 3. CPU Usage Analysis
+### 3. CPU 사용량 분석
 
 ```bash
 # Monitor CPU usage
@@ -708,22 +708,22 @@ perf record -p <pid> -g
 perf report
 ```
 
-## Prevention Best Practices
+## 예방 모범 사례
 
-### Checklist
+### 체크리스트
 
-- [ ] Use random backoff instead of fixed delays
-- [ ] Implement exponential backoff for retries
-- [ ] Set maximum retry limits
-- [ ] Use lock ordering instead of trylock when possible
-- [ ] Add timeout mechanisms
-- [ ] Monitor progress metrics
-- [ ] Test with multiple threads under load
-- [ ] Avoid symmetric retry logic
+- [ ] 고정 지연 대신 랜덤 백오프 사용
+- [ ] 재시도를 위한 지수 백오프 구현
+- [ ] 최대 재시도 제한 설정
+- [ ] 가능한 경우 trylock 대신 락 순서 지정 사용
+- [ ] 타임아웃 메커니즘 추가
+- [ ] 진행 상황 메트릭 모니터링
+- [ ] 부하 상태에서 여러 스레드로 테스트
+- [ ] 대칭적 재시도 로직 피하기
 
-### Design Patterns
+### 디자인 패턴
 
-**Pattern 1: Asymmetric Behavior**
+**패턴 1: 비대칭 동작**
 ```c
 void* thread_function(void* arg) {
     int id = *(int*)arg;
@@ -739,7 +739,7 @@ void* thread_function(void* arg) {
 }
 ```
 
-**Pattern 2: Centralized Coordination**
+**패턴 2: 중앙 집중식 조정**
 ```c
 pthread_mutex_t coordinator = PTHREAD_MUTEX_INITIALIZER;
 
@@ -751,7 +751,7 @@ void coordinated_access() {
 }
 ```
 
-## Comparison Summary
+## 비교 요약
 
 ```
 Deadlock vs Livelock:
@@ -769,10 +769,10 @@ Livelock:
   Detection: High CPU, no progress
 ```
 
-## Exercises
+## 연습 문제
 
-### Exercise 1: Identify Livelock
-Find the livelock in this code:
+### 연습 1: 라이브락 식별
+이 코드에서 라이브락을 찾으십시오:
 ```c
 void* worker(void* arg) {
     while (!try_acquire_resources()) {
@@ -782,38 +782,38 @@ void* worker(void* arg) {
 }
 ```
 
-### Exercise 2: Fix Network Collision
-Implement proper exponential backoff for network transmission simulation.
+### 연습 2: 네트워크 충돌 수정
+네트워크 전송 시뮬레이션을 위한 적절한 지수 백오프를 구현하십시오.
 
-### Exercise 3: Build Progress Monitor
-Create a monitoring system that detects livelock conditions.
+### 연습 3: 진행 상황 모니터 구축
+라이브락 조건을 탐지하는 모니터링 시스템을 만드십시오.
 
-## Summary
+## 요약
 
-**Livelock** is threads being active but not making progress due to:
-- Synchronized retry patterns
-- Excessive politeness
-- Lack of randomization
-- Collision without proper backoff
+**라이브락**은 다음과 같은 이유로 스레드가 활성 상태이지만 진전을 이루지 못하는 것입니다:
+- 동기화된 재시도 패턴
+- 과도한 정중함
+- 무작위화 부족
+- 적절한 백오프 없는 충돌
 
-**Key Differences from Deadlock:**
-- Threads are active (not blocked)
-- High CPU usage
-- Harder to detect
-- Different solutions needed
+**교착 상태와의 주요 차이점:**
+- 스레드가 활성 상태 (차단되지 않음)
+- 높은 CPU 사용량
+- 탐지가 더 어려움
+- 다른 해결책 필요
 
-**Prevention:**
-- Random/exponential backoff
-- Priority schemes
-- Lock ordering
-- Progress monitoring
+**예방:**
+- 랜덤/지수 백오프
+- 우선순위 체계
+- 락 순서 지정
+- 진행 상황 모니터링
 
-## Further Reading
+## 추가 자료
 
 - "Operating Systems: Three Easy Pieces" - Remzi Arpaci-Dusseau
 - "The Art of Multiprocessor Programming" - Herlihy & Shavit
 - Ethernet CSMA/CD specification (IEEE 802.3)
 
-## Next Topic
+## 다음 주제
 
-Continue to [04-starvation.md](./04-starvation.md) to learn about starvation.
+[04-starvation.md](./04-starvation.md)로 계속하여 기아 상태에 대해 배우십시오.

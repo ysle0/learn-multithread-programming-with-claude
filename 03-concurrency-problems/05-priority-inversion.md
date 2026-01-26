@@ -1,10 +1,10 @@
-# Priority Inversion
+# 우선순위 역전 (Priority Inversion)
 
-## What is Priority Inversion?
+## 우선순위 역전이란 무엇인가?
 
-**Priority Inversion** is a situation where a high-priority thread is indirectly blocked by a low-priority thread, violating the priority-based scheduling guarantees. This occurs when a low-priority thread holds a resource that a high-priority thread needs, while a medium-priority thread preempts the low-priority thread, preventing it from releasing the resource.
+**우선순위 역전(Priority Inversion)**은 높은 우선순위 스레드가 낮은 우선순위 스레드에 의해 간접적으로 차단되어 우선순위 기반 스케줄링 보장을 위반하는 상황입니다. 이는 낮은 우선순위 스레드가 높은 우선순위 스레드가 필요로 하는 자원을 보유하고 있는 동안 중간 우선순위 스레드가 낮은 우선순위 스레드를 선점하여 자원을 해제하지 못하게 할 때 발생합니다.
 
-### The Problem in Simple Terms
+### 간단한 용어로 설명한 문제
 
 ```
 High Priority Thread:    "I need that resource NOW!"
@@ -17,9 +17,9 @@ Medium Priority Thread:  "I'm running instead!"
 Result: High priority waits for medium priority (WRONG!)
 ```
 
-## Visual Representation
+## 시각적 표현
 
-### Priority Inversion Scenario
+### 우선순위 역전 시나리오
 
 ```
 Timeline:
@@ -37,7 +37,7 @@ Priority Levels:
            High priority effectively has LOWER priority than medium!
 ```
 
-### Resource Dependency Graph
+### 자원 의존성 그래프
 
 ```
 ┌──────────────┐
@@ -65,13 +65,13 @@ Priority Levels:
 H waits for L, but L can't run → PRIORITY INVERSION
 ```
 
-## The Mars Pathfinder Incident (1997)
+## 마스 패스파인더 사건 (1997년)
 
-### Background
+### 배경
 
-The Mars Pathfinder landed on Mars on July 4, 1997. Shortly after landing, the spacecraft began experiencing system resets, causing data loss and mission delays.
+마스 패스파인더는 1997년 7월 4일 화성에 착륙했습니다. 착륙 직후 우주선은 시스템 리셋을 경험하기 시작하여 데이터 손실과 임무 지연을 야기했습니다.
 
-### The Problem
+### 문제
 
 ```
 Thread Priorities:
@@ -82,7 +82,7 @@ Thread Priorities:
 Shared Resource: Information Bus (protected by mutex)
 ```
 
-### What Happened
+### 무슨 일이 일어났는가
 
 ```
 Timeline of the Bug:
@@ -105,9 +105,9 @@ Timeline of the Bug:
 Result: Mars Pathfinder kept resetting!
 ```
 
-### The Fix
+### 수정 방법
 
-NASA engineers (with help from VxWorks experts) enabled **priority inheritance** in the VxWorks mutex implementation.
+NASA 엔지니어들은 (VxWorks 전문가의 도움으로) VxWorks 뮤텍스 구현에서 **우선순위 상속**을 활성화했습니다.
 
 ```c
 // Before: Normal mutex (no priority inheritance)
@@ -117,7 +117,7 @@ semaphore = semMCreate(SEM_Q_PRIORITY);
 semaphore = semMCreate(SEM_Q_PRIORITY | SEM_INVERSION_SAFE);
 ```
 
-**How it helped:**
+**어떻게 도움이 되었는가:**
 ```
 With Priority Inheritance:
 
@@ -138,11 +138,11 @@ With Priority Inheritance:
 Result: NO system resets!
 ```
 
-## Types of Priority Inversion
+## 우선순위 역전의 유형
 
-### 1. Bounded Priority Inversion
+### 1. 제한된 우선순위 역전
 
-Duration is limited by the critical section of the low-priority thread.
+지속 시간이 낮은 우선순위 스레드의 임계 영역에 의해 제한됩니다.
 
 ```
 Max delay = Length of L's critical section
@@ -152,9 +152,9 @@ Timeline:
   L: ──[CRITICAL]──── (finishes quickly)
 ```
 
-### 2. Unbounded Priority Inversion
+### 2. 무제한 우선순위 역전
 
-Duration is extended by medium-priority threads.
+지속 시간이 중간 우선순위 스레드에 의해 연장됩니다.
 
 ```
 Max delay = Unknown (depends on M's execution time)
@@ -165,9 +165,9 @@ Timeline:
   L: ──[CRITICAL]──[PREEMPTED]────────
 ```
 
-## Code Examples
+## 코드 예제
 
-### Example 1: Demonstrating Priority Inversion
+### 예제 1: 우선순위 역전 시연
 
 ```c
 #include <pthread.h>
@@ -252,7 +252,7 @@ int main() {
 // even though M doesn't use the resource!
 ```
 
-### Example 2: Priority Inheritance Solution
+### 예제 2: 우선순위 상속 해결책
 
 ```c
 #include <pthread.h>
@@ -342,9 +342,9 @@ void pi_mutex_unlock(PriorityInheritanceMutex* pim) {
 // of the lock holder when a higher priority thread waits
 ```
 
-### Example 3: Priority Ceiling Protocol
+### 예제 3: 우선순위 상한 프로토콜
 
-An alternative to priority inheritance.
+우선순위 상속의 대안입니다.
 
 ```c
 #include <pthread.h>
@@ -388,9 +388,9 @@ void pc_mutex_unlock(PriorityCeilingMutex* pcm) {
 // - Prevents priority inversion entirely!
 ```
 
-## Comparison of Solutions
+## 해결책 비교
 
-### Priority Inheritance
+### 우선순위 상속
 
 ```
 Advantages:
@@ -404,7 +404,7 @@ Disadvantages:
   - Runtime overhead for priority changes
 ```
 
-### Priority Ceiling
+### 우선순위 상한
 
 ```
 Advantages:
@@ -418,7 +418,7 @@ Disadvantages:
   - Less flexible
 ```
 
-### Comparison Table
+### 비교 표
 
 ```
 ┌──────────────────┬──────────────────┬───────────────────┐
@@ -432,9 +432,9 @@ Disadvantages:
 └──────────────────┴──────────────────┴───────────────────┘
 ```
 
-## Real-World Examples
+## 실제 사례
 
-### Example 1: Real-Time Control System
+### 예제 1: 실시간 제어 시스템
 
 ```c
 // Aircraft flight control system
@@ -494,7 +494,7 @@ void* low_logging_task(void* arg) {
 // Result: SAFE
 ```
 
-### Example 2: Industrial Robot Control
+### 예제 2: 산업용 로봇 제어
 
 ```c
 // Robot with multiple control loops
@@ -554,7 +554,7 @@ void* ui_update(void* arg) {
 // - Real-time deadlines are met
 ```
 
-### Example 3: Medical Device
+### 예제 3: 의료 기기
 
 ```c
 // Insulin pump controller
@@ -609,9 +609,9 @@ void* user_interface(void* arg) {
 // Priority inheritance is ESSENTIAL for patient safety
 ```
 
-## Detection and Analysis
+## 탐지 및 분석
 
-### 1. Timeline Analysis
+### 1. 타임라인 분석
 
 ```c
 #include <time.h>
@@ -648,7 +648,7 @@ void analyze_priority_inversion() {
 }
 ```
 
-### 2. Runtime Monitoring
+### 2. 런타임 모니터링
 
 ```c
 void monitor_mutex_operations() {
@@ -675,9 +675,9 @@ void monitor_mutex_operations() {
 }
 ```
 
-## Prevention Strategies
+## 예방 전략
 
-### Strategy 1: Avoid Shared Resources in RT Code
+### 전략 1: RT 코드에서 공유 자원 회피
 
 ```c
 // GOOD: High-priority threads don't share resources
@@ -690,7 +690,7 @@ void* realtime_thread(void* arg) {
 }
 ```
 
-### Strategy 2: Use Priority Inheritance
+### 전략 2: 우선순위 상속 사용
 
 ```c
 // Enable for all real-time mutexes
@@ -700,7 +700,7 @@ pthread_mutexattr_setprotocol(&attr, PTHREAD_PRIO_INHERIT);
 pthread_mutex_init(&mutex, &attr);
 ```
 
-### Strategy 3: Minimize Critical Sections
+### 전략 3: 임계 영역 최소화
 
 ```c
 // BAD: Long critical section
@@ -718,7 +718,7 @@ pthread_mutex_unlock(&mutex);
 more_computation();
 ```
 
-### Strategy 4: Use Disabling Interrupts (Embedded Systems)
+### 전략 4: 인터럽트 비활성화 사용 (임베디드 시스템)
 
 ```c
 // For very short critical sections in embedded systems
@@ -733,9 +733,9 @@ void critical_operation() {
 // Can't be preempted → No priority inversion
 ```
 
-## Testing for Priority Inversion
+## 우선순위 역전 테스트
 
-### Test Case Template
+### 테스트 케이스 템플릿
 
 ```c
 #include <pthread.h>
@@ -777,63 +777,63 @@ void test_priority_inversion() {
 }
 ```
 
-## Best Practices
+## 모범 사례
 
-### For Real-Time Systems:
+### 실시간 시스템의 경우:
 
-1. **Always use priority inheritance** for mutexes in RT code
-2. **Minimize critical sections** as much as possible
-3. **Avoid blocking** in high-priority threads if possible
-4. **Use lock-free algorithms** when appropriate
-5. **Test thoroughly** under worst-case scenarios
-6. **Monitor for inversions** in production systems
+1. **항상 우선순위 상속 사용** RT 코드의 뮤텍스에 대해
+2. **임계 영역을 최소화** 가능한 한 많이
+3. **높은 우선순위 스레드에서 차단 회피** 가능한 경우
+4. **적절한 경우 락 프리 알고리즘 사용**
+5. **최악의 경우 시나리오에서 철저히 테스트**
+6. **프로덕션 시스템에서 역전 모니터링**
 
-### For General Systems:
+### 일반 시스템의 경우:
 
-1. **Document priority assumptions** clearly
-2. **Use appropriate protocols** (inheritance or ceiling)
-3. **Review critical paths** in code
-4. **Profile and measure** actual behavior
-5. **Consider alternatives** to priority-based scheduling
+1. **우선순위 가정을 명확하게 문서화**
+2. **적절한 프로토콜 사용** (상속 또는 상한)
+3. **코드의 임계 경로 검토**
+4. **실제 동작 프로파일링 및 측정**
+5. **우선순위 기반 스케줄링의 대안 고려**
 
-## Summary
+## 요약
 
-**Priority Inversion** occurs when:
-- High-priority thread waits for low-priority thread
-- Medium-priority thread prevents low-priority from running
-- High-priority effectively has lower priority than medium
+**우선순위 역전**은 다음과 같을 때 발생합니다:
+- 높은 우선순위 스레드가 낮은 우선순위 스레드를 기다림
+- 중간 우선순위 스레드가 낮은 우선순위가 실행되는 것을 방지
+- 높은 우선순위가 사실상 중간보다 낮은 우선순위를 가짐
 
-**Famous Example**: Mars Pathfinder (1997)
+**유명한 예**: 마스 패스파인더 (1997년)
 
-**Solutions**:
-1. **Priority Inheritance**: Boost low-priority when high-priority waits
-2. **Priority Ceiling**: Always run at highest possible priority
-3. **Avoid Sharing**: Use lock-free data structures
-4. **Minimize Locks**: Reduce critical section duration
+**해결책**:
+1. **우선순위 상속**: 높은 우선순위가 대기할 때 낮은 우선순위를 부스트
+2. **우선순위 상한**: 항상 가능한 최고 우선순위로 실행
+3. **공유 회피**: 락 프리 데이터 구조 사용
+4. **락 최소화**: 임계 영역 지속 시간 단축
 
-**Critical for**:
-- Real-time systems
-- Safety-critical applications
-- Embedded systems
-- Any priority-scheduled system
+**중요 대상**:
+- 실시간 시스템
+- 안전 중요 애플리케이션
+- 임베디드 시스템
+- 우선순위 스케줄링 시스템
 
-## Further Reading
+## 추가 자료
 
 - "What Really Happened on Mars?" - Glenn Reeves (JPL)
 - "Priority Inheritance Protocols" - Sha, Rajkumar, Lehoczky (1990)
 - "Real-Time Systems" - Jane W. S. Liu
 - VxWorks documentation on priority inversion
 
-## Conclusion
+## 결론
 
-Priority inversion is a critical problem in real-time systems that can cause:
-- Missed deadlines
-- System instability
-- Safety violations
-- Mission failures (literally, as in Mars!)
+우선순위 역전은 다음을 야기할 수 있는 실시간 시스템의 중요한 문제입니다:
+- 마감 시간 놓침
+- 시스템 불안정성
+- 안전 위반
+- 임무 실패 (말 그대로 화성에서처럼!)
 
-Understanding and preventing priority inversion is essential for any system where timing guarantees matter.
+타이밍 보장이 중요한 모든 시스템에서 우선순위 역전을 이해하고 예방하는 것은 필수적입니다.
 
 ---
 
-**Congratulations!** You've completed the concurrency problems section. You now understand the five major concurrency problems and how to detect, prevent, and solve them. Continue to **04-synchronization-primitives/** to learn the tools for building correct concurrent programs.
+**축하합니다!** 동시성 문제 섹션을 완료했습니다. 이제 다섯 가지 주요 동시성 문제와 이를 탐지, 예방 및 해결하는 방법을 이해했습니다. **04-synchronization-primitives/**로 계속하여 올바른 동시 프로그램을 구축하기 위한 도구를 배우십시오.

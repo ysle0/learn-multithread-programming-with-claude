@@ -1,21 +1,21 @@
-# Deadlock
+# 교착 상태 (Deadlock)
 
-## What is Deadlock?
+## 교착 상태란 무엇인가?
 
-**Deadlock** is a situation where two or more threads are blocked forever, each waiting for resources held by the others. It's a circular waiting condition where no thread can make progress, resulting in a permanent standstill.
+**교착 상태(Deadlock)**는 두 개 이상의 스레드가 서로가 보유한 자원을 기다리면서 영원히 차단되는 상황입니다. 순환 대기 조건으로 인해 어떤 스레드도 진행할 수 없어 영구적인 정체 상태가 됩니다.
 
-### Formal Definition
+### 공식적 정의
 
-A deadlock occurs when ALL of the following four conditions hold simultaneously (Coffman conditions):
+교착 상태는 다음 네 가지 조건(Coffman 조건)이 모두 동시에 성립할 때 발생합니다:
 
-1. **Mutual Exclusion**: Resources cannot be shared
-2. **Hold and Wait**: Threads hold resources while waiting for others
-3. **No Preemption**: Resources cannot be forcibly taken away
-4. **Circular Wait**: A circular chain of threads waiting for resources
+1. **상호 배제(Mutual Exclusion)**: 자원을 공유할 수 없음
+2. **보유 및 대기(Hold and Wait)**: 스레드가 자원을 보유한 채 다른 자원을 기다림
+3. **비선점(No Preemption)**: 자원을 강제로 빼앗을 수 없음
+4. **순환 대기(Circular Wait)**: 스레드들이 자원을 기다리는 순환 고리 형성
 
-## Visual Representation
+## 시각적 표현
 
-### Simple Two-Thread Deadlock
+### 단순 2-스레드 교착 상태
 
 ```
 Thread 1                          Thread 2
@@ -38,7 +38,7 @@ Lock(Mutex A) ✓                   Lock(Mutex B) ✓
         Circular dependency = Deadlock
 ```
 
-### Resource Allocation Graph
+### 자원 할당 그래프
 
 ```
          P1 (Thread 1)
@@ -54,11 +54,11 @@ Lock(Mutex A) ✓                   Lock(Mutex B) ✓
 Cycle detected → Deadlock exists!
 ```
 
-## The Four Necessary Conditions (Coffman Conditions)
+## 네 가지 필수 조건 (Coffman 조건)
 
-### 1. Mutual Exclusion
+### 1. 상호 배제
 
-Resources cannot be shared - only one thread can use a resource at a time.
+자원을 공유할 수 없으며 - 한 번에 하나의 스레드만 자원을 사용할 수 있습니다.
 
 ```c
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -69,9 +69,9 @@ pthread_mutex_lock(&mutex);
 pthread_mutex_unlock(&mutex);
 ```
 
-### 2. Hold and Wait
+### 2. 보유 및 대기
 
-A thread holding at least one resource is waiting to acquire additional resources held by other threads.
+최소한 하나의 자원을 보유한 스레드가 다른 스레드가 보유한 추가 자원을 획득하기 위해 대기합니다.
 
 ```c
 // Thread 1 holds A and waits for B
@@ -80,9 +80,9 @@ pthread_mutex_lock(&mutex_a);  // Holding A
 pthread_mutex_lock(&mutex_b);  // Waiting for B
 ```
 
-### 3. No Preemption
+### 3. 비선점
 
-Resources cannot be forcibly removed from threads - they must be released voluntarily.
+자원을 스레드로부터 강제로 제거할 수 없으며 - 자발적으로 해제되어야 합니다.
 
 ```c
 // Once locked, cannot be taken away
@@ -91,9 +91,9 @@ pthread_mutex_lock(&mutex);
 pthread_mutex_unlock(&mutex);  // Must voluntarily release
 ```
 
-### 4. Circular Wait
+### 4. 순환 대기
 
-A circular chain of threads exists where each thread waits for a resource held by the next thread in the chain.
+스레드의 순환 고리가 존재하며, 각 스레드는 고리의 다음 스레드가 보유한 자원을 기다립니다.
 
 ```
 T1 waits for resource held by T2
@@ -103,11 +103,11 @@ T3 waits for resource held by T1
 Circular dependency!
 ```
 
-## Classic Example: Dining Philosophers Problem
+## 고전적 예제: 식사하는 철학자 문제
 
-### Problem Description
+### 문제 설명
 
-Five philosophers sit at a round table with five forks. Each philosopher needs TWO forks to eat but there's only one fork between each pair of philosophers.
+다섯 명의 철학자가 다섯 개의 포크가 있는 원탁에 앉아 있습니다. 각 철학자는 식사를 하려면 두 개의 포크가 필요하지만 각 철학자 사이에는 포크가 하나만 있습니다.
 
 ```
            Fork 0
@@ -122,7 +122,7 @@ Five philosophers sit at a round table with five forks. Each philosopher needs T
               P3
 ```
 
-### Deadlock Implementation
+### 교착 상태 구현
 
 ```c
 #include <pthread.h>
@@ -188,19 +188,19 @@ int main() {
 }
 ```
 
-**What happens:**
-1. All philosophers pick up their left fork simultaneously
-2. All philosophers try to pick up their right fork
-3. All right forks are already held as left forks by neighbors
-4. **DEADLOCK**: Everyone waits forever
+**무슨 일이 일어나는가:**
+1. 모든 철학자가 동시에 왼쪽 포크를 집습니다
+2. 모든 철학자가 오른쪽 포크를 집으려고 합니다
+3. 모든 오른쪽 포크는 이미 이웃의 왼쪽 포크로 보유되어 있습니다
+4. **교착 상태**: 모두가 영원히 기다립니다
 
-## Prevention Strategies
+## 예방 전략
 
-Breaking ANY of the four Coffman conditions prevents deadlock.
+네 가지 Coffman 조건 중 어느 하나라도 제거하면 교착 상태를 예방할 수 있습니다.
 
-### Strategy 1: Remove Mutual Exclusion
+### 전략 1: 상호 배제 제거
 
-Make resources shareable (not always possible).
+자원을 공유 가능하게 만듭니다 (항상 가능한 것은 아닙니다).
 
 ```c
 // Use read-write locks for read-mostly data
@@ -217,9 +217,9 @@ write_data();
 pthread_rwlock_unlock(&rwlock);
 ```
 
-### Strategy 2: Remove Hold and Wait
+### 전략 2: 보유 및 대기 제거
 
-Acquire all resources at once, or none at all.
+모든 자원을 한 번에 획득하거나, 하나도 획득하지 않습니다.
 
 ```c
 // SOLUTION: All-or-nothing resource acquisition
@@ -244,7 +244,7 @@ void critical_section() {
 }
 ```
 
-**Better approach with trylock:**
+**trylock을 사용한 더 나은 접근:**
 ```c
 #include <pthread.h>
 #include <stdbool.h>
@@ -277,9 +277,9 @@ void critical_section() {
 }
 ```
 
-### Strategy 3: Allow Preemption
+### 전략 3: 선점 허용
 
-Use timeouts to abandon waiting.
+타임아웃을 사용하여 대기를 포기합니다.
 
 ```c
 #include <pthread.h>
@@ -310,9 +310,9 @@ void critical_section_with_timeout() {
 }
 ```
 
-### Strategy 4: Remove Circular Wait
+### 전략 4: 순환 대기 제거
 
-**Lock Ordering**: Always acquire locks in a consistent global order.
+**락 순서 지정**: 항상 일관된 전역 순서로 락을 획득합니다.
 
 ```c
 // SOLUTION: Ordered lock acquisition
@@ -353,7 +353,7 @@ void thread2_work() {
 }
 ```
 
-**Dining Philosophers with Lock Ordering:**
+**락 순서를 사용한 식사하는 철학자:**
 ```c
 void* philosopher_ordered(void* arg) {
     int id = *(int*)arg;
@@ -385,11 +385,11 @@ void* philosopher_ordered(void* arg) {
 }
 ```
 
-## Detection Strategies
+## 탐지 전략
 
-### 1. Resource Allocation Graph
+### 1. 자원 할당 그래프
 
-Build a graph of resources and threads to detect cycles.
+자원과 스레드의 그래프를 구축하여 순환을 탐지합니다.
 
 ```c
 typedef struct {
@@ -405,9 +405,9 @@ bool detect_cycle(ThreadInfo* threads, int num_threads) {
 }
 ```
 
-### 2. Wait-For Graph
+### 2. 대기 그래프
 
-Simpler than resource allocation graph - only tracks thread dependencies.
+자원 할당 그래프보다 간단 - 스레드 의존성만 추적합니다.
 
 ```
 Thread Dependencies:
@@ -419,7 +419,7 @@ Cycle: T1 → T2 → T3 → T1
 Result: DEADLOCK DETECTED
 ```
 
-### 3. Runtime Detection Tools
+### 3. 런타임 탐지 도구
 
 ```bash
 # Using Helgrind (Valgrind)
@@ -436,7 +436,7 @@ gdb -p <pid>
 (gdb) thread apply all bt  # Backtrace all threads
 ```
 
-### 4. Timeout-Based Detection
+### 4. 타임아웃 기반 탐지
 
 ```c
 #include <pthread.h>
@@ -457,11 +457,11 @@ void detect_with_timeout() {
 }
 ```
 
-## Recovery Strategies
+## 복구 전략
 
-### 1. Thread Termination
+### 1. 스레드 종료
 
-Kill one or more threads to break the cycle.
+순환을 깨기 위해 하나 이상의 스레드를 종료합니다.
 
 ```c
 // Detect deadlock then:
@@ -470,9 +470,9 @@ pthread_cancel(deadlocked_thread);
 pthread_kill(deadlocked_thread, SIGTERM);
 ```
 
-### 2. Resource Preemption
+### 2. 자원 선점
 
-Force a thread to release resources.
+스레드가 자원을 해제하도록 강제합니다.
 
 ```c
 // Difficult in practice - requires careful state management
@@ -483,9 +483,9 @@ void force_release(Thread* victim) {
 }
 ```
 
-### 3. Rollback and Restart
+### 3. 롤백 및 재시작
 
-Save checkpoints and rollback on deadlock detection.
+체크포인트를 저장하고 교착 상태 탐지 시 롤백합니다.
 
 ```c
 typedef struct {
@@ -506,9 +506,9 @@ void rollback_on_deadlock(Checkpoint* cp) {
 }
 ```
 
-## Real-World Examples
+## 실제 사례
 
-### Example 1: Database Deadlock
+### 예제 1: 데이터베이스 교착 상태
 
 ```c
 // Transaction 1:
@@ -528,7 +528,7 @@ COMMIT;
 // DEADLOCK! T1 waits for T2, T2 waits for T1
 ```
 
-**Solution: Consistent ordering**
+**해결책: 일관된 순서**
 ```sql
 -- Always update accounts in order by ID
 BEGIN TRANSACTION;
@@ -537,7 +537,7 @@ UPDATE accounts SET balance = balance + 100 WHERE id = 2;  -- Higher ID second
 COMMIT;
 ```
 
-### Example 2: File System Deadlock
+### 예제 2: 파일 시스템 교착 상태
 
 ```c
 // Thread 1: Move file from /a to /b
@@ -557,7 +557,7 @@ unlock_directory("/b");
 // DEADLOCK possible!
 ```
 
-**Solution: Lock directory paths in alphabetical order**
+**해결책: 디렉토리 경로를 알파벳 순서로 잠금**
 ```c
 void move_file_safe(const char* from_dir, const char* to_dir,
                    const char* filename) {
@@ -579,7 +579,7 @@ void move_file_safe(const char* from_dir, const char* to_dir,
 }
 ```
 
-### Example 3: Network Protocol Deadlock
+### 예제 3: 네트워크 프로토콜 교착 상태
 
 ```c
 // Node A sends to B, waits for ACK
@@ -593,7 +593,7 @@ wait_for_ack_from(node_a);
 // Both buffers full → DEADLOCK!
 ```
 
-**Solution: Timeout and retry**
+**해결책: 타임아웃 및 재시도**
 ```c
 bool send_with_timeout(Node* target, Data* data, int timeout_ms) {
     send_to(target, data);
@@ -610,9 +610,9 @@ bool send_with_timeout(Node* target, Data* data, int timeout_ms) {
 }
 ```
 
-## Advanced Patterns
+## 고급 패턴
 
-### Hierarchical Locking
+### 계층적 잠금
 
 ```c
 // Define lock hierarchy levels
@@ -635,7 +635,7 @@ void hierarchical_lock(HierarchicalMutex* m, int current_level) {
 }
 ```
 
-### Try-Lock with Backoff
+### 백오프를 사용한 Try-Lock
 
 ```c
 #include <pthread.h>
@@ -662,7 +662,7 @@ bool try_acquire_with_backoff(pthread_mutex_t* m1, pthread_mutex_t* m2) {
 }
 ```
 
-### Lock-Free Alternative
+### 락 프리 대안
 
 ```c
 // Avoid deadlock entirely with lock-free structures
@@ -693,27 +693,27 @@ void push(LockFreeStack* stack, int value) {
 // No locks → No deadlock possible!
 ```
 
-## Best Practices Summary
+## 모범 사례 요약
 
-### DO:
-✓ Use consistent lock ordering
-✓ Minimize critical sections
-✓ Use trylock with backoff
-✓ Implement timeouts
-✓ Test with deadlock detection tools
-✓ Document lock hierarchies
-✓ Consider lock-free alternatives
+### 해야 할 것:
+✓ 일관된 락 순서 사용
+✓ 임계 영역 최소화
+✓ 백오프와 함께 trylock 사용
+✓ 타임아웃 구현
+✓ 교착 상태 탐지 도구로 테스트
+✓ 락 계층 구조 문서화
+✓ 락 프리 대안 고려
 
-### DON'T:
-✗ Hold locks while waiting for I/O
-✗ Acquire locks in different orders
-✗ Call unknown code while holding locks
-✗ Hold multiple locks if avoidable
-✗ Block indefinitely
+### 하지 말아야 할 것:
+✗ I/O를 기다리는 동안 락 보유
+✗ 다른 순서로 락 획득
+✗ 락을 보유한 채 알 수 없는 코드 호출
+✗ 피할 수 있다면 여러 락 보유
+✗ 무한정 차단
 
-## Exercises
+## 연습 문제
 
-### Exercise 1: Fix the Deadlock
+### 연습 1: 교착 상태 수정
 ```c
 void transfer(Account* from, Account* to, int amount) {
     pthread_mutex_lock(&from->mutex);
@@ -729,32 +729,32 @@ void transfer(Account* from, Account* to, int amount) {
 // This can deadlock! Fix it.
 ```
 
-### Exercise 2: Implement Safe Dining Philosophers
-Implement a deadlock-free solution using an asymmetric approach (last philosopher picks up forks in reverse order).
+### 연습 2: 안전한 식사하는 철학자 구현
+비대칭 접근법을 사용하여 교착 상태 없는 솔루션을 구현하십시오 (마지막 철학자가 포크를 역순으로 집습니다).
 
-### Exercise 3: Detect Deadlock
-Write a deadlock detector that monitors thread states and identifies circular wait conditions.
+### 연습 3: 교착 상태 탐지
+스레드 상태를 모니터링하고 순환 대기 조건을 식별하는 교착 상태 탐지기를 작성하십시오.
 
-## Summary
+## 요약
 
-Deadlock occurs when four conditions are met:
-1. Mutual exclusion
-2. Hold and wait
-3. No preemption
-4. Circular wait
+교착 상태는 네 가지 조건이 충족될 때 발생합니다:
+1. 상호 배제
+2. 보유 및 대기
+3. 비선점
+4. 순환 대기
 
-**Prevention**: Break at least one of the four conditions
-**Detection**: Use resource allocation graphs or timeouts
-**Recovery**: Terminate threads, preempt resources, or rollback
+**예방**: 네 가지 조건 중 최소한 하나를 제거
+**탐지**: 자원 할당 그래프 또는 타임아웃 사용
+**복구**: 스레드 종료, 자원 선점 또는 롤백
 
-Remember: **The best deadlock is the one that never happens!**
+기억하세요: **가장 좋은 교착 상태는 결코 발생하지 않는 것입니다!**
 
-## Further Reading
+## 추가 자료
 
 - "Operating System Concepts" - Silberschatz, Galvin, Gagne
 - "The Deadlock Problem" - Coffman et al. (1971)
 - "Monitors: An Operating System Structuring Concept" - Hoare (1974)
 
-## Next Topic
+## 다음 주제
 
-Continue to [03-livelock.md](./03-livelock.md) to learn about livelock.
+[03-livelock.md](./03-livelock.md)로 계속하여 라이브락에 대해 배우십시오.

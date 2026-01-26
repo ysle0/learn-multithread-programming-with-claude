@@ -1,18 +1,18 @@
-# Starvation
+# 기아 상태 (Starvation)
 
-## What is Starvation?
+## 기아 상태란 무엇인가?
 
-**Starvation** occurs when a thread is perpetually denied access to resources it needs to make progress. Unlike deadlock where all threads are stuck, in starvation some threads make progress while others are indefinitely delayed. The starved thread may eventually get the resource, but the wait time is unbounded and unpredictable.
+**기아 상태(Starvation)**는 스레드가 진행하는 데 필요한 자원에 대한 접근을 영구적으로 거부당할 때 발생합니다. 모든 스레드가 막힌 교착 상태와 달리, 기아 상태에서는 일부 스레드는 진행하지만 다른 스레드는 무한정 지연됩니다. 굶주린 스레드는 결국 자원을 얻을 수 있지만 대기 시간이 무제한이고 예측할 수 없습니다.
 
-### Formal Definition
+### 공식적 정의
 
-A thread suffers from starvation when:
-1. It is ready to execute and needs resources
-2. Other threads continuously acquire those resources
-3. The thread waits indefinitely without making progress
-4. The system as a whole makes progress (unlike deadlock)
+스레드는 다음과 같은 경우 기아 상태를 겪습니다:
+1. 실행할 준비가 되어 있고 자원이 필요함
+2. 다른 스레드가 지속적으로 해당 자원을 획득함
+3. 스레드가 진행 없이 무한정 대기함
+4. 시스템 전체는 진행함 (교착 상태와 달리)
 
-## Visual Representation
+## 시각적 표현
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -29,7 +29,7 @@ A thread suffers from starvation when:
 └──────────────────────────────────────────────────────┘
 ```
 
-### Starvation vs Other Problems
+### 기아 상태 vs 기타 문제
 
 ```
 ┌───────────────┬──────────┬──────────┬────────────┬──────────┐
@@ -41,11 +41,11 @@ A thread suffers from starvation when:
 └───────────────┴──────────┴──────────┴────────────┴──────────┘
 ```
 
-## Common Causes of Starvation
+## 기아 상태의 일반적인 원인
 
-### 1. Priority-Based Scheduling
+### 1. 우선순위 기반 스케줄링
 
-High-priority threads always preempt low-priority threads.
+높은 우선순위 스레드가 항상 낮은 우선순위 스레드를 선점합니다.
 
 ```c
 #include <pthread.h>
@@ -87,9 +87,9 @@ void* low_priority_thread(void* arg) {
 // Low priority thread can STARVE if high priority runs continuously
 ```
 
-### 2. Unfair Lock Implementation
+### 2. 불공정한 락 구현
 
-Some lock implementations don't guarantee fairness.
+일부 락 구현은 공정성을 보장하지 않습니다.
 
 ```c
 // Unfair mutex implementation (simplified)
@@ -114,9 +114,9 @@ void unfair_lock(UnfairMutex* m) {
 // Thread with slower core might STARVE
 ```
 
-### 3. Reader-Writer Problem
+### 3. 독자-저자 문제
 
-Writers can starve if readers keep arriving.
+독자가 계속 도착하면 저자가 굶주릴 수 있습니다.
 
 ```c
 #include <pthread.h>
@@ -157,7 +157,7 @@ void write_lock(RWLock* lock) {
 // PROBLEM: If readers keep arriving, writer STARVES
 ```
 
-**Timeline:**
+**타임라인:**
 ```
 Time  Readers  Writer State
 ----  -------  ------------
@@ -169,7 +169,7 @@ Time  Readers  Writer State
   ...   ...    STARVING
 ```
 
-### 4. Producer-Consumer with Unfair Semaphore
+### 4. 불공정한 세마포어를 사용한 생산자-소비자
 
 ```c
 #include <semaphore.h>
@@ -208,9 +208,9 @@ void* consumer(void* arg) {
 // slow consumer might STARVE
 ```
 
-## Examples by Category
+## 카테고리별 예제
 
-### Example 1: Thread Pool Starvation
+### 예제 1: 스레드 풀 기아 상태
 
 ```c
 #include <pthread.h>
@@ -283,14 +283,14 @@ void* worker(void* arg) {
 // tasks keep arriving
 ```
 
-**Visualization:**
+**시각화:**
 ```
 Queue State (priority-ordered):
 [9][9][9][8][8][7][7][7][6][5] ← High priority kept arriving
                                [2] ← Low priority task STARVING
 ```
 
-### Example 2: Disk I/O Scheduler Starvation
+### 예제 2: 디스크 I/O 스케줄러 기아 상태
 
 ```c
 #include <stdio.h>
@@ -329,7 +329,7 @@ void scan_schedule(IORequest* requests, int count, int current_track) {
 }
 ```
 
-### Example 3: Network Packet Processing
+### 예제 3: 네트워크 패킷 처리
 
 ```c
 #include <stdio.h>
@@ -375,9 +375,9 @@ void process_packets() {
 // Low priority packets STARVE if high priority keep arriving
 ```
 
-## Solutions and Prevention
+## 해결책 및 예방
 
-### Solution 1: Fair Mutex (FIFO Order)
+### 해결책 1: 공정한 뮤텍스 (FIFO 순서)
 
 ```c
 #include <pthread.h>
@@ -454,7 +454,7 @@ void fair_mutex_unlock(FairMutex* fm) {
 // FIFO ordering prevents starvation
 ```
 
-### Solution 2: Fair Reader-Writer Lock
+### 해결책 2: 공정한 독자-저자 락
 
 ```c
 #include <pthread.h>
@@ -534,9 +534,9 @@ void fair_write_unlock(FairRWLock* lock) {
 // Writers won't starve - they're preferred after current readers
 ```
 
-### Solution 3: Aging Priority
+### 해결책 3: 에이징 우선순위
 
-Increase priority of waiting threads over time.
+시간이 지남에 따라 대기 중인 스레드의 우선순위를 증가시킵니다.
 
 ```c
 #include <time.h>
@@ -575,9 +575,9 @@ AgingTask* get_next_task(AgingTask* queue, int size) {
 // Prevents indefinite starvation
 ```
 
-### Solution 4: Round-Robin Scheduling
+### 해결책 4: 라운드 로빈 스케줄링
 
-Give each thread a time slice.
+각 스레드에 타임 슬라이스를 부여합니다.
 
 ```c
 #include <pthread.h>
@@ -618,7 +618,7 @@ void setup_round_robin() {
 // All threads get equal CPU time - no starvation
 ```
 
-### Solution 5: Two-Level Feedback Queue
+### 해결책 5: 2단계 피드백 큐
 
 ```c
 #define NUM_QUEUES 3
@@ -664,9 +664,9 @@ Task* get_next_with_feedback() {
 // Even low-priority tasks get served when high queue is empty
 ```
 
-## Detection Strategies
+## 탐지 전략
 
-### 1. Wait Time Monitoring
+### 1. 대기 시간 모니터링
 
 ```c
 #include <time.h>
@@ -699,7 +699,7 @@ void monitor_wait_times() {
 }
 ```
 
-### 2. Fairness Metrics
+### 2. 공정성 메트릭
 
 ```c
 typedef struct {
@@ -733,7 +733,7 @@ void calculate_fairness(ThreadStats* stats, int num_threads) {
 }
 ```
 
-### 3. Queue Length Tracking
+### 3. 큐 길이 추적
 
 ```c
 void track_queue_length(int queue_length, int thread_id) {
@@ -750,29 +750,29 @@ void track_queue_length(int queue_length, int thread_id) {
 }
 ```
 
-## Fairness Concepts
+## 공정성 개념
 
-### Strong Fairness
+### 강한 공정성
 
-Every thread that wants access will eventually get it.
+접근을 원하는 모든 스레드는 결국 얻을 것입니다.
 
 ```c
 // Example: FIFO mutex (shown earlier)
 // Guarantees: If thread requests lock, it WILL get it
 ```
 
-### Weak Fairness
+### 약한 공정성
 
-If a thread keeps wanting access, it will eventually get it.
+스레드가 계속해서 접근을 원하면 결국 얻을 것입니다.
 
 ```c
 // Example: Simple mutex with no guarantees
 // Only ensures: continuous requests eventually succeed
 ```
 
-### No Fairness
+### 공정성 없음
 
-No guarantees about who gets access when.
+누가 언제 접근할지에 대한 보장이 없습니다.
 
 ```c
 // Example: Spinlock without queue
@@ -781,7 +781,7 @@ while (!atomic_compare_exchange(&lock, &expected, 1)) {
 }
 ```
 
-### Fairness Comparison
+### 공정성 비교
 
 ```
 ┌─────────────────┬──────────────┬───────────────┬──────────┐
@@ -795,63 +795,63 @@ while (!atomic_compare_exchange(&lock, &expected, 1)) {
 └─────────────────┴──────────────┴───────────────┴──────────┘
 ```
 
-## Best Practices
+## 모범 사례
 
-### DO:
-- ✓ Use fair synchronization primitives
-- ✓ Monitor wait times and detect starvation
-- ✓ Implement aging for priority systems
-- ✓ Bound priority ranges
-- ✓ Use FIFO queues where possible
-- ✓ Set timeout limits
-- ✓ Test under high load conditions
+### 해야 할 것:
+- ✓ 공정한 동기화 프리미티브 사용
+- ✓ 대기 시간 모니터링 및 기아 상태 탐지
+- ✓ 우선순위 시스템을 위한 에이징 구현
+- ✓ 우선순위 범위 제한
+- ✓ 가능한 경우 FIFO 큐 사용
+- ✓ 타임아웃 제한 설정
+- ✓ 높은 부하 조건에서 테스트
 
-### DON'T:
-- ✗ Use unbounded priorities
-- ✗ Always prefer one class of threads
-- ✗ Ignore wait time metrics
-- ✗ Assume fairness without verification
-- ✗ Use pure priority scheduling for long-running tasks
+### 하지 말아야 할 것:
+- ✗ 무제한 우선순위 사용
+- ✗ 항상 한 클래스의 스레드를 선호
+- ✗ 대기 시간 메트릭 무시
+- ✗ 검증 없이 공정성 가정
+- ✗ 장기 실행 작업에 순수 우선순위 스케줄링 사용
 
-## Summary
+## 요약
 
-**Starvation** occurs when threads are perpetually denied resources due to:
-- Unfair scheduling
-- Priority schemes
-- Reader-writer imbalance
-- Lack of fairness guarantees
+**기아 상태**는 다음과 같은 이유로 스레드가 영구적으로 자원을 거부당할 때 발생합니다:
+- 불공정한 스케줄링
+- 우선순위 체계
+- 독자-저자 불균형
+- 공정성 보장 부족
 
-**Key Differences:**
+**주요 차이점:**
 ```
 Deadlock:    No progress by anyone
 Livelock:    Activity but no progress
 Starvation:  Some progress, but not by everyone
 ```
 
-**Prevention Strategies:**
-1. Fair locks (FIFO ordering)
-2. Aging algorithms
-3. Bounded waiting
-4. Round-robin scheduling
-5. Fairness monitoring
+**예방 전략:**
+1. 공정한 락 (FIFO 순서)
+2. 에이징 알고리즘
+3. 제한된 대기
+4. 라운드 로빈 스케줄링
+5. 공정성 모니터링
 
-## Exercises
+## 연습 문제
 
-### Exercise 1: Detect Starvation
-Add monitoring to detect when a thread has waited more than 5 seconds.
+### 연습 1: 기아 상태 탐지
+스레드가 5초 이상 대기했을 때를 탐지하는 모니터링을 추가하십시오.
 
-### Exercise 2: Implement Fair Queue
-Create a fair priority queue where old low-priority items eventually get served.
+### 연습 2: 공정한 큐 구현
+오래된 낮은 우선순위 항목이 결국 서비스되는 공정한 우선순위 큐를 만드십시오.
 
-### Exercise 3: Fix Reader Starvation
-Modify the reader-writer lock to prevent writer starvation.
+### 연습 3: 독자 기아 상태 수정
+저자 기아 상태를 방지하도록 독자-저자 락을 수정하십시오.
 
-## Further Reading
+## 추가 자료
 
 - "Operating Systems: Three Easy Pieces" - Remzi Arpaci-Dusseau
 - "The Art of Multiprocessor Programming" - Herlihy & Shavit
 - "Modern Operating Systems" - Andrew Tanenbaum
 
-## Next Topic
+## 다음 주제
 
-Continue to [05-priority-inversion.md](./05-priority-inversion.md) to learn about priority inversion.
+[05-priority-inversion.md](./05-priority-inversion.md)로 계속하여 우선순위 역전에 대해 배우십시오.

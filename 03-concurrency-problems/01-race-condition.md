@@ -1,20 +1,20 @@
-# Race Conditions
+# Race Condition (경쟁 조건)
 
-## What is a Race Condition?
+## Race Condition이란?
 
-A **race condition** occurs when the behavior of a program depends on the relative timing or interleaving of multiple threads. When two or more threads access shared data concurrently, and at least one thread modifies the data, the final result becomes unpredictable and depends on which thread "wins the race."
+**Race Condition(경쟁 조건)**은 프로그램의 동작이 여러 스레드의 상대적인 타이밍이나 인터리빙에 의존할 때 발생합니다. 둘 이상의 스레드가 공유 데이터에 동시에 접근하고, 최소 하나 이상의 스레드가 데이터를 수정할 때, 최종 결과는 예측 불가능해지며 어느 스레드가 "경쟁에서 이기는지"에 따라 달라집니다.
 
-### Formal Definition
+### 형식적 정의
 
-A race condition exists when:
-1. Two or more threads access the same memory location
-2. At least one access is a write operation
-3. The accesses are not synchronized
-4. The result depends on the timing of execution
+다음 조건이 모두 만족될 때 Race Condition이 존재합니다:
+1. 둘 이상의 스레드가 동일한 메모리 위치에 접근
+2. 최소 하나의 접근이 쓰기 연산
+3. 접근이 동기화되지 않음
+4. 결과가 실행 타이밍에 의존
 
-## Visual Representation
+## 시각적 표현
 
-### Non-Deterministic Execution
+### 비결정적 실행
 
 ```
 Thread 1                Thread 2                Shared Memory
@@ -27,13 +27,13 @@ Increment (0 + 1)
                         Increment (0 + 1)
 Write counter = 1
                         Write counter = 1
-                                                counter = 1 (Wrong!)
+                                                counter = 1 (잘못됨!)
 
-Expected: counter = 2
-Actual: counter = 1
+기대값: counter = 2
+실제값: counter = 1
 ```
 
-### Timeline Diagram
+### 타임라인 다이어그램
 
 ```
 Time ─────────────────────────────────────────────────────▶
@@ -41,19 +41,19 @@ Time ─────────────────────────
 Thread 1: [─R─][─+─][─W─]      [─R─][─+─][─W─]
 Thread 2:      [─R─][─+─][─W─]      [─R─][─+─][─W─]
 
-Legend: R=Read, +=Compute, W=Write
+범례: R=Read(읽기), +=Compute(계산), W=Write(쓰기)
 
-Overlapping operations cause race condition!
+중첩된 연산이 Race Condition을 유발!
 ```
 
-## Types of Race Conditions
+## Race Condition의 유형
 
 ### 1. Read-Modify-Write Race
 
-The most common type, where multiple threads read, modify, and write back a value.
+가장 일반적인 유형으로, 여러 스레드가 값을 읽고, 수정하고, 다시 쓰는 경우입니다.
 
 ```c
-// PROBLEM: Race condition on counter
+// 문제: counter에 대한 Race Condition
 #include <pthread.h>
 #include <stdio.h>
 
@@ -61,7 +61,7 @@ int counter = 0;
 
 void* increment(void* arg) {
     for (int i = 0; i < 1000000; i++) {
-        counter++;  // NOT ATOMIC: read, increment, write
+        counter++;  // 원자적이지 않음: read, increment, write
     }
     return NULL;
 }
@@ -75,23 +75,23 @@ int main() {
     pthread_join(t1, NULL);
     pthread_join(t2, NULL);
 
-    printf("Counter: %d (expected: 2000000)\n", counter);
-    // Output varies: 1000000, 1500000, 1850000, etc.
+    printf("Counter: %d (기대값: 2000000)\n", counter);
+    // 출력 결과 다양: 1000000, 1500000, 1850000, 등
     return 0;
 }
 ```
 
-**Why it happens:**
+**왜 발생하는가:**
 ```assembly
-; counter++ compiles to multiple instructions:
-MOV  eax, [counter]   ; Read current value
-INC  eax              ; Increment in register
-MOV  [counter], eax   ; Write back to memory
+; counter++는 여러 명령어로 컴파일됨:
+MOV  eax, [counter]   ; 현재 값 읽기
+INC  eax              ; 레지스터에서 증가
+MOV  [counter], eax   ; 메모리에 다시 쓰기
 
-; Thread interleaving can happen between ANY of these!
+; 스레드 인터리빙은 이들 사이 어디서든 발생 가능!
 ```
 
-**SOLUTION 1: Using Mutex**
+**해결책 1: Mutex 사용**
 ```c
 #include <pthread.h>
 #include <stdio.h>
@@ -117,15 +117,15 @@ int main() {
     pthread_join(t1, NULL);
     pthread_join(t2, NULL);
 
-    printf("Counter: %d (expected: 2000000)\n", counter);
-    // Output: Always 2000000
+    printf("Counter: %d (기대값: 2000000)\n", counter);
+    // 출력: 항상 2000000
 
     pthread_mutex_destroy(&mutex);
     return 0;
 }
 ```
 
-**SOLUTION 2: Using Atomic Operations**
+**해결책 2: Atomic 연산 사용**
 ```c
 #include <pthread.h>
 #include <stdatomic.h>
@@ -135,7 +135,7 @@ atomic_int counter = 0;
 
 void* increment(void* arg) {
     for (int i = 0; i < 1000000; i++) {
-        atomic_fetch_add(&counter, 1);  // Atomic operation
+        atomic_fetch_add(&counter, 1);  // 원자적 연산
     }
     return NULL;
 }
@@ -149,18 +149,18 @@ int main() {
     pthread_join(t1, NULL);
     pthread_join(t2, NULL);
 
-    printf("Counter: %d (expected: 2000000)\n", counter);
-    // Output: Always 2000000
+    printf("Counter: %d (기대값: 2000000)\n", counter);
+    // 출력: 항상 2000000
     return 0;
 }
 ```
 
 ### 2. Check-Then-Act Race
 
-A thread checks a condition and then acts based on that check, but the condition can change between the check and the act.
+스레드가 조건을 확인하고 그 결과에 따라 행동하지만, 확인과 행동 사이에 조건이 변경될 수 있는 경우입니다.
 
 ```c
-// PROBLEM: Check-then-act race condition
+// 문제: Check-then-act Race Condition
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -174,14 +174,14 @@ BankAccount account = {1000};
 void* withdraw(void* arg) {
     int amount = *(int*)arg;
 
-    // CHECK
+    // 확인 (CHECK)
     if (account.balance >= amount) {
-        // Context switch can happen here!
-        // ACT
+        // 여기서 컨텍스트 스위치 발생 가능!
+        // 행동 (ACT)
         account.balance -= amount;
-        printf("Withdrew %d, balance: %d\n", amount, account.balance);
+        printf("출금 %d원, 잔액: %d원\n", amount, account.balance);
     } else {
-        printf("Insufficient funds\n");
+        printf("잔액 부족\n");
     }
 
     return NULL;
@@ -197,26 +197,26 @@ int main() {
     pthread_join(t1, NULL);
     pthread_join(t2, NULL);
 
-    printf("Final balance: %d (expected: >= 0)\n", account.balance);
-    // Can output: Final balance: -200 (OVERDRAFT!)
+    printf("최종 잔액: %d원 (기대값: >= 0)\n", account.balance);
+    // 출력 가능: 최종 잔액: -200원 (초과 인출!)
     return 0;
 }
 ```
 
-**Timeline of the Bug:**
+**버그 타임라인:**
 ```
-Initial Balance: $1000
+초기 잔액: 1000원
 
 Thread 1                    Thread 2                    Balance
 --------                    --------                    -------
-Check: balance >= 600 ✓
-                            Check: balance >= 600 ✓
-Withdraw 600
-                            Withdraw 600
-                                                        -200 (BUG!)
+확인: balance >= 600 ✓
+                            확인: balance >= 600 ✓
+출금 600
+                            출금 600
+                                                        -200 (버그!)
 ```
 
-**SOLUTION: Atomic Check-and-Act**
+**해결책: Atomic Check-and-Act**
 ```c
 #include <pthread.h>
 #include <stdio.h>
@@ -236,9 +236,9 @@ bool withdraw(int amount) {
     if (account.balance >= amount) {
         account.balance -= amount;
         success = true;
-        printf("Withdrew %d, balance: %d\n", amount, account.balance);
+        printf("출금 %d원, 잔액: %d원\n", amount, account.balance);
     } else {
-        printf("Insufficient funds\n");
+        printf("잔액 부족\n");
     }
 
     pthread_mutex_unlock(&account.mutex);
@@ -260,8 +260,8 @@ int main() {
     pthread_join(t1, NULL);
     pthread_join(t2, NULL);
 
-    printf("Final balance: %d\n", account.balance);
-    // Output: Always >= 0
+    printf("최종 잔액: %d원\n", account.balance);
+    // 출력: 항상 >= 0
 
     pthread_mutex_destroy(&account.mutex);
     return 0;
@@ -270,10 +270,10 @@ int main() {
 
 ### 3. Lazy Initialization Race (Double-Checked Locking)
 
-A subtle race condition that occurs in singleton patterns.
+싱글톤 패턴에서 발생하는 미묘한 Race Condition입니다.
 
 ```c
-// PROBLEM: Broken double-checked locking
+// 문제: 잘못된 Double-Checked Locking
 #include <pthread.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -286,25 +286,25 @@ Singleton* instance = NULL;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 Singleton* get_instance() {
-    if (instance == NULL) {  // First check (UNSYNCHRONIZED)
+    if (instance == NULL) {  // 첫 번째 확인 (동기화 안됨)
         pthread_mutex_lock(&mutex);
-        if (instance == NULL) {  // Second check
+        if (instance == NULL) {  // 두 번째 확인
             instance = malloc(sizeof(Singleton));
-            instance->data = 42;  // Initialization
+            instance->data = 42;  // 초기화
         }
         pthread_mutex_unlock(&mutex);
     }
     return instance;
 }
 
-// BUG: Compiler/CPU can reorder:
-// 1. Allocate memory
-// 2. Assign to instance
-// 3. Initialize data
-// Thread 2 might see non-NULL but uninitialized instance!
+// 버그: 컴파일러/CPU가 재배치 가능:
+// 1. 메모리 할당
+// 2. instance에 할당
+// 3. data 초기화
+// Thread 2가 NULL이 아니지만 초기화되지 않은 instance를 볼 수 있음!
 ```
 
-**SOLUTION: Using Atomic Operations**
+**해결책: Atomic 연산 사용**
 ```c
 #include <pthread.h>
 #include <stdatomic.h>
@@ -335,12 +335,12 @@ Singleton* get_instance() {
 }
 ```
 
-## Real-World Examples
+## 실전 예제
 
-### Example 1: Thread-Safe Stack
+### 예제 1: 스레드 안전 스택
 
 ```c
-// PROBLEM: Race condition in stack operations
+// 문제: 스택 연산의 Race Condition
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -371,10 +371,10 @@ bool pop(int* value) {
     return true;
 }
 
-// Multiple threads calling push/pop creates chaos!
+// 여러 스레드가 push/pop을 호출하면 혼란 발생!
 ```
 
-**SOLUTION: Lock-Based Thread-Safe Stack**
+**해결책: Lock 기반 스레드 안전 스택**
 ```c
 #include <pthread.h>
 #include <stdio.h>
@@ -426,10 +426,10 @@ void stack_destroy(ThreadSafeStack* s) {
 }
 ```
 
-### Example 2: Reference Counting
+### 예제 2: Reference Counting
 
 ```c
-// PROBLEM: Race condition in reference counting
+// 문제: Reference Counting의 Race Condition
 typedef struct {
     int* data;
     int ref_count;
@@ -448,7 +448,7 @@ void release(SharedObject* obj) {
 }
 ```
 
-**SOLUTION: Atomic Reference Counting**
+**해결책: Atomic Reference Counting**
 ```c
 #include <stdatomic.h>
 #include <stdlib.h>
@@ -464,44 +464,44 @@ void acquire(SharedObject* obj) {
 
 void release(SharedObject* obj) {
     if (atomic_fetch_sub(&obj->ref_count, 1) == 1) {
-        // We were the last reference
+        // 마지막 참조였음
         free(obj->data);
         free(obj);
     }
 }
 ```
 
-## Detection Strategies
+## 탐지 전략
 
-### 1. Code Review Checklist
+### 1. 코드 리뷰 체크리스트
 
-Look for these patterns:
-- [ ] Unsynchronized access to shared variables
-- [ ] Check-then-act sequences
-- [ ] Read-modify-write operations
-- [ ] Multiple locks held simultaneously
-- [ ] Lazy initialization without proper synchronization
+다음 패턴을 찾으세요:
+- [ ] 공유 변수에 대한 동기화되지 않은 접근
+- [ ] Check-then-act 시퀀스
+- [ ] Read-modify-write 연산
+- [ ] 동시에 보유한 여러 lock
+- [ ] 적절한 동기화 없는 Lazy Initialization
 
-### 2. Static Analysis
+### 2. 정적 분석
 
 ```bash
-# Using Clang Thread Safety Analysis
+# Clang Thread Safety Analysis 사용
 clang -Wthread-safety -c program.c
 
-# Using Coverity (commercial)
+# Coverity 사용 (상용)
 cov-analyze --dir output --enable-constraint-fpp
 ```
 
-### 3. Dynamic Detection with ThreadSanitizer
+### 3. ThreadSanitizer를 사용한 동적 탐지
 
 ```bash
-# Compile with TSan
+# TSan으로 컴파일
 gcc -fsanitize=thread -g -O1 race_condition.c -o race_condition -lpthread
 
-# Run the program
+# 프로그램 실행
 ./race_condition
 
-# Sample output:
+# 샘플 출력:
 # ==================
 # WARNING: ThreadSanitizer: data race (pid=12345)
 #   Write of size 4 at 0x7b0400001000 by thread T2:
@@ -510,7 +510,7 @@ gcc -fsanitize=thread -g -O1 race_condition.c -o race_condition -lpthread
 #     #0 increment race_condition.c:8
 ```
 
-### 4. Stress Testing
+### 4. 스트레스 테스팅
 
 ```c
 #include <pthread.h>
@@ -519,7 +519,7 @@ gcc -fsanitize=thread -g -O1 race_condition.c -o race_condition -lpthread
 #define NUM_THREADS 100
 #define ITERATIONS 10000
 
-// Your potentially racy code here
+// Race 가능성이 있는 코드 여기에
 
 int main() {
     pthread_t threads[NUM_THREADS];
@@ -532,75 +532,75 @@ int main() {
         pthread_join(threads[i], NULL);
     }
 
-    // Verify results
-    // If results vary across runs, you have a race!
+    // 결과 검증
+    // 실행마다 결과가 다르면 Race가 있음!
     return 0;
 }
 ```
 
-## Prevention Best Practices
+## 예방 모범 사례
 
-### 1. Minimize Shared State
+### 1. 공유 상태 최소화
 
 ```c
-// GOOD: Thread-local storage
+// 좋음: Thread-Local Storage
 __thread int thread_counter = 0;
 
 void* increment(void* arg) {
     for (int i = 0; i < 1000000; i++) {
-        thread_counter++;  // No synchronization needed
+        thread_counter++;  // 동기화 불필요
     }
     return NULL;
 }
 ```
 
-### 2. Immutable Data Structures
+### 2. 불변 데이터 구조
 
 ```c
-// GOOD: Immutable design
+// 좋음: 불변 설계
 typedef struct Node {
     int value;
     struct Node* next;
 } Node;
 
-// Instead of modifying, create new nodes
+// 수정하는 대신 새 노드 생성
 Node* prepend(Node* head, int value) {
     Node* new_node = malloc(sizeof(Node));
     new_node->value = value;
     new_node->next = head;
-    return new_node;  // Return new head
+    return new_node;  // 새 head 반환
 }
 ```
 
-### 3. Atomic Operations for Simple Cases
+### 3. 간단한 경우 Atomic 연산
 
 ```c
 #include <stdatomic.h>
 
 atomic_int counter = 0;
 
-// Simple increment - no mutex needed
+// 간단한 증가 - mutex 불필요
 atomic_fetch_add(&counter, 1);
 
-// Compare-and-swap for more complex operations
+// 더 복잡한 연산을 위한 Compare-and-swap
 int expected = 5;
 int desired = 10;
 atomic_compare_exchange_strong(&counter, &expected, desired);
 ```
 
-### 4. Lock Granularity
+### 4. Lock 세분성 (Lock Granularity)
 
 ```c
-// BAD: Coarse-grained locking
+// 나쁨: 거친 세분성 locking
 pthread_mutex_t global_lock;
 
 void operation1() {
     pthread_mutex_lock(&global_lock);
-    // ... lots of work ...
+    // ... 많은 작업 ...
     pthread_mutex_unlock(&global_lock);
 }
 
-// GOOD: Fine-grained locking
+// 좋음: 세밀한 세분성 locking
 typedef struct {
     int data;
     pthread_mutex_t mutex;
@@ -610,15 +610,15 @@ DataItem items[100];
 
 void operation2(int index) {
     pthread_mutex_lock(&items[index].mutex);
-    // ... work on specific item ...
+    // ... 특정 항목에 대한 작업 ...
     pthread_mutex_unlock(&items[index].mutex);
 }
 ```
 
-### 5. Lock-Free Data Structures
+### 5. Lock-Free 자료구조
 
 ```c
-// Lock-free stack using CAS
+// CAS를 사용한 Lock-Free 스택
 #include <stdatomic.h>
 #include <stdlib.h>
 
@@ -645,79 +645,79 @@ void push(LockFreeStack* stack, int value) {
 }
 ```
 
-## Performance Considerations
+## 성능 고려사항
 
-### Cost of Different Approaches
+### 다양한 접근법의 비용
 
 ```
 ┌────────────────────────┬──────────────┬────────────────┐
-│       Technique        │   Overhead   │   Scalability  │
+│       기법             │   오버헤드   │   확장성       │
 ├────────────────────────┼──────────────┼────────────────┤
-│ No Synchronization     │     None     │   Excellent    │
-│ Atomic Operations      │     Low      │      Good      │
-│ Mutex (uncontended)    │    Medium    │      Good      │
-│ Mutex (contended)      │     High     │      Poor      │
-│ Global Lock            │   Very High  │   Very Poor    │
+│ 동기화 없음            │     없음     │   우수         │
+│ Atomic 연산            │     낮음     │   양호         │
+│ Mutex (경합 없음)      │    중간      │   양호         │
+│ Mutex (경합 있음)      │     높음     │   나쁨         │
+│ 전역 Lock              │   매우 높음  │   매우 나쁨    │
 └────────────────────────┴──────────────┴────────────────┘
 ```
 
-## Common Pitfalls
+## 흔한 함정
 
-### Pitfall 1: Assuming Single Operations Are Atomic
+### 함정 1: 단일 연산이 원자적이라고 가정
 
 ```c
-// WRONG: Even simple assignments can be non-atomic
-long long value = 0;  // 64-bit on 32-bit system
+// 잘못됨: 단순 할당도 비원자적일 수 있음
+long long value = 0;  // 32비트 시스템에서 64비트
 
 // Thread 1
-value = 0x0000000100000001;  // Might be two 32-bit writes
+value = 0x0000000100000001;  // 두 번의 32비트 쓰기일 수 있음
 
 // Thread 2
-long long temp = value;  // Might read: 0x0000000000000001
+long long temp = value;  // 읽을 수 있음: 0x0000000000000001
 ```
 
-### Pitfall 2: Volatile Does Not Mean Thread-Safe
+### 함정 2: Volatile이 스레드 안전을 의미하지 않음
 
 ```c
-// WRONG: volatile does NOT provide synchronization
+// 잘못됨: volatile은 동기화를 제공하지 않음
 volatile int flag = 0;
 
 // Thread 1
 data = 42;
-flag = 1;  // Signal to thread 2
+flag = 1;  // Thread 2에게 신호
 
 // Thread 2
-while (flag == 0);  // Wait for signal
-use(data);  // NOT GUARANTEED to see data = 42!
+while (flag == 0);  // 신호 대기
+use(data);  // data = 42를 보장받지 못함!
 
-// CORRECT: Use atomic or mutex
+// 올바름: Atomic 또는 Mutex 사용
 ```
 
-### Pitfall 3: Compiler/CPU Reordering
+### 함정 3: 컴파일러/CPU 재배치
 
 ```c
-// Can be reordered by compiler or CPU
+// 컴파일러나 CPU가 재배치 가능
 int data = 0;
 int ready = 0;
 
 // Thread 1
 data = 42;
-ready = 1;  // Can execute before data = 42!
+ready = 1;  // data = 42 이전에 실행될 수 있음!
 
 // Thread 2
 while (ready == 0);
-use(data);  // Might not see 42!
+use(data);  // 42를 보지 못할 수 있음!
 
-// SOLUTION: Use atomic with proper memory ordering
+// 해결책: 적절한 메모리 순서로 Atomic 사용
 atomic_store_explicit(&ready, 1, memory_order_release);
 while (atomic_load_explicit(&ready, memory_order_acquire) == 0);
 ```
 
-## Exercises
+## 연습 문제
 
-### Exercise 1: Fix the Bug
+### 연습 1: 버그 수정
 ```c
-// Find and fix the race condition
+// Race Condition을 찾아 수정하세요
 #include <pthread.h>
 
 int balance = 1000;
@@ -731,35 +731,35 @@ void* transfer(void* arg) {
 }
 ```
 
-### Exercise 2: Thread-Safe Queue
-Implement a thread-safe FIFO queue with `enqueue` and `dequeue` operations.
+### 연습 2: 스레드 안전 큐
+`enqueue`와 `dequeue` 연산을 가진 스레드 안전 FIFO 큐를 구현하세요.
 
-### Exercise 3: Concurrent Hash Table
-Implement a hash table that supports concurrent reads and writes with fine-grained locking.
+### 연습 3: 동시성 해시 테이블
+세밀한 세분성 locking으로 동시 읽기와 쓰기를 지원하는 해시 테이블을 구현하세요.
 
-## Summary
+## 요약
 
-Race conditions are:
-- **Insidious**: Hard to detect and reproduce
-- **Common**: Appear in most concurrent programs
-- **Fixable**: With proper synchronization
-- **Preventable**: With careful design
+Race Condition은:
+- **은밀함**: 탐지 및 재현이 어려움
+- **흔함**: 대부분의 동시성 프로그램에서 나타남
+- **수정 가능**: 적절한 동기화로 해결
+- **예방 가능**: 신중한 설계로 방지
 
-### Key Takeaways
+### 핵심 포인트
 
-1. **Always synchronize** shared mutable state
-2. **Use atomic operations** for simple counters and flags
-3. **Test with ThreadSanitizer** to catch races
-4. **Design for immutability** when possible
-5. **Minimize critical sections** for performance
+1. **항상 동기화**: 공유 가변 상태
+2. **Atomic 연산 사용**: 간단한 카운터와 플래그에
+3. **ThreadSanitizer로 테스트**: Race 탐지
+4. **불변성 설계**: 가능한 경우
+5. **임계 영역 최소화**: 성능을 위해
 
-## Further Reading
+## 추가 자료
 
 - "The Art of Multiprocessor Programming" - Herlihy & Shavit
 - "Is Parallel Programming Hard?" - Paul McKenney
-- ThreadSanitizer documentation
-- C11 Atomic operations reference
+- ThreadSanitizer 문서
+- C11 Atomic 연산 레퍼런스
 
-## Next Topic
+## 다음 주제
 
-Continue to [02-deadlock.md](./02-deadlock.md) to learn about deadlocks.
+[02-deadlock.md](./02-deadlock.md)에서 Deadlock에 대해 학습하세요.
