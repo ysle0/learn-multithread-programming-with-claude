@@ -55,57 +55,54 @@ Step 3: A moves left, B moves left   (both still blocked)
 
 ### 코드 구현
 
-```c
-#include <pthread.h>
-#include <stdio.h>
-#include <stdbool.h>
-#include <unistd.h>
+```cpp
+#include <thread>
+#include <iostream>
+#include <chrono>
 
-typedef struct {
+struct Person {
     bool trying_left;
     bool trying_right;
     int id;
-} Person;
+};
 
 Person person_a = {false, false, 1};
 Person person_b = {false, false, 2};
 
-void* person_a_walk(void* arg) {
+void person_a_walk() {
     while (true) {
         if (person_b.trying_left) {
-            printf("Person A: B is on left, I'll go left too\n");
+            std::cout << "Person A: B is on left, I'll go left too\n";
             person_a.trying_left = true;
-            usleep(100000);  // 100ms
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         } else if (person_b.trying_right) {
-            printf("Person A: B is on right, I'll go right too\n");
+            std::cout << "Person A: B is on right, I'll go right too\n";
             person_a.trying_right = true;
-            usleep(100000);
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
 
         // Reset and try again
         person_a.trying_left = false;
         person_a.trying_right = false;
     }
-    return NULL;
 }
 
-void* person_b_walk(void* arg) {
+void person_b_walk() {
     while (true) {
         if (person_a.trying_left) {
-            printf("Person B: A is on left, I'll go left too\n");
+            std::cout << "Person B: A is on left, I'll go left too\n";
             person_b.trying_left = true;
-            usleep(100000);
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         } else if (person_a.trying_right) {
-            printf("Person B: A is on right, I'll go right too\n");
+            std::cout << "Person B: A is on right, I'll go right too\n";
             person_b.trying_right = true;
-            usleep(100000);
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
 
         // Reset and try again
         person_b.trying_left = false;
         person_b.trying_right = false;
     }
-    return NULL;
 }
 
 // This creates LIVELOCK - both keep moving but never pass!
@@ -117,25 +114,23 @@ void* person_b_walk(void* arg) {
 
 스레드가 충돌을 감지하고 백오프하지만 동기화된 방식으로 수행할 때 발생합니다.
 
-```c
-#include <pthread.h>
-#include <stdbool.h>
-#include <stdio.h>
+```cpp
+#include <thread>
+#include <mutex>
+#include <iostream>
 
-pthread_mutex_t resource_a = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t resource_b = PTHREAD_MUTEX_INITIALIZER;
+std::mutex resource_a;
+std::mutex resource_b;
 
-void* thread_with_livelock(void* arg) {
-    int id = *(int*)arg;
-
+void thread_with_livelock(int id) {
     while (true) {
         // Try to acquire both resources
-        pthread_mutex_lock(&resource_a);
+        resource_a.lock();
 
-        if (pthread_mutex_trylock(&resource_b) != 0) {
+        if (!resource_b.try_lock()) {
             // Failed to get B, release A and retry
-            printf("Thread %d: Failed to get B, releasing A\n", id);
-            pthread_mutex_unlock(&resource_a);
+            std::cout << "Thread " << id << ": Failed to get B, releasing A\n";
+            resource_a.unlock();
 
             // PROBLEM: Both threads do this simultaneously!
             // They keep releasing and retrying forever
@@ -143,13 +138,11 @@ void* thread_with_livelock(void* arg) {
         }
 
         // Critical section
-        printf("Thread %d: Got both resources!\n", id);
-        pthread_mutex_unlock(&resource_b);
-        pthread_mutex_unlock(&resource_a);
+        std::cout << "Thread " << id << ": Got both resources!\n";
+        resource_b.unlock();
+        resource_a.unlock();
         break;
     }
-
-    return NULL;
 }
 
 // LIVELOCK: If both threads retry at same time, they collide repeatedly
@@ -173,22 +166,21 @@ Time    Thread 1                Thread 2
 
 스레드가 "정중하게" 다른 스레드에게 양보하려고 하지만 모두 동시에 수행합니다.
 
-```c
-#include <pthread.h>
-#include <stdbool.h>
-#include <sched.h>
+```cpp
+#include <thread>
+#include <atomic>
 
-volatile bool thread1_wants = false;
-volatile bool thread2_wants = false;
+std::atomic<bool> thread1_wants{false};
+std::atomic<bool> thread2_wants{false};
 
-void* polite_thread1(void* arg) {
+void polite_thread1() {
     while (true) {
         thread1_wants = true;
 
         // Be polite: if other thread wants it, yield
-        while (thread2_wants) {
+        while (thread2_wants.load()) {
             thread1_wants = false;  // Give way
-            sched_yield();          // Let other thread go
+            std::this_thread::yield();  // Let other thread go
             thread1_wants = true;   // Want it again
         }
 
@@ -197,17 +189,16 @@ void* polite_thread1(void* arg) {
 
         thread1_wants = false;
     }
-    return NULL;
 }
 
-void* polite_thread2(void* arg) {
+void polite_thread2() {
     while (true) {
         thread2_wants = true;
 
         // Be polite: if other thread wants it, yield
-        while (thread1_wants) {
+        while (thread1_wants.load()) {
             thread2_wants = false;  // Give way
-            sched_yield();          // Let other thread go
+            std::this_thread::yield();  // Let other thread go
             thread2_wants = true;   // Want it again
         }
 
@@ -216,7 +207,6 @@ void* polite_thread2(void* arg) {
 
         thread2_wants = false;
     }
-    return NULL;
 }
 
 // LIVELOCK: Both keep yielding to each other!
@@ -226,36 +216,39 @@ void* polite_thread2(void* arg) {
 
 분산 시스템에서 노드가 충돌 시 재전송하지만 더 많은 충돌을 생성합니다.
 
-```c
-#include <stdio.h>
-#include <stdlib.h>
-#include <time.h>
-#include <stdbool.h>
+```cpp
+#include <iostream>
+#include <random>
+#include <thread>
+#include <chrono>
 
-typedef struct {
+struct Node {
     int id;
     int attempts;
-} Node;
+};
 
-bool try_send(Node* node) {
+bool try_send(Node& node) {
     // Simulate collision detection
-    bool collision = (rand() % 2 == 0);
+    static std::random_device rd;
+    static std::mt19937 gen(rd());
+    static std::uniform_int_distribution<> dis(0, 1);
+    bool collision = (dis(gen) == 0);
 
     if (collision) {
-        printf("Node %d: Collision detected, retry attempt %d\n",
-               node->id, node->attempts);
-        node->attempts++;
+        std::cout << "Node " << node.id << ": Collision detected, retry attempt "
+                  << node.attempts << "\n";
+        node.attempts++;
         return false;
     }
 
-    printf("Node %d: Sent successfully!\n", node->id);
+    std::cout << "Node " << node.id << ": Sent successfully!\n";
     return true;
 }
 
-void node_send_with_livelock(Node* node) {
+void node_send_with_livelock(Node& node) {
     while (!try_send(node)) {
         // Fixed retry interval - causes synchronized retries
-        usleep(1000);  // Always wait 1ms
+        std::this_thread::sleep_for(std::chrono::microseconds(1000));
 
         // LIVELOCK: All nodes retry at same time!
     }
@@ -268,40 +261,40 @@ void node_send_with_livelock(Node* node) {
 
 무작위성을 도입하여 동기화를 깹니다.
 
-```c
-#include <pthread.h>
-#include <stdlib.h>
-#include <time.h>
-#include <unistd.h>
+```cpp
+#include <thread>
+#include <mutex>
+#include <random>
+#include <chrono>
+#include <iostream>
 
-pthread_mutex_t resource_a = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t resource_b = PTHREAD_MUTEX_INITIALIZER;
+std::mutex resource_a;
+std::mutex resource_b;
 
-void* thread_with_random_backoff(void* arg) {
-    int id = *(int*)arg;
-    srand(time(NULL) + id);  // Different seed per thread
+void thread_with_random_backoff(int id) {
+    std::random_device rd;
+    std::mt19937 gen(rd() + id);  // Different seed per thread
+    std::uniform_int_distribution<> dis(0, 10000);
 
     while (true) {
-        pthread_mutex_lock(&resource_a);
+        resource_a.lock();
 
-        if (pthread_mutex_trylock(&resource_b) != 0) {
-            pthread_mutex_unlock(&resource_a);
+        if (!resource_b.try_lock()) {
+            resource_a.unlock();
 
             // Random backoff: 0-10ms
-            int backoff = rand() % 10000;
-            printf("Thread %d: Backing off %dμs\n", id, backoff);
-            usleep(backoff);
+            int backoff = dis(gen);
+            std::cout << "Thread " << id << ": Backing off " << backoff << "μs\n";
+            std::this_thread::sleep_for(std::chrono::microseconds(backoff));
             continue;
         }
 
         // Critical section
-        printf("Thread %d: Success!\n", id);
-        pthread_mutex_unlock(&resource_b);
-        pthread_mutex_unlock(&resource_a);
+        std::cout << "Thread " << id << ": Success!\n";
+        resource_b.unlock();
+        resource_a.unlock();
         break;
     }
-
-    return NULL;
 }
 ```
 
@@ -309,25 +302,25 @@ void* thread_with_random_backoff(void* arg) {
 
 각 재시도마다 백오프 시간을 증가시킵니다 (이더넷 CSMA/CD처럼).
 
-```c
-#include <pthread.h>
-#include <unistd.h>
-#include <stdio.h>
+```cpp
+#include <thread>
+#include <mutex>
+#include <chrono>
+#include <iostream>
 
-#define MAX_BACKOFF 1000000  // 1 second
+constexpr int MAX_BACKOFF = 1000000;  // 1 second
 
-void* thread_with_exponential_backoff(void* arg) {
-    int id = *(int*)arg;
+void thread_with_exponential_backoff(int id) {
     int backoff = 1000;  // Start with 1ms
 
     while (true) {
-        pthread_mutex_lock(&resource_a);
+        resource_a.lock();
 
-        if (pthread_mutex_trylock(&resource_b) != 0) {
-            pthread_mutex_unlock(&resource_a);
+        if (!resource_b.try_lock()) {
+            resource_a.unlock();
 
-            printf("Thread %d: Backing off %dμs\n", id, backoff);
-            usleep(backoff);
+            std::cout << "Thread " << id << ": Backing off " << backoff << "μs\n";
+            std::this_thread::sleep_for(std::chrono::microseconds(backoff));
 
             // Exponential backoff
             backoff = (backoff * 2 < MAX_BACKOFF) ? backoff * 2 : MAX_BACKOFF;
@@ -335,13 +328,11 @@ void* thread_with_exponential_backoff(void* arg) {
         }
 
         // Critical section
-        printf("Thread %d: Success!\n", id);
-        pthread_mutex_unlock(&resource_b);
-        pthread_mutex_unlock(&resource_a);
+        std::cout << "Thread " << id << ": Success!\n";
+        resource_b.unlock();
+        resource_a.unlock();
         break;
     }
-
-    return NULL;
 }
 ```
 
@@ -349,26 +340,26 @@ void* thread_with_exponential_backoff(void* arg) {
 
 하나의 스레드에 더 높은 우선순위를 부여합니다.
 
-```c
-#include <pthread.h>
-#include <stdbool.h>
+```cpp
+#include <thread>
+#include <atomic>
 
-typedef struct {
+struct ThreadInfo {
     int id;
     int priority;
-} ThreadInfo;
+};
 
-volatile bool low_priority_wants = false;
-volatile bool high_priority_wants = false;
+std::atomic<bool> low_priority_wants{false};
+std::atomic<bool> high_priority_wants{false};
 
-void* low_priority_thread(void* arg) {
+void low_priority_thread() {
     while (true) {
         low_priority_wants = true;
 
         // Yield to high priority thread
-        while (high_priority_wants) {
+        while (high_priority_wants.load()) {
             low_priority_wants = false;
-            sched_yield();
+            std::this_thread::yield();
             low_priority_wants = true;
         }
 
@@ -376,10 +367,9 @@ void* low_priority_thread(void* arg) {
         critical_section();
         low_priority_wants = false;
     }
-    return NULL;
 }
 
-void* high_priority_thread(void* arg) {
+void high_priority_thread() {
     while (true) {
         high_priority_wants = true;
 
@@ -388,7 +378,6 @@ void* high_priority_thread(void* arg) {
         critical_section();
         high_priority_wants = false;
     }
-    return NULL;
 }
 
 // NO LIVELOCK: High priority always proceeds
@@ -398,24 +387,22 @@ void* high_priority_thread(void* arg) {
 
 재시도를 피하기 위해 일관된 락 순서를 사용합니다.
 
-```c
-#include <pthread.h>
+```cpp
+#include <mutex>
 
-pthread_mutex_t resource_a = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t resource_b = PTHREAD_MUTEX_INITIALIZER;
+std::mutex resource_a;
+std::mutex resource_b;
 
-void* thread_with_ordering(void* arg) {
+void thread_with_ordering() {
     // Always acquire in order: A then B
-    pthread_mutex_lock(&resource_a);
-    pthread_mutex_lock(&resource_b);
+    resource_a.lock();
+    resource_b.lock();
 
     // Critical section
     critical_section();
 
-    pthread_mutex_unlock(&resource_b);
-    pthread_mutex_unlock(&resource_a);
-
-    return NULL;
+    resource_b.unlock();
+    resource_a.unlock();
 }
 
 // NO LIVELOCK: No trylock, no retries needed
@@ -425,40 +412,40 @@ void* thread_with_ordering(void* arg) {
 
 타임아웃과 랜덤 재시도를 결합합니다.
 
-```c
-#include <pthread.h>
-#include <time.h>
-#include <errno.h>
-#include <stdlib.h>
+```cpp
+#include <mutex>
+#include <chrono>
+#include <random>
+#include <thread>
+#include <iostream>
 
-void* thread_with_timeout(void* arg) {
-    int id = *(int*)arg;
+// Note: use std::timed_mutex for timeout functionality
+std::timed_mutex resource_a;
+std::timed_mutex resource_b;
+
+void thread_with_timeout(int id) {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, 100000);
 
     while (true) {
-        struct timespec timeout;
-        clock_gettime(CLOCK_REALTIME, &timeout);
-        timeout.tv_sec += 1;  // 1 second timeout
+        resource_a.lock();
 
-        pthread_mutex_lock(&resource_a);
-
-        int result = pthread_mutex_timedlock(&resource_b, &timeout);
-
-        if (result == ETIMEDOUT) {
-            pthread_mutex_unlock(&resource_a);
+        auto timeout = std::chrono::seconds(1);
+        if (!resource_b.try_lock_for(timeout)) {
+            resource_a.unlock();
 
             // Random backoff before retry
-            usleep(rand() % 100000);
+            std::this_thread::sleep_for(std::chrono::microseconds(dis(gen)));
             continue;
         }
 
         // Critical section
-        printf("Thread %d: Success!\n", id);
-        pthread_mutex_unlock(&resource_b);
-        pthread_mutex_unlock(&resource_a);
+        std::cout << "Thread " << id << ": Success!\n";
+        resource_b.unlock();
+        resource_a.unlock();
         break;
     }
-
-    return NULL;
 }
 ```
 
@@ -654,25 +641,29 @@ void reach_consensus_good(Node* nodes, int num_nodes) {
 
 ### 1. 진행 상황 모니터링
 
-```c
-#include <time.h>
+```cpp
+#include <chrono>
+#include <iostream>
 
-typedef struct {
+struct ProgressMonitor {
     int work_completed;
-    time_t last_progress;
-} ProgressMonitor;
+    std::chrono::time_point<std::chrono::steady_clock> last_progress;
+};
 
- ProgressMonitor monitor = {0, 0};
+ProgressMonitor monitor = {0, std::chrono::steady_clock::now()};
 
 void check_for_livelock() {
-    time_t now = time(NULL);
+    auto now = std::chrono::steady_clock::now();
+    static int last_work = 0;
 
-    if (monitor.work_completed == last_work &&
-        now - monitor.last_progress > 5) {
-        printf("LIVELOCK suspected: No progress in 5 seconds\n");
-        printf("Threads active but not advancing\n");
+    auto duration = std::chrono::duration_cast<std::chrono::seconds>(now - monitor.last_progress);
+
+    if (monitor.work_completed == last_work && duration.count() > 5) {
+        std::cout << "LIVELOCK suspected: No progress in 5 seconds\n";
+        std::cout << "Threads active but not advancing\n";
     }
 
+    last_work = monitor.work_completed;
     monitor.last_progress = now;
 }
 ```
@@ -740,14 +731,13 @@ void* thread_function(void* arg) {
 ```
 
 **패턴 2: 중앙 집중식 조정**
-```c
-pthread_mutex_t coordinator = PTHREAD_MUTEX_INITIALIZER;
+```cpp
+std::mutex coordinator;
 
 void coordinated_access() {
     // Single point of coordination prevents livelock
-    pthread_mutex_lock(&coordinator);
+    std::lock_guard<std::mutex> lock(coordinator);
     access_resources();
-    pthread_mutex_unlock(&coordinator);
 }
 ```
 
@@ -773,8 +763,8 @@ Livelock:
 
 ### 연습 1: 라이브락 식별
 이 코드에서 라이브락을 찾으십시오:
-```c
-void* worker(void* arg) {
+```cpp
+void worker() {
     while (!try_acquire_resources()) {
         yield_to_others();
     }

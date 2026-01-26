@@ -47,41 +47,33 @@
 
 높은 우선순위 스레드가 항상 낮은 우선순위 스레드를 선점합니다.
 
-```c
-#include <pthread.h>
-#include <stdio.h>
-#include <sched.h>
+```cpp
+#include <thread>
+#include <mutex>
+#include <iostream>
 
-pthread_mutex_t resource = PTHREAD_MUTEX_INITIALIZER;
+std::mutex resource;
 
-void* high_priority_thread(void* arg) {
-    // Set high priority
-    struct sched_param param;
-    param.sched_priority = 99;
-    pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
+void high_priority_thread() {
+    // Note: C++ std::thread doesn't provide cross-platform priority setting
+    // Platform-specific APIs would be needed (e.g., pthread_setschedparam on POSIX)
 
-    while (1) {
-        pthread_mutex_lock(&resource);
-        printf("High priority: Working\n");
+    while (true) {
+        std::lock_guard<std::mutex> lock(resource);
+        std::cout << "High priority: Working\n";
         // Do work...
-        pthread_mutex_unlock(&resource);
     }
-    return NULL;
 }
 
-void* low_priority_thread(void* arg) {
-    // Set low priority
-    struct sched_param param;
-    param.sched_priority = 1;
-    pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
+void low_priority_thread() {
+    // Note: C++ std::thread doesn't provide cross-platform priority setting
+    // Platform-specific APIs would be needed
 
-    while (1) {
-        pthread_mutex_lock(&resource);
-        printf("Low priority: Working\n");  // MAY NEVER PRINT
+    while (true) {
+        std::lock_guard<std::mutex> lock(resource);
+        std::cout << "Low priority: Working\n";  // MAY NEVER PRINT
         // Do work...
-        pthread_mutex_unlock(&resource);
     }
-    return NULL;
 }
 
 // Low priority thread can STARVE if high priority runs continuously
@@ -91,24 +83,28 @@ void* low_priority_thread(void* arg) {
 
 일부 락 구현은 공정성을 보장하지 않습니다.
 
-```c
-// Unfair mutex implementation (simplified)
-typedef struct {
-    atomic_int locked;
-    // No queue - threads race to acquire
-} UnfairMutex;
+```cpp
+#include <atomic>
 
-void unfair_lock(UnfairMutex* m) {
-    // Spin until successful
-    while (1) {
-        int expected = 0;
-        if (atomic_compare_exchange_weak(&m->locked, &expected, 1)) {
-            return;  // Acquired
+// Unfair mutex implementation (simplified)
+class UnfairMutex {
+private:
+    std::atomic<int> locked{0};
+    // No queue - threads race to acquire
+
+public:
+    void lock() {
+        // Spin until successful
+        while (true) {
+            int expected = 0;
+            if (locked.compare_exchange_weak(expected, 1)) {
+                return;  // Acquired
+            }
+            // Some threads might retry faster than others!
+            // Fast threads can starve slow ones
         }
-        // Some threads might retry faster than others!
-        // Fast threads can starve slow ones
     }
-}
+};
 
 // Thread with faster CPU core might always win
 // Thread with slower core might STARVE
@@ -118,37 +114,35 @@ void unfair_lock(UnfairMutex* m) {
 
 독자가 계속 도착하면 저자가 굶주릴 수 있습니다.
 
-```c
-#include <pthread.h>
-#include <stdio.h>
+```cpp
+#include <mutex>
+#include <thread>
 
-typedef struct {
-    pthread_mutex_t mutex;
+struct RWLock {
+    std::mutex mutex;
     int readers;
-} RWLock;
+};
 
-RWLock rwlock = {PTHREAD_MUTEX_INITIALIZER, 0};
+RWLock rwlock = {std::mutex(), 0};
 
-void read_lock(RWLock* lock) {
-    pthread_mutex_lock(&lock->mutex);
-    lock->readers++;
-    pthread_mutex_unlock(&lock->mutex);
+void read_lock(RWLock& lock) {
+    std::lock_guard<std::mutex> lk(lock.mutex);
+    lock.readers++;
 }
 
-void read_unlock(RWLock* lock) {
-    pthread_mutex_lock(&lock->mutex);
-    lock->readers--;
-    pthread_mutex_unlock(&lock->mutex);
+void read_unlock(RWLock& lock) {
+    std::lock_guard<std::mutex> lk(lock.mutex);
+    lock.readers--;
 }
 
-void write_lock(RWLock* lock) {
-    pthread_mutex_lock(&lock->mutex);
+void write_lock(RWLock& lock) {
+    lock.mutex.lock();
 
     // Wait for all readers to finish
-    while (lock->readers > 0) {
-        pthread_mutex_unlock(&lock->mutex);
-        sched_yield();
-        pthread_mutex_lock(&lock->mutex);
+    while (lock.readers > 0) {
+        lock.mutex.unlock();
+        std::this_thread::yield();
+        lock.mutex.lock();
     }
 
     // Now have write access
@@ -171,37 +165,35 @@ Time  Readers  Writer State
 
 ### 4. 불공정한 세마포어를 사용한 생산자-소비자
 
-```c
-#include <semaphore.h>
-#include <pthread.h>
+```cpp
+#include <semaphore>
+#include <thread>
 
-#define BUFFER_SIZE 10
+constexpr int BUFFER_SIZE = 10;
 
-sem_t empty;  // Count of empty slots
-sem_t full;   // Count of full slots
+std::counting_semaphore<BUFFER_SIZE> empty{BUFFER_SIZE};  // Count of empty slots
+std::counting_semaphore<BUFFER_SIZE> full{0};   // Count of full slots
 
-void* producer(void* arg) {
-    while (1) {
-        sem_wait(&empty);  // Wait for empty slot
+void producer() {
+    while (true) {
+        empty.acquire();  // Wait for empty slot
 
         // Produce item
         produce_item();
 
-        sem_post(&full);   // Signal item available
+        full.release();   // Signal item available
     }
-    return NULL;
 }
 
-void* consumer(void* arg) {
-    while (1) {
-        sem_wait(&full);   // Wait for item
+void consumer() {
+    while (true) {
+        full.acquire();   // Wait for item
 
         // Consume item
         consume_item();
 
-        sem_post(&empty);  // Signal slot empty
+        empty.release();  // Signal slot empty
     }
-    return NULL;
 }
 
 // If many fast producers and one slow consumer,
@@ -212,31 +204,33 @@ void* consumer(void* arg) {
 
 ### 예제 1: 스레드 풀 기아 상태
 
-```c
-#include <pthread.h>
-#include <stdio.h>
-#include <unistd.h>
+```cpp
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <functional>
+#include <array>
+#include <iostream>
 
-#define NUM_WORKERS 4
-#define QUEUE_SIZE 100
+constexpr int NUM_WORKERS = 4;
+constexpr int QUEUE_SIZE = 100;
 
-typedef struct {
-    void (*function)(void*);
-    void* arg;
+struct Task {
+    std::function<void()> function;
     int priority;  // Higher = more important
-} Task;
+};
 
-typedef struct {
-    Task queue[QUEUE_SIZE];
-    int size;
-    pthread_mutex_t mutex;
-    pthread_cond_t cond;
-} ThreadPool;
+struct ThreadPool {
+    std::array<Task, QUEUE_SIZE> queue;
+    int size = 0;
+    std::mutex mutex;
+    std::condition_variable cond;
+};
 
-ThreadPool pool = {{}, 0, PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER};
+ThreadPool pool;
 
-void enqueue_task(void (*func)(void*), void* arg, int priority) {
-    pthread_mutex_lock(&pool.mutex);
+void enqueue_task(std::function<void()> func, int priority) {
+    std::lock_guard<std::mutex> lock(pool.mutex);
 
     // Insert by priority (higher priority first)
     int i = pool.size;
@@ -246,21 +240,17 @@ void enqueue_task(void (*func)(void*), void* arg, int priority) {
     }
 
     pool.queue[i].function = func;
-    pool.queue[i].arg = arg;
     pool.queue[i].priority = priority;
     pool.size++;
 
-    pthread_cond_signal(&pool.cond);
-    pthread_mutex_unlock(&pool.mutex);
+    pool.cond.notify_one();
 }
 
-void* worker(void* arg) {
-    while (1) {
-        pthread_mutex_lock(&pool.mutex);
+void worker() {
+    while (true) {
+        std::unique_lock<std::mutex> lock(pool.mutex);
 
-        while (pool.size == 0) {
-            pthread_cond_wait(&pool.cond, &pool.mutex);
-        }
+        pool.cond.wait(lock, []{ return pool.size > 0; });
 
         // Take highest priority task
         Task task = pool.queue[0];
@@ -271,12 +261,11 @@ void* worker(void* arg) {
             pool.queue[i] = pool.queue[i+1];
         }
 
-        pthread_mutex_unlock(&pool.mutex);
+        lock.unlock();
 
         // Execute task
-        task.function(task.arg);
+        task.function();
     }
-    return NULL;
 }
 
 // PROBLEM: Low priority tasks can STARVE if high priority
@@ -379,157 +368,133 @@ void process_packets() {
 
 ### 해결책 1: 공정한 뮤텍스 (FIFO 순서)
 
-```c
-#include <pthread.h>
-#include <stdbool.h>
+```cpp
+#include <mutex>
+#include <condition_variable>
 
-typedef struct WaitNode {
-    pthread_cond_t cond;
+struct WaitNode {
+    std::condition_variable cond;
     bool ready;
-    struct WaitNode* next;
-} WaitNode;
+    WaitNode* next;
+};
 
-typedef struct {
-    pthread_mutex_t mutex;
-    WaitNode* head;
-    WaitNode* tail;
-    bool locked;
-} FairMutex;
+class FairMutex {
+private:
+    std::mutex mutex;
+    WaitNode* head = nullptr;
+    WaitNode* tail = nullptr;
+    bool locked = false;
 
-void fair_mutex_init(FairMutex* fm) {
-    pthread_mutex_init(&fm->mutex, NULL);
-    fm->head = fm->tail = NULL;
-    fm->locked = false;
-}
+public:
+    void lock() {
+        WaitNode node;
+        node.ready = false;
+        node.next = nullptr;
 
-void fair_mutex_lock(FairMutex* fm) {
-    WaitNode node;
-    pthread_cond_init(&node.cond, NULL);
-    node.ready = false;
-    node.next = NULL;
+        std::unique_lock<std::mutex> lk(mutex);
 
-    pthread_mutex_lock(&fm->mutex);
-
-    if (!fm->locked) {
-        fm->locked = true;
-        pthread_mutex_unlock(&fm->mutex);
-        return;  // Got lock immediately
-    }
-
-    // Add to wait queue
-    if (fm->tail) {
-        fm->tail->next = &node;
-    } else {
-        fm->head = &node;
-    }
-    fm->tail = &node;
-
-    // Wait for our turn
-    while (!node.ready) {
-        pthread_cond_wait(&node.cond, &fm->mutex);
-    }
-
-    pthread_mutex_unlock(&fm->mutex);
-    pthread_cond_destroy(&node.cond);
-}
-
-void fair_mutex_unlock(FairMutex* fm) {
-    pthread_mutex_lock(&fm->mutex);
-
-    if (fm->head) {
-        // Wake next waiter
-        fm->head->ready = true;
-        pthread_cond_signal(&fm->head->cond);
-        fm->head = fm->head->next;
-        if (!fm->head) {
-            fm->tail = NULL;
+        if (!locked) {
+            locked = true;
+            return;  // Got lock immediately
         }
-    } else {
-        fm->locked = false;
+
+        // Add to wait queue
+        if (tail) {
+            tail->next = &node;
+        } else {
+            head = &node;
+        }
+        tail = &node;
+
+        // Wait for our turn
+        while (!node.ready) {
+            node.cond.wait(lk);
+        }
     }
 
-    pthread_mutex_unlock(&fm->mutex);
-}
+    void unlock() {
+        std::lock_guard<std::mutex> lk(mutex);
+
+        if (head) {
+            // Wake next waiter
+            head->ready = true;
+            head->cond.notify_one();
+            head = head->next;
+            if (!head) {
+                tail = nullptr;
+            }
+        } else {
+            locked = false;
+        }
+    }
+};
 
 // FIFO ordering prevents starvation
 ```
 
 ### 해결책 2: 공정한 독자-저자 락
 
-```c
-#include <pthread.h>
-#include <stdbool.h>
+```cpp
+#include <mutex>
+#include <condition_variable>
 
-typedef struct {
-    pthread_mutex_t mutex;
-    pthread_cond_t readers_cond;
-    pthread_cond_t writers_cond;
-    int readers;
-    int writers;
-    int waiting_writers;
-} FairRWLock;
+class FairRWLock {
+private:
+    std::mutex mutex;
+    std::condition_variable readers_cond;
+    std::condition_variable writers_cond;
+    int readers = 0;
+    int writers = 0;
+    int waiting_writers = 0;
 
-void fair_rwlock_init(FairRWLock* lock) {
-    pthread_mutex_init(&lock->mutex, NULL);
-    pthread_cond_init(&lock->readers_cond, NULL);
-    pthread_cond_init(&lock->writers_cond, NULL);
-    lock->readers = 0;
-    lock->writers = 0;
-    lock->waiting_writers = 0;
-}
+public:
+    void read_lock() {
+        std::unique_lock<std::mutex> lock(mutex);
 
-void fair_read_lock(FairRWLock* lock) {
-    pthread_mutex_lock(&lock->mutex);
+        // Wait if there's a writer or waiting writers
+        readers_cond.wait(lock, [this] {
+            return writers == 0 && waiting_writers == 0;
+        });
 
-    // Wait if there's a writer or waiting writers
-    while (lock->writers > 0 || lock->waiting_writers > 0) {
-        pthread_cond_wait(&lock->readers_cond, &lock->mutex);
+        readers++;
     }
 
-    lock->readers++;
-    pthread_mutex_unlock(&lock->mutex);
-}
+    void read_unlock() {
+        std::lock_guard<std::mutex> lock(mutex);
+        readers--;
 
-void fair_read_unlock(FairRWLock* lock) {
-    pthread_mutex_lock(&lock->mutex);
-    lock->readers--;
-
-    if (lock->readers == 0 && lock->waiting_writers > 0) {
-        // Wake a waiting writer
-        pthread_cond_signal(&lock->writers_cond);
+        if (readers == 0 && waiting_writers > 0) {
+            // Wake a waiting writer
+            writers_cond.notify_one();
+        }
     }
 
-    pthread_mutex_unlock(&lock->mutex);
-}
+    void write_lock() {
+        std::unique_lock<std::mutex> lock(mutex);
+        waiting_writers++;
 
-void fair_write_lock(FairRWLock* lock) {
-    pthread_mutex_lock(&lock->mutex);
-    lock->waiting_writers++;
+        // Wait for readers and writers to finish
+        writers_cond.wait(lock, [this] {
+            return readers == 0 && writers == 0;
+        });
 
-    // Wait for readers and writers to finish
-    while (lock->readers > 0 || lock->writers > 0) {
-        pthread_cond_wait(&lock->writers_cond, &lock->mutex);
+        waiting_writers--;
+        writers++;
     }
 
-    lock->waiting_writers--;
-    lock->writers++;
-    pthread_mutex_unlock(&lock->mutex);
-}
+    void write_unlock() {
+        std::lock_guard<std::mutex> lock(mutex);
+        writers--;
 
-void fair_write_unlock(FairRWLock* lock) {
-    pthread_mutex_lock(&lock->mutex);
-    lock->writers--;
-
-    if (lock->waiting_writers > 0) {
-        // Prefer waiting writers
-        pthread_cond_signal(&lock->writers_cond);
-    } else {
-        // Wake all waiting readers
-        pthread_cond_broadcast(&lock->readers_cond);
+        if (waiting_writers > 0) {
+            // Prefer waiting writers
+            writers_cond.notify_one();
+        } else {
+            // Wake all waiting readers
+            readers_cond.notify_all();
+        }
     }
-
-    pthread_mutex_unlock(&lock->mutex);
-}
+};
 
 // Writers won't starve - they're preferred after current readers
 ```
@@ -538,30 +503,33 @@ void fair_write_unlock(FairRWLock* lock) {
 
 시간이 지남에 따라 대기 중인 스레드의 우선순위를 증가시킵니다.
 
-```c
-#include <time.h>
-#include <pthread.h>
+```cpp
+#include <chrono>
+#include <functional>
+#include <vector>
 
-typedef struct {
-    void (*function)(void*);
-    void* arg;
+struct AgingTask {
+    std::function<void()> function;
     int base_priority;
-    time_t enqueue_time;
-} AgingTask;
+    std::chrono::time_point<std::chrono::steady_clock> enqueue_time;
+};
 
-int effective_priority(AgingTask* task) {
-    time_t age = time(NULL) - task->enqueue_time;
+int effective_priority(const AgingTask& task) {
+    auto now = std::chrono::steady_clock::now();
+    auto age = std::chrono::duration_cast<std::chrono::seconds>(now - task.enqueue_time);
     // Increase priority by 1 every 10 seconds
-    int age_bonus = age / 10;
-    return task->base_priority + age_bonus;
+    int age_bonus = age.count() / 10;
+    return task.base_priority + age_bonus;
 }
 
-AgingTask* get_next_task(AgingTask* queue, int size) {
-    int best_idx = 0;
-    int best_priority = effective_priority(&queue[0]);
+AgingTask* get_next_task(std::vector<AgingTask>& queue) {
+    if (queue.empty()) return nullptr;
 
-    for (int i = 1; i < size; i++) {
-        int priority = effective_priority(&queue[i]);
+    int best_idx = 0;
+    int best_priority = effective_priority(queue[0]);
+
+    for (size_t i = 1; i < queue.size(); i++) {
+        int priority = effective_priority(queue[i]);
         if (priority > best_priority) {
             best_priority = priority;
             best_idx = i;
@@ -579,43 +547,29 @@ AgingTask* get_next_task(AgingTask* queue, int size) {
 
 각 스레드에 타임 슬라이스를 부여합니다.
 
-```c
-#include <pthread.h>
-#include <signal.h>
-#include <time.h>
+```cpp
+#include <thread>
+#include <vector>
+#include <chrono>
 
-#define NUM_THREADS 5
-#define TIME_SLICE_MS 100
+constexpr int NUM_THREADS = 5;
+constexpr int TIME_SLICE_MS = 100;
 
-pthread_t threads[NUM_THREADS];
+std::vector<std::thread> threads;
 int current_thread = 0;
 
-void switch_thread(int sig) {
-    // Pause current thread
-    pthread_kill(threads[current_thread], SIGSTOP);
-
-    // Switch to next thread
-    current_thread = (current_thread + 1) % NUM_THREADS;
-
-    // Resume next thread
-    pthread_kill(threads[current_thread], SIGCONT);
-}
-
 void setup_round_robin() {
-    struct sigaction sa;
-    sa.sa_handler = switch_thread;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-    sigaction(SIGALRM, &sa, NULL);
-
-    struct itimerval timer;
-    timer.it_value.tv_sec = 0;
-    timer.it_value.tv_usec = TIME_SLICE_MS * 1000;
-    timer.it_interval = timer.it_value;
-    setitimer(ITIMER_REAL, &timer, NULL);
+    // Note: C++ standard library doesn't provide direct thread
+    // suspension/resumption. This requires platform-specific code.
+    // On POSIX systems, you would use pthread_kill with SIGSTOP/SIGCONT
+    // On Windows, you would use SuspendThread/ResumeThread
+    //
+    // This is a conceptual example - actual implementation would need
+    // platform-specific code or a cooperative scheduling approach
 }
 
 // All threads get equal CPU time - no starvation
+// Note: Preemptive scheduling requires OS/platform-specific APIs
 ```
 
 ### 해결책 5: 2단계 피드백 큐
@@ -668,32 +622,34 @@ Task* get_next_with_feedback() {
 
 ### 1. 대기 시간 모니터링
 
-```c
-#include <time.h>
-#include <stdio.h>
+```cpp
+#include <chrono>
+#include <iostream>
+#include <thread>
+#include <vector>
+#include <string>
 
-#define STARVATION_THRESHOLD_MS 5000
+constexpr int STARVATION_THRESHOLD_MS = 5000;
 
-typedef struct {
-    pthread_t thread_id;
-    time_t wait_start;
-    const char* resource_name;
-} WaitInfo;
+struct WaitInfo {
+    std::thread::id thread_id;
+    std::chrono::time_point<std::chrono::steady_clock> wait_start;
+    std::string resource_name;
+};
 
-WaitInfo waiting_threads[100];
-int num_waiting = 0;
+std::vector<WaitInfo> waiting_threads;
 
 void monitor_wait_times() {
-    time_t now = time(NULL);
+    auto now = std::chrono::steady_clock::now();
 
-    for (int i = 0; i < num_waiting; i++) {
-        time_t wait_time = now - waiting_threads[i].wait_start;
+    for (const auto& info : waiting_threads) {
+        auto wait_time = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - info.wait_start);
 
-        if (wait_time > STARVATION_THRESHOLD_MS / 1000) {
-            printf("STARVATION ALERT: Thread %lu waiting %ld seconds for %s\n",
-                   waiting_threads[i].thread_id,
-                   wait_time,
-                   waiting_threads[i].resource_name);
+        if (wait_time.count() > STARVATION_THRESHOLD_MS) {
+            std::cout << "STARVATION ALERT: Thread " << info.thread_id
+                      << " waiting " << wait_time.count() / 1000
+                      << " seconds for " << info.resource_name << "\n";
         }
     }
 }
@@ -701,33 +657,35 @@ void monitor_wait_times() {
 
 ### 2. 공정성 메트릭
 
-```c
-typedef struct {
+```cpp
+#include <vector>
+#include <iostream>
+
+struct ThreadStats {
     int thread_id;
     int acquisitions;
     long total_hold_time;
     long total_wait_time;
-} ThreadStats;
+};
 
-void calculate_fairness(ThreadStats* stats, int num_threads) {
+void calculate_fairness(const std::vector<ThreadStats>& stats) {
     long total_acquisitions = 0;
-    long avg_acquisitions = 0;
 
-    for (int i = 0; i < num_threads; i++) {
-        total_acquisitions += stats[i].acquisitions;
+    for (const auto& stat : stats) {
+        total_acquisitions += stat.acquisitions;
     }
-    avg_acquisitions = total_acquisitions / num_threads;
+    long avg_acquisitions = total_acquisitions / stats.size();
 
-    printf("Fairness Analysis:\n");
-    for (int i = 0; i < num_threads; i++) {
-        double deviation = (double)(stats[i].acquisitions - avg_acquisitions)
+    std::cout << "Fairness Analysis:\n";
+    for (const auto& stat : stats) {
+        double deviation = static_cast<double>(stat.acquisitions - avg_acquisitions)
                           / avg_acquisitions * 100;
 
-        printf("Thread %d: %d acquisitions (%.1f%% from average)\n",
-               stats[i].thread_id, stats[i].acquisitions, deviation);
+        std::cout << "Thread " << stat.thread_id << ": " << stat.acquisitions
+                  << " acquisitions (" << deviation << "% from average)\n";
 
         if (deviation < -50) {
-            printf("  WARNING: Potential starvation!\n");
+            std::cout << "  WARNING: Potential starvation!\n";
         }
     }
 }

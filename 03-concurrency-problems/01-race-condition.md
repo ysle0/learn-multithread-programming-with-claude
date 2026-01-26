@@ -52,30 +52,27 @@ Thread 2:      [─R─][─+─][─W─]      [─R─][─+─][─W─]
 
 가장 일반적인 유형으로, 여러 스레드가 값을 읽고, 수정하고, 다시 쓰는 경우입니다.
 
-```c
+```cpp
 // 문제: counter에 대한 Race Condition
-#include <pthread.h>
-#include <stdio.h>
+#include <thread>
+#include <iostream>
 
 int counter = 0;
 
-void* increment(void* arg) {
+void increment() {
     for (int i = 0; i < 1000000; i++) {
         counter++;  // 원자적이지 않음: read, increment, write
     }
-    return NULL;
 }
 
 int main() {
-    pthread_t t1, t2;
+    std::thread t1(increment);
+    std::thread t2(increment);
 
-    pthread_create(&t1, NULL, increment, NULL);
-    pthread_create(&t2, NULL, increment, NULL);
+    t1.join();
+    t2.join();
 
-    pthread_join(t1, NULL);
-    pthread_join(t2, NULL);
-
-    printf("Counter: %d (기대값: 2000000)\n", counter);
+    std::cout << "Counter: " << counter << " (기대값: 2000000)\n";
     // 출력 결과 다양: 1000000, 1500000, 1850000, 등
     return 0;
 }
@@ -92,64 +89,57 @@ MOV  [counter], eax   ; 메모리에 다시 쓰기
 ```
 
 **해결책 1: Mutex 사용**
-```c
-#include <pthread.h>
-#include <stdio.h>
+```cpp
+#include <thread>
+#include <mutex>
+#include <iostream>
 
 int counter = 0;
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+std::mutex mutex;
 
-void* increment(void* arg) {
+void increment() {
     for (int i = 0; i < 1000000; i++) {
-        pthread_mutex_lock(&mutex);
+        std::lock_guard<std::mutex> lock(mutex);
         counter++;
-        pthread_mutex_unlock(&mutex);
     }
-    return NULL;
 }
 
 int main() {
-    pthread_t t1, t2;
+    std::thread t1(increment);
+    std::thread t2(increment);
 
-    pthread_create(&t1, NULL, increment, NULL);
-    pthread_create(&t2, NULL, increment, NULL);
+    t1.join();
+    t2.join();
 
-    pthread_join(t1, NULL);
-    pthread_join(t2, NULL);
-
-    printf("Counter: %d (기대값: 2000000)\n", counter);
+    std::cout << "Counter: " << counter << " (기대값: 2000000)\n";
     // 출력: 항상 2000000
 
-    pthread_mutex_destroy(&mutex);
     return 0;
 }
 ```
 
 **해결책 2: Atomic 연산 사용**
-```c
-#include <pthread.h>
-#include <stdatomic.h>
-#include <stdio.h>
+```cpp
+#include <thread>
+#include <atomic>
+#include <iostream>
 
-atomic_int counter = 0;
+std::atomic<int> counter = 0;
 
-void* increment(void* arg) {
+void increment() {
     for (int i = 0; i < 1000000; i++) {
-        atomic_fetch_add(&counter, 1);  // 원자적 연산
+        counter.fetch_add(1);  // 원자적 연산
     }
-    return NULL;
 }
 
 int main() {
-    pthread_t t1, t2;
+    std::thread t1(increment);
+    std::thread t2(increment);
 
-    pthread_create(&t1, NULL, increment, NULL);
-    pthread_create(&t2, NULL, increment, NULL);
+    t1.join();
+    t2.join();
 
-    pthread_join(t1, NULL);
-    pthread_join(t2, NULL);
-
-    printf("Counter: %d (기대값: 2000000)\n", counter);
+    std::cout << "Counter: " << counter << " (기대값: 2000000)\n";
     // 출력: 항상 2000000
     return 0;
 }
@@ -159,45 +149,39 @@ int main() {
 
 스레드가 조건을 확인하고 그 결과에 따라 행동하지만, 확인과 행동 사이에 조건이 변경될 수 있는 경우입니다.
 
-```c
+```cpp
 // 문제: Check-then-act Race Condition
-#include <pthread.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <thread>
+#include <iostream>
 
-typedef struct {
+struct BankAccount {
     int balance;
-} BankAccount;
+};
 
 BankAccount account = {1000};
 
-void* withdraw(void* arg) {
-    int amount = *(int*)arg;
-
+void withdraw(int amount) {
     // 확인 (CHECK)
     if (account.balance >= amount) {
         // 여기서 컨텍스트 스위치 발생 가능!
         // 행동 (ACT)
         account.balance -= amount;
-        printf("출금 %d원, 잔액: %d원\n", amount, account.balance);
+        std::cout << "출금 " << amount << "원, 잔액: " << account.balance << "원\n";
     } else {
-        printf("잔액 부족\n");
+        std::cout << "잔액 부족\n";
     }
-
-    return NULL;
 }
 
 int main() {
-    pthread_t t1, t2;
     int amount1 = 600, amount2 = 600;
 
-    pthread_create(&t1, NULL, withdraw, &amount1);
-    pthread_create(&t2, NULL, withdraw, &amount2);
+    std::thread t1(withdraw, amount1);
+    std::thread t2(withdraw, amount2);
 
-    pthread_join(t1, NULL);
-    pthread_join(t2, NULL);
+    t1.join();
+    t2.join();
 
-    printf("최종 잔액: %d원 (기대값: >= 0)\n", account.balance);
+    std::cout << "최종 잔액: " << account.balance << "원 (기대값: >= 0)\n";
     // 출력 가능: 최종 잔액: -200원 (초과 인출!)
     return 0;
 }
@@ -217,53 +201,45 @@ Thread 1                    Thread 2                    Balance
 ```
 
 **해결책: Atomic Check-and-Act**
-```c
-#include <pthread.h>
-#include <stdio.h>
-#include <stdbool.h>
+```cpp
+#include <thread>
+#include <mutex>
+#include <iostream>
 
-typedef struct {
+struct BankAccount {
     int balance;
-    pthread_mutex_t mutex;
-} BankAccount;
+    std::mutex mutex;
+};
 
-BankAccount account = {1000, PTHREAD_MUTEX_INITIALIZER};
+BankAccount account = {1000};
 
 bool withdraw(int amount) {
-    pthread_mutex_lock(&account.mutex);
+    std::lock_guard<std::mutex> lock(account.mutex);
 
     bool success = false;
     if (account.balance >= amount) {
         account.balance -= amount;
         success = true;
-        printf("출금 %d원, 잔액: %d원\n", amount, account.balance);
+        std::cout << "출금 " << amount << "원, 잔액: " << account.balance << "원\n";
     } else {
-        printf("잔액 부족\n");
+        std::cout << "잔액 부족\n";
     }
 
-    pthread_mutex_unlock(&account.mutex);
     return success;
 }
 
-void* withdraw_thread(void* arg) {
-    withdraw(*(int*)arg);
-    return NULL;
-}
-
 int main() {
-    pthread_t t1, t2;
     int amount1 = 600, amount2 = 600;
 
-    pthread_create(&t1, NULL, withdraw_thread, &amount1);
-    pthread_create(&t2, NULL, withdraw_thread, &amount2);
+    std::thread t1(withdraw, amount1);
+    std::thread t2(withdraw, amount2);
 
-    pthread_join(t1, NULL);
-    pthread_join(t2, NULL);
+    t1.join();
+    t2.join();
 
-    printf("최종 잔액: %d원\n", account.balance);
+    std::cout << "최종 잔액: " << account.balance << "원\n";
     // 출력: 항상 >= 0
 
-    pthread_mutex_destroy(&account.mutex);
     return 0;
 }
 ```
@@ -272,27 +248,25 @@ int main() {
 
 싱글톤 패턴에서 발생하는 미묘한 Race Condition입니다.
 
-```c
+```cpp
 // 문제: 잘못된 Double-Checked Locking
-#include <pthread.h>
-#include <stdlib.h>
-#include <stdio.h>
+#include <mutex>
+#include <iostream>
 
-typedef struct {
+struct Singleton {
     int data;
-} Singleton;
+};
 
-Singleton* instance = NULL;
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+Singleton* instance = nullptr;
+std::mutex mutex;
 
 Singleton* get_instance() {
-    if (instance == NULL) {  // 첫 번째 확인 (동기화 안됨)
-        pthread_mutex_lock(&mutex);
-        if (instance == NULL) {  // 두 번째 확인
-            instance = malloc(sizeof(Singleton));
+    if (instance == nullptr) {  // 첫 번째 확인 (동기화 안됨)
+        std::lock_guard<std::mutex> lock(mutex);
+        if (instance == nullptr) {  // 두 번째 확인
+            instance = new Singleton();
             instance->data = 42;  // 초기화
         }
-        pthread_mutex_unlock(&mutex);
     }
     return instance;
 }
@@ -301,34 +275,32 @@ Singleton* get_instance() {
 // 1. 메모리 할당
 // 2. instance에 할당
 // 3. data 초기화
-// Thread 2가 NULL이 아니지만 초기화되지 않은 instance를 볼 수 있음!
+// Thread 2가 nullptr이 아니지만 초기화되지 않은 instance를 볼 수 있음!
 ```
 
 **해결책: Atomic 연산 사용**
-```c
-#include <pthread.h>
-#include <stdatomic.h>
-#include <stdlib.h>
+```cpp
+#include <mutex>
+#include <atomic>
 
-typedef struct {
+struct Singleton {
     int data;
-} Singleton;
+};
 
-atomic_uintptr_t instance = 0;
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+std::atomic<Singleton*> instance{nullptr};
+std::mutex mutex;
 
 Singleton* get_instance() {
-    Singleton* tmp = (Singleton*)atomic_load(&instance);
+    Singleton* tmp = instance.load();
 
-    if (tmp == NULL) {
-        pthread_mutex_lock(&mutex);
-        tmp = (Singleton*)atomic_load(&instance);
-        if (tmp == NULL) {
-            tmp = malloc(sizeof(Singleton));
+    if (tmp == nullptr) {
+        std::lock_guard<std::mutex> lock(mutex);
+        tmp = instance.load();
+        if (tmp == nullptr) {
+            tmp = new Singleton();
             tmp->data = 42;
-            atomic_store(&instance, (uintptr_t)tmp);
+            instance.store(tmp);
         }
-        pthread_mutex_unlock(&mutex);
     }
 
     return tmp;
@@ -339,21 +311,18 @@ Singleton* get_instance() {
 
 ### 예제 1: 스레드 안전 스택
 
-```c
+```cpp
 // 문제: 스택 연산의 Race Condition
-#include <pthread.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdbool.h>
+#include <array>
 
-#define MAX_SIZE 100
+constexpr int MAX_SIZE = 100;
 
-typedef struct {
-    int items[MAX_SIZE];
+struct Stack {
+    std::array<int, MAX_SIZE> items;
     int top;
-} Stack;
+};
 
-Stack stack = {{0}, -1};
+Stack stack = {{}, -1};
 
 bool push(int value) {
     if (stack.top >= MAX_SIZE - 1) return false;
@@ -375,65 +344,55 @@ bool pop(int* value) {
 ```
 
 **해결책: Lock 기반 스레드 안전 스택**
-```c
-#include <pthread.h>
-#include <stdio.h>
-#include <stdbool.h>
+```cpp
+#include <mutex>
+#include <array>
 
-#define MAX_SIZE 100
+constexpr int MAX_SIZE = 100;
 
-typedef struct {
-    int items[MAX_SIZE];
+class ThreadSafeStack {
+private:
+    std::array<int, MAX_SIZE> items;
     int top;
-    pthread_mutex_t mutex;
-} ThreadSafeStack;
+    std::mutex mutex;
 
-void stack_init(ThreadSafeStack* s) {
-    s->top = -1;
-    pthread_mutex_init(&s->mutex, NULL);
-}
+public:
+    ThreadSafeStack() : top(-1) {}
 
-bool stack_push(ThreadSafeStack* s, int value) {
-    pthread_mutex_lock(&s->mutex);
+    bool push(int value) {
+        std::lock_guard<std::mutex> lock(mutex);
 
-    bool success = false;
-    if (s->top < MAX_SIZE - 1) {
-        s->top++;
-        s->items[s->top] = value;
-        success = true;
+        if (top >= MAX_SIZE - 1) {
+            return false;
+        }
+
+        top++;
+        items[top] = value;
+        return true;
     }
 
-    pthread_mutex_unlock(&s->mutex);
-    return success;
-}
+    bool pop(int* value) {
+        std::lock_guard<std::mutex> lock(mutex);
 
-bool stack_pop(ThreadSafeStack* s, int* value) {
-    pthread_mutex_lock(&s->mutex);
+        if (top < 0) {
+            return false;
+        }
 
-    bool success = false;
-    if (s->top >= 0) {
-        *value = s->items[s->top];
-        s->top--;
-        success = true;
+        *value = items[top];
+        top--;
+        return true;
     }
-
-    pthread_mutex_unlock(&s->mutex);
-    return success;
-}
-
-void stack_destroy(ThreadSafeStack* s) {
-    pthread_mutex_destroy(&s->mutex);
-}
+};
 ```
 
 ### 예제 2: Reference Counting
 
-```c
+```cpp
 // 문제: Reference Counting의 Race Condition
-typedef struct {
+struct SharedObject {
     int* data;
     int ref_count;
-} SharedObject;
+};
 
 void acquire(SharedObject* obj) {
     obj->ref_count++;  // RACE CONDITION!
@@ -442,31 +401,30 @@ void acquire(SharedObject* obj) {
 void release(SharedObject* obj) {
     obj->ref_count--;  // RACE CONDITION!
     if (obj->ref_count == 0) {
-        free(obj->data);
-        free(obj);
+        delete obj->data;
+        delete obj;
     }
 }
 ```
 
 **해결책: Atomic Reference Counting**
-```c
-#include <stdatomic.h>
-#include <stdlib.h>
+```cpp
+#include <atomic>
 
-typedef struct {
+struct SharedObject {
     int* data;
-    atomic_int ref_count;
-} SharedObject;
+    std::atomic<int> ref_count;
+};
 
 void acquire(SharedObject* obj) {
-    atomic_fetch_add(&obj->ref_count, 1);
+    obj->ref_count.fetch_add(1);
 }
 
 void release(SharedObject* obj) {
-    if (atomic_fetch_sub(&obj->ref_count, 1) == 1) {
+    if (obj->ref_count.fetch_sub(1) == 1) {
         // 마지막 참조였음
-        free(obj->data);
-        free(obj);
+        delete obj->data;
+        delete obj;
     }
 }
 ```
@@ -512,24 +470,25 @@ gcc -fsanitize=thread -g -O1 race_condition.c -o race_condition -lpthread
 
 ### 4. 스트레스 테스팅
 
-```c
-#include <pthread.h>
-#include <stdio.h>
+```cpp
+#include <thread>
+#include <vector>
+#include <iostream>
 
-#define NUM_THREADS 100
-#define ITERATIONS 10000
+constexpr int NUM_THREADS = 100;
+constexpr int ITERATIONS = 10000;
 
 // Race 가능성이 있는 코드 여기에
 
 int main() {
-    pthread_t threads[NUM_THREADS];
+    std::vector<std::thread> threads;
 
     for (int i = 0; i < NUM_THREADS; i++) {
-        pthread_create(&threads[i], NULL, test_function, NULL);
+        threads.emplace_back(test_function);
     }
 
-    for (int i = 0; i < NUM_THREADS; i++) {
-        pthread_join(threads[i], NULL);
+    for (auto& t : threads) {
+        t.join();
     }
 
     // 결과 검증
@@ -542,30 +501,29 @@ int main() {
 
 ### 1. 공유 상태 최소화
 
-```c
+```cpp
 // 좋음: Thread-Local Storage
-__thread int thread_counter = 0;
+thread_local int thread_counter = 0;
 
-void* increment(void* arg) {
+void increment() {
     for (int i = 0; i < 1000000; i++) {
         thread_counter++;  // 동기화 불필요
     }
-    return NULL;
 }
 ```
 
 ### 2. 불변 데이터 구조
 
-```c
+```cpp
 // 좋음: 불변 설계
-typedef struct Node {
+struct Node {
     int value;
-    struct Node* next;
-} Node;
+    Node* next;
+};
 
 // 수정하는 대신 새 노드 생성
 Node* prepend(Node* head, int value) {
-    Node* new_node = malloc(sizeof(Node));
+    Node* new_node = new Node();
     new_node->value = value;
     new_node->next = head;
     return new_node;  // 새 head 반환
@@ -574,75 +532,73 @@ Node* prepend(Node* head, int value) {
 
 ### 3. 간단한 경우 Atomic 연산
 
-```c
-#include <stdatomic.h>
+```cpp
+#include <atomic>
 
-atomic_int counter = 0;
+std::atomic<int> counter = 0;
 
 // 간단한 증가 - mutex 불필요
-atomic_fetch_add(&counter, 1);
+counter.fetch_add(1);
 
 // 더 복잡한 연산을 위한 Compare-and-swap
 int expected = 5;
 int desired = 10;
-atomic_compare_exchange_strong(&counter, &expected, desired);
+counter.compare_exchange_strong(expected, desired);
 ```
 
 ### 4. Lock 세분성 (Lock Granularity)
 
-```c
+```cpp
 // 나쁨: 거친 세분성 locking
-pthread_mutex_t global_lock;
+std::mutex global_lock;
 
 void operation1() {
-    pthread_mutex_lock(&global_lock);
+    std::lock_guard<std::mutex> lock(global_lock);
     // ... 많은 작업 ...
-    pthread_mutex_unlock(&global_lock);
 }
 
 // 좋음: 세밀한 세분성 locking
-typedef struct {
+struct DataItem {
     int data;
-    pthread_mutex_t mutex;
-} DataItem;
+    std::mutex mutex;
+};
 
 DataItem items[100];
 
 void operation2(int index) {
-    pthread_mutex_lock(&items[index].mutex);
+    std::lock_guard<std::mutex> lock(items[index].mutex);
     // ... 특정 항목에 대한 작업 ...
-    pthread_mutex_unlock(&items[index].mutex);
 }
 ```
 
 ### 5. Lock-Free 자료구조
 
-```c
+```cpp
 // CAS를 사용한 Lock-Free 스택
-#include <stdatomic.h>
-#include <stdlib.h>
+#include <atomic>
 
-typedef struct Node {
+struct Node {
     int value;
-    struct Node* next;
-} Node;
+    Node* next;
+};
 
-typedef struct {
-    atomic_uintptr_t head;
-} LockFreeStack;
+class LockFreeStack {
+private:
+    std::atomic<Node*> head;
 
-void push(LockFreeStack* stack, int value) {
-    Node* new_node = malloc(sizeof(Node));
-    new_node->value = value;
+public:
+    LockFreeStack() : head(nullptr) {}
 
-    Node* old_head;
-    do {
-        old_head = (Node*)atomic_load(&stack->head);
-        new_node->next = old_head;
-    } while (!atomic_compare_exchange_weak(&stack->head,
-                                          (uintptr_t*)&old_head,
-                                          (uintptr_t)new_node));
-}
+    void push(int value) {
+        Node* new_node = new Node();
+        new_node->value = value;
+
+        Node* old_head = head.load();
+        do {
+            new_node->next = old_head;
+        } while (!head.compare_exchange_weak(old_head, new_node));
+    }
+};
 ```
 
 ## 성능 고려사항
@@ -678,7 +634,7 @@ long long temp = value;  // 읽을 수 있음: 0x0000000000000001
 
 ### 함정 2: Volatile이 스레드 안전을 의미하지 않음
 
-```c
+```cpp
 // 잘못됨: volatile은 동기화를 제공하지 않음
 volatile int flag = 0;
 
@@ -695,7 +651,7 @@ use(data);  // data = 42를 보장받지 못함!
 
 ### 함정 3: 컴파일러/CPU 재배치
 
-```c
+```cpp
 // 컴파일러나 CPU가 재배치 가능
 int data = 0;
 int ready = 0;
@@ -709,25 +665,24 @@ while (ready == 0);
 use(data);  // 42를 보지 못할 수 있음!
 
 // 해결책: 적절한 메모리 순서로 Atomic 사용
-atomic_store_explicit(&ready, 1, memory_order_release);
-while (atomic_load_explicit(&ready, memory_order_acquire) == 0);
+std::atomic<int> ready_atomic{0};
+ready_atomic.store(1, std::memory_order_release);
+while (ready_atomic.load(std::memory_order_acquire) == 0);
 ```
 
 ## 연습 문제
 
 ### 연습 1: 버그 수정
-```c
+```cpp
 // Race Condition을 찾아 수정하세요
-#include <pthread.h>
+#include <thread>
 
 int balance = 1000;
 
-void* transfer(void* arg) {
-    int amount = *(int*)arg;
+void transfer(int amount) {
     int temp = balance;
     temp -= amount;
     balance = temp;
-    return NULL;
 }
 ```
 

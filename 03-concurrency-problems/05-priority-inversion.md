@@ -169,81 +169,72 @@ Timeline:
 
 ### 예제 1: 우선순위 역전 시연
 
-```c
-#include <pthread.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <sched.h>
+```cpp
+#include <thread>
+#include <mutex>
+#include <iostream>
+#include <chrono>
 
-pthread_mutex_t resource = PTHREAD_MUTEX_INITIALIZER;
+std::mutex resource;
 
-void set_thread_priority(int priority) {
-    struct sched_param param;
-    param.sched_priority = priority;
-    pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
-}
+// Note: C++ standard library doesn't provide cross-platform thread priority setting
+// This example demonstrates the concept, but actual priority setting requires
+// platform-specific code (e.g., pthread_setschedparam on POSIX, SetThreadPriority on Windows)
 
-void* low_priority_thread(void* arg) {
-    set_thread_priority(1);  // Lowest priority
-    printf("[L] Starting\n");
+void low_priority_thread() {
+    // set_thread_priority(1);  // Platform-specific - lowest priority
+    std::cout << "[L] Starting\n";
 
-    pthread_mutex_lock(&resource);
-    printf("[L] Acquired resource\n");
+    resource.lock();
+    std::cout << "[L] Acquired resource\n";
 
     // Simulate work with resource
-    printf("[L] Working with resource (5 seconds)...\n");
-    sleep(5);
+    std::cout << "[L] Working with resource (5 seconds)...\n";
+    std::this_thread::sleep_for(std::chrono::seconds(5));
 
-    printf("[L] Releasing resource\n");
-    pthread_mutex_unlock(&resource);
-
-    return NULL;
+    std::cout << "[L] Releasing resource\n";
+    resource.unlock();
 }
 
-void* medium_priority_thread(void* arg) {
-    set_thread_priority(50);  // Medium priority
-    sleep(1);  // Let low priority thread acquire lock first
+void medium_priority_thread() {
+    // set_thread_priority(50);  // Platform-specific - medium priority
+    std::this_thread::sleep_for(std::chrono::seconds(1));  // Let low priority thread acquire lock first
 
-    printf("[M] Starting - will preempt low priority!\n");
+    std::cout << "[M] Starting - will preempt low priority!\n";
 
     // Compute-intensive work (no shared resources)
-    printf("[M] Doing work (prevents low priority from finishing)...\n");
+    std::cout << "[M] Doing work (prevents low priority from finishing)...\n";
     for (volatile long i = 0; i < 1000000000L; i++);
 
-    printf("[M] Finished\n");
-    return NULL;
+    std::cout << "[M] Finished\n";
 }
 
-void* high_priority_thread(void* arg) {
-    set_thread_priority(99);  // Highest priority
-    sleep(2);  // Let low priority acquire lock, medium preempt
+void high_priority_thread() {
+    // set_thread_priority(99);  // Platform-specific - highest priority
+    std::this_thread::sleep_for(std::chrono::seconds(2));  // Let low priority acquire lock, medium preempt
 
-    printf("[H] Starting - NEED RESOURCE!\n");
+    std::cout << "[H] Starting - NEED RESOURCE!\n";
 
-    pthread_mutex_lock(&resource);
-    printf("[H] Finally acquired resource (DELAYED by medium!)\n");
+    resource.lock();
+    std::cout << "[H] Finally acquired resource (DELAYED by medium!)\n";
 
     // Critical work
-    printf("[H] Working\n");
+    std::cout << "[H] Working\n";
 
-    pthread_mutex_unlock(&resource);
-    printf("[H] Done\n");
-
-    return NULL;
+    resource.unlock();
+    std::cout << "[H] Done\n";
 }
 
 int main() {
-    pthread_t low, medium, high;
+    std::cout << "=== Demonstrating Priority Inversion ===\n";
 
-    printf("=== Demonstrating Priority Inversion ===\n");
+    std::thread low(low_priority_thread);
+    std::thread medium(medium_priority_thread);
+    std::thread high(high_priority_thread);
 
-    pthread_create(&low, NULL, low_priority_thread, NULL);
-    pthread_create(&medium, NULL, medium_priority_thread, NULL);
-    pthread_create(&high, NULL, high_priority_thread, NULL);
-
-    pthread_join(low, NULL);
-    pthread_join(medium, NULL);
-    pthread_join(high, NULL);
+    low.join();
+    medium.join();
+    high.join();
 
     return 0;
 }
@@ -254,138 +245,111 @@ int main() {
 
 ### 예제 2: 우선순위 상속 해결책
 
-```c
-#include <pthread.h>
-#include <stdio.h>
+```cpp
+#include <mutex>
+#include <thread>
+#include <iostream>
 
-typedef struct {
-    pthread_mutex_t mutex;
-    pthread_t owner;
+// Note: C++ standard library doesn't provide built-in priority inheritance
+// This is a conceptual example. Real implementation would require platform-specific
+// APIs (e.g., pthread_mutexattr_setprotocol with PTHREAD_PRIO_INHERIT on POSIX)
+
+class PriorityInheritanceMutex {
+private:
+    std::mutex mutex;
+    std::thread::id owner;
     int owner_original_priority;
     int inherited_priority;
-} PriorityInheritanceMutex;
 
-void pi_mutex_init(PriorityInheritanceMutex* pim) {
-    pthread_mutexattr_t attr;
-    pthread_mutexattr_init(&attr);
+public:
+    PriorityInheritanceMutex()
+        : owner_original_priority(0), inherited_priority(0) {}
 
-    // Enable priority inheritance protocol
-    pthread_mutexattr_setprotocol(&attr, PTHREAD_PRIO_INHERIT);
+    void lock() {
+        auto self = std::this_thread::get_id();
+        // int my_priority = get_thread_priority(self);  // Platform-specific
 
-    pthread_mutex_init(&pim->mutex, &attr);
-    pthread_mutexattr_destroy(&attr);
-
-    pim->owner = 0;
-    pim->owner_original_priority = 0;
-    pim->inherited_priority = 0;
-}
-
-void pi_mutex_lock(PriorityInheritanceMutex* pim) {
-    pthread_t self = pthread_self();
-    struct sched_param my_param;
-    int my_policy;
-    pthread_getschedparam(self, &my_policy, &my_param);
-
-    // Try to acquire
-    if (pthread_mutex_trylock(&pim->mutex) == 0) {
-        // Got it immediately
-        pim->owner = self;
-        pim->owner_original_priority = my_param.sched_priority;
-        return;
-    }
-
-    // Someone else owns it - boost their priority
-    if (pim->owner) {
-        struct sched_param owner_param;
-        int owner_policy;
-        pthread_getschedparam(pim->owner, &owner_policy, &owner_param);
-
-        if (my_param.sched_priority > owner_param.sched_priority) {
-            // Boost owner's priority to our level
-            owner_param.sched_priority = my_param.sched_priority;
-            pthread_setschedparam(pim->owner, owner_policy, &owner_param);
-
-            printf("Priority inheritance: Boosted owner to priority %d\n",
-                   my_param.sched_priority);
-        }
-    }
-
-    // Now wait for lock
-    pthread_mutex_lock(&pim->mutex);
-    pim->owner = self;
-    pim->owner_original_priority = my_param.sched_priority;
-}
-
-void pi_mutex_unlock(PriorityInheritanceMutex* pim) {
-    pthread_t self = pthread_self();
-
-    if (pim->owner == self) {
-        // Restore original priority if it was boosted
-        struct sched_param param;
-        int policy;
-        pthread_getschedparam(self, &policy, &param);
-
-        if (param.sched_priority != pim->owner_original_priority) {
-            param.sched_priority = pim->owner_original_priority;
-            pthread_setschedparam(self, policy, &param);
-
-            printf("Priority restored to %d\n", pim->owner_original_priority);
+        // Try to acquire
+        if (mutex.try_lock()) {
+            // Got it immediately
+            owner = self;
+            // owner_original_priority = my_priority;
+            return;
         }
 
-        pim->owner = 0;
+        // Someone else owns it - boost their priority
+        // This would require platform-specific code to:
+        // 1. Get owner's current priority
+        // 2. Compare with our priority
+        // 3. If ours is higher, boost owner's priority
+        // Platform-specific: pthread_getschedparam, pthread_setschedparam
+
+        // Now wait for lock
+        mutex.lock();
+        owner = self;
+        // owner_original_priority = my_priority;
     }
 
-    pthread_mutex_unlock(&pim->mutex);
-}
+    void unlock() {
+        auto self = std::this_thread::get_id();
+
+        if (owner == self) {
+            // Restore original priority if it was boosted
+            // Platform-specific code would be needed here
+
+            owner = std::thread::id();
+        }
+
+        mutex.unlock();
+    }
+};
 
 // This implementation automatically boosts the priority
 // of the lock holder when a higher priority thread waits
+// Note: Full implementation requires platform-specific APIs
 ```
 
 ### 예제 3: 우선순위 상한 프로토콜
 
 우선순위 상속의 대안입니다.
 
-```c
-#include <pthread.h>
-#include <stdio.h>
+```cpp
+#include <mutex>
+#include <iostream>
 
-typedef struct {
-    pthread_mutex_t mutex;
+// Note: C++ standard library doesn't provide built-in priority ceiling
+// This is a conceptual example. Real implementation would require platform-specific
+// APIs (e.g., pthread_mutexattr_setprotocol with PTHREAD_PRIO_PROTECT on POSIX)
+
+class PriorityCeilingMutex {
+private:
+    std::mutex mutex;
     int ceiling_priority;
-} PriorityCeilingMutex;
 
-void pc_mutex_init(PriorityCeilingMutex* pcm, int ceiling) {
-    pthread_mutexattr_t attr;
-    pthread_mutexattr_init(&attr);
+public:
+    PriorityCeilingMutex(int ceiling) : ceiling_priority(ceiling) {}
 
-    // Set priority ceiling protocol
-    pthread_mutexattr_setprotocol(&attr, PTHREAD_PRIO_PROTECT);
-    pthread_mutexattr_setprioceiling(&attr, ceiling);
+    void lock() {
+        // Thread automatically runs at ceiling priority while holding lock
+        // Platform-specific code needed to set thread priority
+        mutex.lock();
 
-    pthread_mutex_init(&pcm->mutex, &attr);
-    pthread_mutexattr_destroy(&attr);
+        std::cout << "Lock acquired - running at ceiling priority "
+                  << ceiling_priority << "\n";
+    }
 
-    pcm->ceiling_priority = ceiling;
-}
-
-void pc_mutex_lock(PriorityCeilingMutex* pcm) {
-    // Thread automatically runs at ceiling priority while holding lock
-    pthread_mutex_lock(&pcm->mutex);
-
-    printf("Lock acquired - running at ceiling priority %d\n",
-           pcm->ceiling_priority);
-}
-
-void pc_mutex_unlock(PriorityCeilingMutex* pcm) {
-    printf("Lock released - priority restored\n");
-    pthread_mutex_unlock(&pcm->mutex);
-}
+    void unlock() {
+        std::cout << "Lock released - priority restored\n";
+        mutex.unlock();
+        // Platform-specific code needed to restore original priority
+    }
+};
 
 // With priority ceiling:
 // - Lock holder always runs at ceiling priority
 // - No medium-priority thread can preempt
 // - Prevents priority inversion entirely!
+// Note: Full implementation requires platform-specific APIs
 ```
 
 ## 해결책 비교
@@ -613,36 +577,38 @@ void* user_interface(void* arg) {
 
 ### 1. 타임라인 분석
 
-```c
-#include <time.h>
-#include <stdio.h>
+```cpp
+#include <chrono>
+#include <iostream>
+#include <thread>
+#include <vector>
+#include <string>
 
-typedef struct {
-    pthread_t thread_id;
+struct LockEvent {
+    std::thread::id thread_id;
     int priority;
-    struct timespec lock_time;
-    struct timespec block_time;
-    const char* resource_name;
-} LockEvent;
+    std::chrono::time_point<std::chrono::steady_clock> lock_time;
+    std::chrono::time_point<std::chrono::steady_clock> block_time;
+    std::string resource_name;
+};
 
-LockEvent events[1000];
-int num_events = 0;
+std::vector<LockEvent> events;
 
 void analyze_priority_inversion() {
-    for (int i = 0; i < num_events - 1; i++) {
+    for (size_t i = 0; i < events.size() - 1; i++) {
         // Find cases where high priority blocks on low priority
         if (events[i].priority > events[i+1].priority &&
-            events[i].block_time.tv_sec > 0) {
+            events[i].block_time.time_since_epoch().count() > 0) {
 
             // Calculate blocking time
-            long block_duration =
-                (events[i+1].lock_time.tv_sec - events[i].block_time.tv_sec);
+            auto block_duration = std::chrono::duration_cast<std::chrono::seconds>(
+                events[i+1].lock_time - events[i].block_time);
 
-            printf("Priority Inversion Detected:\n");
-            printf("  High-priority thread %lu (priority %d)\n",
-                   events[i].thread_id, events[i].priority);
-            printf("  Blocked for %ld seconds\n", block_duration);
-            printf("  On resource: %s\n", events[i].resource_name);
+            std::cout << "Priority Inversion Detected:\n";
+            std::cout << "  High-priority thread " << events[i].thread_id
+                      << " (priority " << events[i].priority << ")\n";
+            std::cout << "  Blocked for " << block_duration.count() << " seconds\n";
+            std::cout << "  On resource: " << events[i].resource_name << "\n";
         }
     }
 }
@@ -737,43 +703,41 @@ void critical_operation() {
 
 ### 테스트 케이스 템플릿
 
-```c
-#include <pthread.h>
-#include <assert.h>
-#include <time.h>
+```cpp
+#include <thread>
+#include <chrono>
+#include <iostream>
 
 void test_priority_inversion() {
-    pthread_t low, medium, high;
-    struct timespec start, end;
-
     // Create threads with priorities: L=1, M=50, H=99
     // Low locks resource
     // Medium does work (no resource)
     // High waits for resource
 
-    clock_gettime(CLOCK_MONOTONIC, &start);
+    auto start = std::chrono::steady_clock::now();
 
-    pthread_create(&low, NULL, low_priority, NULL);
-    usleep(100000);  // Let low acquire lock
+    std::thread low(low_priority);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));  // Let low acquire lock
 
-    pthread_create(&medium, NULL, medium_priority, NULL);
-    usleep(100000);  // Let medium preempt
+    std::thread medium(medium_priority);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));  // Let medium preempt
 
-    pthread_create(&high, NULL, high_priority, NULL);
+    std::thread high(high_priority);
 
-    pthread_join(high, NULL);
-    clock_gettime(CLOCK_MONOTONIC, &end);
+    high.join();
+    auto end = std::chrono::steady_clock::now();
 
-    long duration = (end.tv_sec - start.tv_sec) * 1000000000L +
-                   (end.tv_nsec - start.tv_nsec);
+    auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
 
     // Without priority inheritance: duration >> expected
     // With priority inheritance: duration ~= expected
 
-    printf("High-priority thread completed in %ld ns\n", duration);
+    std::cout << "High-priority thread completed in " << duration.count() << " ns\n";
 
-    pthread_cancel(low);
-    pthread_cancel(medium);
+    // Note: C++ std::thread doesn't have cancellation like pthread_cancel
+    // Would need cooperative cancellation mechanism
+    low.detach();    // Or use condition variable to signal exit
+    medium.detach();
 }
 ```
 

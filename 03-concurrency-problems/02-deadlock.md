@@ -60,35 +60,35 @@ Cycle detected → Deadlock exists!
 
 자원을 공유할 수 없으며 - 한 번에 하나의 스레드만 자원을 사용할 수 있습니다.
 
-```c
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+```cpp
+std::mutex mutex;
 
 // Only ONE thread can hold this mutex
-pthread_mutex_lock(&mutex);
+mutex.lock();
 // Critical section - exclusive access
-pthread_mutex_unlock(&mutex);
+mutex.unlock();
 ```
 
 ### 2. 보유 및 대기
 
 최소한 하나의 자원을 보유한 스레드가 다른 스레드가 보유한 추가 자원을 획득하기 위해 대기합니다.
 
-```c
+```cpp
 // Thread 1 holds A and waits for B
-pthread_mutex_lock(&mutex_a);  // Holding A
+mutex_a.lock();  // Holding A
 // ... some work ...
-pthread_mutex_lock(&mutex_b);  // Waiting for B
+mutex_b.lock();  // Waiting for B
 ```
 
 ### 3. 비선점
 
 자원을 스레드로부터 강제로 제거할 수 없으며 - 자발적으로 해제되어야 합니다.
 
-```c
+```cpp
 // Once locked, cannot be taken away
-pthread_mutex_lock(&mutex);
+mutex.lock();
 // ... even if higher priority thread needs it ...
-pthread_mutex_unlock(&mutex);  // Must voluntarily release
+mutex.unlock();  // Must voluntarily release
 ```
 
 ### 4. 순환 대기
@@ -124,64 +124,56 @@ Circular dependency!
 
 ### 교착 상태 구현
 
-```c
-#include <pthread.h>
-#include <stdio.h>
-#include <unistd.h>
+```cpp
+#include <thread>
+#include <mutex>
+#include <iostream>
+#include <vector>
+#include <chrono>
 
-#define NUM_PHILOSOPHERS 5
+constexpr int NUM_PHILOSOPHERS = 5;
 
-pthread_mutex_t forks[NUM_PHILOSOPHERS];
+std::mutex forks[NUM_PHILOSOPHERS];
 
-void* philosopher(void* arg) {
-    int id = *(int*)arg;
+void philosopher(int id) {
     int left_fork = id;
     int right_fork = (id + 1) % NUM_PHILOSOPHERS;
 
-    while (1) {
+    while (true) {
         // Think
-        printf("Philosopher %d is thinking\n", id);
-        sleep(1);
+        std::cout << "Philosopher " << id << " is thinking\n";
+        std::this_thread::sleep_for(std::chrono::seconds(1));
 
         // Pick up left fork
-        printf("Philosopher %d picks up left fork %d\n", id, left_fork);
-        pthread_mutex_lock(&forks[left_fork]);
+        std::cout << "Philosopher " << id << " picks up left fork " << left_fork << "\n";
+        forks[left_fork].lock();
 
         // Pick up right fork - DEADLOCK CAN OCCUR HERE!
-        printf("Philosopher %d picks up right fork %d\n", id, right_fork);
-        pthread_mutex_lock(&forks[right_fork]);
+        std::cout << "Philosopher " << id << " picks up right fork " << right_fork << "\n";
+        forks[right_fork].lock();
 
         // Eat
-        printf("Philosopher %d is eating\n", id);
-        sleep(2);
+        std::cout << "Philosopher " << id << " is eating\n";
+        std::this_thread::sleep_for(std::chrono::seconds(2));
 
         // Put down forks
-        pthread_mutex_unlock(&forks[right_fork]);
-        pthread_mutex_unlock(&forks[left_fork]);
-        printf("Philosopher %d finished eating\n", id);
+        forks[right_fork].unlock();
+        forks[left_fork].unlock();
+        std::cout << "Philosopher " << id << " finished eating\n";
     }
-
-    return NULL;
 }
 
 int main() {
-    pthread_t philosophers[NUM_PHILOSOPHERS];
-    int ids[NUM_PHILOSOPHERS];
-
-    // Initialize forks
-    for (int i = 0; i < NUM_PHILOSOPHERS; i++) {
-        pthread_mutex_init(&forks[i], NULL);
-    }
+    std::vector<std::thread> philosophers;
 
     // Create philosophers
     for (int i = 0; i < NUM_PHILOSOPHERS; i++) {
-        ids[i] = i;
-        pthread_create(&philosophers[i], NULL, philosopher, &ids[i]);
+        philosophers.emplace_back(philosopher, i);
     }
 
     // Wait forever (will deadlock)
-    for (int i = 0; i < NUM_PHILOSOPHERS; i++) {
-        pthread_join(philosophers[i], NULL);
+    for (auto& p : philosophers) {
+        p.join();
     }
 
     return 0;
@@ -202,78 +194,79 @@ int main() {
 
 자원을 공유 가능하게 만듭니다 (항상 가능한 것은 아닙니다).
 
-```c
+```cpp
+#include <shared_mutex>
+
 // Use read-write locks for read-mostly data
-pthread_rwlock_t rwlock;
+std::shared_mutex rwlock;
 
 // Multiple readers can hold simultaneously
-pthread_rwlock_rdlock(&rwlock);  // Shared access
+rwlock.lock_shared();  // Shared access
 read_data();
-pthread_rwlock_unlock(&rwlock);
+rwlock.unlock_shared();
 
 // Writers still need exclusive access
-pthread_rwlock_wrlock(&rwlock);  // Exclusive access
+rwlock.lock();  // Exclusive access
 write_data();
-pthread_rwlock_unlock(&rwlock);
+rwlock.unlock();
 ```
 
 ### 전략 2: 보유 및 대기 제거
 
 모든 자원을 한 번에 획득하거나, 하나도 획득하지 않습니다.
 
-```c
+```cpp
 // SOLUTION: All-or-nothing resource acquisition
-pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t mutex_a = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t mutex_b = PTHREAD_MUTEX_INITIALIZER;
+std::mutex global_lock;
+std::mutex mutex_a;
+std::mutex mutex_b;
 
 void critical_section() {
     // Use a global lock to acquire both mutexes atomically
-    pthread_mutex_lock(&global_lock);
+    global_lock.lock();
 
-    pthread_mutex_lock(&mutex_a);
-    pthread_mutex_lock(&mutex_b);
+    mutex_a.lock();
+    mutex_b.lock();
 
-    pthread_mutex_unlock(&global_lock);
+    global_lock.unlock();
 
     // Work with both resources
     // ...
 
-    pthread_mutex_unlock(&mutex_b);
-    pthread_mutex_unlock(&mutex_a);
+    mutex_b.unlock();
+    mutex_a.unlock();
 }
 ```
 
 **trylock을 사용한 더 나은 접근:**
-```c
-#include <pthread.h>
-#include <stdbool.h>
-#include <time.h>
+```cpp
+#include <mutex>
+#include <chrono>
+#include <thread>
 
-bool acquire_both(pthread_mutex_t* m1, pthread_mutex_t* m2) {
-    pthread_mutex_lock(m1);
+bool acquire_both(std::mutex& m1, std::mutex& m2) {
+    m1.lock();
 
-    if (pthread_mutex_trylock(m2) == 0) {
+    if (m2.try_lock()) {
         return true;  // Got both locks
     }
 
     // Couldn't get second lock, release first
-    pthread_mutex_unlock(m1);
+    m1.unlock();
     return false;  // Failed to acquire both
 }
 
 void critical_section() {
-    while (!acquire_both(&mutex_a, &mutex_b)) {
+    while (!acquire_both(mutex_a, mutex_b)) {
         // Back off and retry
-        struct timespec ts = {0, 100000};  // 100 microseconds
-        nanosleep(&ts, NULL);
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
     }
 
     // Work with both resources
     // ...
 
-    pthread_mutex_unlock(&mutex_b);
-    pthread_mutex_unlock(&mutex_a);
+    mutex_b.unlock();
+    mutex_a.unlock();
 }
 ```
 
@@ -281,32 +274,30 @@ void critical_section() {
 
 타임아웃을 사용하여 대기를 포기합니다.
 
-```c
-#include <pthread.h>
-#include <time.h>
-#include <errno.h>
+```cpp
+#include <mutex>
+#include <chrono>
+#include <iostream>
 
 void critical_section_with_timeout() {
-    struct timespec timeout;
-    clock_gettime(CLOCK_REALTIME, &timeout);
-    timeout.tv_sec += 1;  // 1 second timeout
+    mutex_a.lock();
 
-    pthread_mutex_lock(&mutex_a);
+    // C++ doesn't have direct timed_lock, use try_lock_for with timed_mutex
+    // Alternative: use std::timed_mutex instead of std::mutex
+    auto timeout = std::chrono::seconds(1);
 
-    int result = pthread_mutex_timedlock(&mutex_b, &timeout);
-
-    if (result == ETIMEDOUT) {
+    if (!mutex_b.try_lock()) {
         // Couldn't acquire, release and retry
-        pthread_mutex_unlock(&mutex_a);
-        printf("Timeout! Backing off...\n");
+        mutex_a.unlock();
+        std::cout << "Timeout! Backing off...\n";
         return;
     }
 
     // Work with both resources
     // ...
 
-    pthread_mutex_unlock(&mutex_b);
-    pthread_mutex_unlock(&mutex_a);
+    mutex_b.unlock();
+    mutex_a.unlock();
 }
 ```
 
@@ -314,49 +305,48 @@ void critical_section_with_timeout() {
 
 **락 순서 지정**: 항상 일관된 전역 순서로 락을 획득합니다.
 
-```c
+```cpp
 // SOLUTION: Ordered lock acquisition
-#include <pthread.h>
-#include <stdio.h>
+#include <mutex>
+#include <iostream>
 
-pthread_mutex_t mutex_a = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t mutex_b = PTHREAD_MUTEX_INITIALIZER;
+std::mutex mutex_a;
+std::mutex mutex_b;
 
 void thread1_work() {
     // Always lock A before B
-    pthread_mutex_lock(&mutex_a);
-    printf("Thread 1: Locked A\n");
+    mutex_a.lock();
+    std::cout << "Thread 1: Locked A\n";
 
-    pthread_mutex_lock(&mutex_b);
-    printf("Thread 1: Locked B\n");
+    mutex_b.lock();
+    std::cout << "Thread 1: Locked B\n";
 
     // Critical section
     // ...
 
-    pthread_mutex_unlock(&mutex_b);
-    pthread_mutex_unlock(&mutex_a);
+    mutex_b.unlock();
+    mutex_a.unlock();
 }
 
 void thread2_work() {
     // Always lock A before B (same order!)
-    pthread_mutex_lock(&mutex_a);
-    printf("Thread 2: Locked A\n");
+    mutex_a.lock();
+    std::cout << "Thread 2: Locked A\n";
 
-    pthread_mutex_lock(&mutex_b);
-    printf("Thread 2: Locked B\n");
+    mutex_b.lock();
+    std::cout << "Thread 2: Locked B\n";
 
     // Critical section
     // ...
 
-    pthread_mutex_unlock(&mutex_b);
-    pthread_mutex_unlock(&mutex_a);
+    mutex_b.unlock();
+    mutex_a.unlock();
 }
 ```
 
 **락 순서를 사용한 식사하는 철학자:**
-```c
-void* philosopher_ordered(void* arg) {
-    int id = *(int*)arg;
+```cpp
+void philosopher_ordered(int id) {
     int left_fork = id;
     int right_fork = (id + 1) % NUM_PHILOSOPHERS;
 
@@ -364,24 +354,22 @@ void* philosopher_ordered(void* arg) {
     int first_fork = (left_fork < right_fork) ? left_fork : right_fork;
     int second_fork = (left_fork < right_fork) ? right_fork : left_fork;
 
-    while (1) {
-        printf("Philosopher %d is thinking\n", id);
-        sleep(1);
+    while (true) {
+        std::cout << "Philosopher " << id << " is thinking\n";
+        std::this_thread::sleep_for(std::chrono::seconds(1));
 
         // Pick up forks in order
-        pthread_mutex_lock(&forks[first_fork]);
-        pthread_mutex_lock(&forks[second_fork]);
+        forks[first_fork].lock();
+        forks[second_fork].lock();
 
         // Eat
-        printf("Philosopher %d is eating\n", id);
-        sleep(2);
+        std::cout << "Philosopher " << id << " is eating\n";
+        std::this_thread::sleep_for(std::chrono::seconds(2));
 
         // Put down forks
-        pthread_mutex_unlock(&forks[second_fork]);
-        pthread_mutex_unlock(&forks[first_fork]);
+        forks[second_fork].unlock();
+        forks[first_fork].unlock();
     }
-
-    return NULL;
 }
 ```
 
@@ -391,17 +379,20 @@ void* philosopher_ordered(void* arg) {
 
 자원과 스레드의 그래프를 구축하여 순환을 탐지합니다.
 
-```c
-typedef struct {
-    int thread_id;
-    int* held_resources;
-    int* waiting_for;
-} ThreadInfo;
+```cpp
+#include <vector>
 
-bool detect_cycle(ThreadInfo* threads, int num_threads) {
+struct ThreadInfo {
+    int thread_id;
+    std::vector<int> held_resources;
+    std::vector<int> waiting_for;
+};
+
+bool detect_cycle(const std::vector<ThreadInfo>& threads) {
     // Use DFS to detect cycle in wait-for graph
     // If cycle found, deadlock exists
     // Implementation: graph traversal algorithm
+    return false;
 }
 ```
 
@@ -438,21 +429,24 @@ gdb -p <pid>
 
 ### 4. 타임아웃 기반 탐지
 
-```c
-#include <pthread.h>
-#include <time.h>
-#include <stdio.h>
+```cpp
+#include <mutex>
+#include <chrono>
+#include <iostream>
+
+// Note: requires std::timed_mutex instead of std::mutex
+std::timed_mutex mutex;
 
 void detect_with_timeout() {
-    struct timespec timeout;
-    clock_gettime(CLOCK_REALTIME, &timeout);
-    timeout.tv_sec += 5;  // 5 second timeout
+    auto timeout = std::chrono::seconds(5);
 
-    int result = pthread_mutex_timedlock(&mutex, &timeout);
-
-    if (result == ETIMEDOUT) {
-        printf("DEADLOCK suspected: timeout after 5 seconds\n");
+    if (!mutex.try_lock_for(timeout)) {
+        std::cout << "DEADLOCK suspected: timeout after 5 seconds\n";
         // Take corrective action
+    } else {
+        // Successfully acquired
+        // ... do work ...
+        mutex.unlock();
     }
 }
 ```
@@ -463,23 +457,25 @@ void detect_with_timeout() {
 
 순환을 깨기 위해 하나 이상의 스레드를 종료합니다.
 
-```c
+```cpp
 // Detect deadlock then:
-pthread_cancel(deadlocked_thread);
-// or
-pthread_kill(deadlocked_thread, SIGTERM);
+// Note: C++ std::thread doesn't have direct cancellation
+// Platform-specific solutions needed or redesign to use cooperative cancellation
+// Example with detach (not recommended for deadlock recovery):
+// deadlocked_thread.detach();
 ```
 
 ### 2. 자원 선점
 
 스레드가 자원을 해제하도록 강제합니다.
 
-```c
+```cpp
 // Difficult in practice - requires careful state management
-void force_release(Thread* victim) {
+void force_release(std::thread& victim) {
     // Rollback victim's work
     // Release its resources
     // Restart victim
+    // Note: Very difficult in C++ without OS-specific mechanisms
 }
 ```
 
@@ -487,20 +483,23 @@ void force_release(Thread* victim) {
 
 체크포인트를 저장하고 교착 상태 탐지 시 롤백합니다.
 
-```c
-typedef struct {
-    void* saved_state;
-    pthread_mutex_t* held_locks;
-} Checkpoint;
+```cpp
+#include <vector>
+#include <mutex>
 
-void rollback_on_deadlock(Checkpoint* cp) {
+struct Checkpoint {
+    void* saved_state;
+    std::vector<std::mutex*> held_locks;
+};
+
+void rollback_on_deadlock(Checkpoint& cp) {
     // Release all locks
-    for (int i = 0; i < cp->num_locks; i++) {
-        pthread_mutex_unlock(&cp->held_locks[i]);
+    for (auto* lock : cp.held_locks) {
+        lock->unlock();
     }
 
     // Restore state
-    restore_state(cp->saved_state);
+    restore_state(cp.saved_state);
 
     // Retry operation
 }
@@ -558,21 +557,24 @@ unlock_directory("/b");
 ```
 
 **해결책: 디렉토리 경로를 알파벳 순서로 잠금**
-```c
-void move_file_safe(const char* from_dir, const char* to_dir,
-                   const char* filename) {
+```cpp
+#include <string>
+#include <cstring>
+#include <filesystem>
+
+void move_file_safe(const std::string& from_dir, const std::string& to_dir,
+                   const std::string& filename) {
     // Determine lock order
-    const char* first = (strcmp(from_dir, to_dir) < 0) ? from_dir : to_dir;
-    const char* second = (strcmp(from_dir, to_dir) < 0) ? to_dir : from_dir;
+    const std::string& first = (from_dir < to_dir) ? from_dir : to_dir;
+    const std::string& second = (from_dir < to_dir) ? to_dir : from_dir;
 
     lock_directory(first);
     lock_directory(second);
 
     // Perform move
-    char from_path[256], to_path[256];
-    snprintf(from_path, sizeof(from_path), "%s/%s", from_dir, filename);
-    snprintf(to_path, sizeof(to_path), "%s/%s", to_dir, filename);
-    rename(from_path, to_path);
+    std::filesystem::path from_path = std::filesystem::path(from_dir) / filename;
+    std::filesystem::path to_path = std::filesystem::path(to_dir) / filename;
+    std::filesystem::rename(from_path, to_path);
 
     unlock_directory(second);
     unlock_directory(first);
@@ -594,15 +596,15 @@ wait_for_ack_from(node_a);
 ```
 
 **해결책: 타임아웃 및 재시도**
-```c
+```cpp
+#include <chrono>
+
 bool send_with_timeout(Node* target, Data* data, int timeout_ms) {
     send_to(target, data);
 
-    struct timespec timeout;
-    clock_gettime(CLOCK_REALTIME, &timeout);
-    timeout.tv_sec += timeout_ms / 1000;
+    auto timeout = std::chrono::milliseconds(timeout_ms);
 
-    if (wait_for_ack_timeout(target, &timeout) == ETIMEDOUT) {
+    if (!wait_for_ack_timeout(target, timeout)) {
         return false;  // Timeout, no deadlock
     }
 
@@ -614,47 +616,51 @@ bool send_with_timeout(Node* target, Data* data, int timeout_ms) {
 
 ### 계층적 잠금
 
-```c
-// Define lock hierarchy levels
-#define LEVEL_DATABASE  100
-#define LEVEL_TABLE     200
-#define LEVEL_ROW       300
+```cpp
+#include <mutex>
+#include <iostream>
+#include <cstdlib>
 
-typedef struct {
-    pthread_mutex_t mutex;
+// Define lock hierarchy levels
+constexpr int LEVEL_DATABASE = 100;
+constexpr int LEVEL_TABLE = 200;
+constexpr int LEVEL_ROW = 300;
+
+struct HierarchicalMutex {
+    std::mutex mutex;
     int level;
-} HierarchicalMutex;
+};
 
 // Can only acquire locks in increasing level order
-void hierarchical_lock(HierarchicalMutex* m, int current_level) {
-    if (m->level <= current_level) {
-        fprintf(stderr, "Lock ordering violation!\n");
-        abort();
+void hierarchical_lock(HierarchicalMutex& m, int current_level) {
+    if (m.level <= current_level) {
+        std::cerr << "Lock ordering violation!\n";
+        std::abort();
     }
-    pthread_mutex_lock(&m->mutex);
+    m.mutex.lock();
 }
 ```
 
 ### 백오프를 사용한 Try-Lock
 
-```c
-#include <pthread.h>
-#include <unistd.h>
-#include <stdbool.h>
+```cpp
+#include <mutex>
+#include <thread>
+#include <chrono>
 
-bool try_acquire_with_backoff(pthread_mutex_t* m1, pthread_mutex_t* m2) {
+bool try_acquire_with_backoff(std::mutex& m1, std::mutex& m2) {
     int backoff = 1000;  // Start with 1ms
 
     for (int attempts = 0; attempts < 10; attempts++) {
-        pthread_mutex_lock(m1);
+        m1.lock();
 
-        if (pthread_mutex_trylock(m2) == 0) {
+        if (m2.try_lock()) {
             return true;  // Success!
         }
 
         // Failed, release and backoff
-        pthread_mutex_unlock(m1);
-        usleep(backoff);
+        m1.unlock();
+        std::this_thread::sleep_for(std::chrono::microseconds(backoff));
         backoff *= 2;  // Exponential backoff
     }
 
@@ -664,31 +670,31 @@ bool try_acquire_with_backoff(pthread_mutex_t* m1, pthread_mutex_t* m2) {
 
 ### 락 프리 대안
 
-```c
+```cpp
 // Avoid deadlock entirely with lock-free structures
-#include <stdatomic.h>
+#include <atomic>
 
-typedef struct Node {
+struct Node {
     int value;
-    struct Node* next;
-} Node;
+    Node* next;
+};
 
-typedef struct {
-    atomic_uintptr_t head;
-} LockFreeStack;
+class LockFreeStack {
+private:
+    std::atomic<Node*> head;
 
-void push(LockFreeStack* stack, int value) {
-    Node* new_node = malloc(sizeof(Node));
-    new_node->value = value;
+public:
+    LockFreeStack() : head(nullptr) {}
 
-    Node* old_head;
-    do {
-        old_head = (Node*)atomic_load(&stack->head);
-        new_node->next = old_head;
-    } while (!atomic_compare_exchange_weak(&stack->head,
-                                          (uintptr_t*)&old_head,
-                                          (uintptr_t)new_node));
-}
+    void push(int value) {
+        Node* new_node = new Node{value, nullptr};
+
+        Node* old_head = head.load();
+        do {
+            new_node->next = old_head;
+        } while (!head.compare_exchange_weak(old_head, new_node));
+    }
+};
 
 // No locks → No deadlock possible!
 ```
@@ -714,16 +720,16 @@ void push(LockFreeStack* stack, int value) {
 ## 연습 문제
 
 ### 연습 1: 교착 상태 수정
-```c
+```cpp
 void transfer(Account* from, Account* to, int amount) {
-    pthread_mutex_lock(&from->mutex);
-    pthread_mutex_lock(&to->mutex);
+    from->mutex.lock();
+    to->mutex.lock();
 
     from->balance -= amount;
     to->balance += amount;
 
-    pthread_mutex_unlock(&to->mutex);
-    pthread_mutex_unlock(&from->mutex);
+    to->mutex.unlock();
+    from->mutex.unlock();
 }
 
 // This can deadlock! Fix it.

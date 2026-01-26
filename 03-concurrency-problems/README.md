@@ -123,7 +123,7 @@ lock(max(mutex_a, mutex_b));
 ```
 
 ### 패턴 3: Lock + Wait (락 + 대기)
-```c
+```cpp
 // ❌ 잘못된 예: Deadlock 유발 가능
 lock(mutex);
 wait_for_event();  // 락을 보유한 채 대기
@@ -196,17 +196,18 @@ valgrind --tool=helgrind ./program
 ```
 
 ### 3. 결정적 테스팅 (Deterministic Testing)
-```c
+```cpp
+#include <barrier>
+
 // Barrier를 사용하여 특정 인터리빙 강제
-pthread_barrier_t barrier;
-pthread_barrier_init(&barrier, NULL, 2);
+std::barrier barrier(2);
 
 // Thread 1
 critical_section_1();
-pthread_barrier_wait(&barrier);  // 동기화 지점
+barrier.arrive_and_wait();  // 동기화 지점
 
 // Thread 2
-pthread_barrier_wait(&barrier);  // 동기화 지점
+barrier.arrive_and_wait();  // 동기화 지점
 critical_section_2();
 ```
 
