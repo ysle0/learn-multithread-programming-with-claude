@@ -47,7 +47,8 @@ learn-multithread-programming-with-claude/
 │   ├── 01-process-vs-thread.md
 │   ├── 02-concurrency-vs-parallelism.md
 │   ├── 03-thread-lifecycle.md
-│   └── 04-context-switching.md
+│   ├── 04-context-switching.md
+│   └── 05-thread-local-storage.md   (TLS 심층 분석)
 │
 ├── 02-synchronization/              ← 동기화 기법
 │   ├── 01-mutex-lock.md
@@ -231,6 +232,7 @@ learn-multithread-programming-with-claude/
 | [동시성 vs 병렬성](./01-fundamentals/02-concurrency-vs-parallelism.md) | Amdahl's Law, CPU-bound vs I/O-bound | ⭐ |
 | [스레드 생명주기](./01-fundamentals/03-thread-lifecycle.md) | 상태 전이, 스케줄링 알고리즘 | ⭐⭐ |
 | [컨텍스트 스위칭](./01-fundamentals/04-context-switching.md) | 오버헤드, 캐시/TLB 영향 | ⭐⭐ |
+| [Thread Local Storage](./01-fundamentals/05-thread-local-storage.md) | TLS 내부 동작, TCB/DTV, Use Cases | ⭐⭐⭐ |
 
 **학습 목표**: "왜 멀티스레드가 필요한가?"에 답할 수 있어야 합니다.
 
