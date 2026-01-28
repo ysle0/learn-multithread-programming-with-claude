@@ -96,6 +96,135 @@ void use_connection() {
 
 ---
 
+## 🔧 내부 구현 메커니즘
+
+### P(wait) 연산 원자적 구현
+
+```c
+// 개념적 구현 (원자적으로 실행)
+void sem_wait(sem_t *sem) {
+    while (true) {
+        int count = atomic_load(&sem->count);
+        if (count > 0) {
+            if (atomic_compare_exchange_weak(&sem->count, &count, count - 1)) {
+                return;  // 성공
+            }
+            // CAS 실패, 재시도
+        } else {
+            // count == 0, 커널에서 대기
+            futex_wait(&sem->count, 0);
+        }
+    }
+}
+```
+
+### V(signal) 연산 원자적 구현
+
+```c
+// 개념적 구현
+void sem_post(sem_t *sem) {
+    int old_count = atomic_fetch_add(&sem->count, 1);
+
+    // 대기자가 있을 수 있으면 깨움
+    if (old_count == 0) {
+        futex_wake(&sem->count, 1);  // 한 스레드 깨우기
+    }
+}
+```
+
+### POSIX sem_t 내부 구조 (Linux glibc)
+
+```c
+// glibc의 sem_t 구조 (단순화)
+typedef struct {
+    unsigned int value;     // 현재 카운트 값
+    int private;            // 프로세스 간 공유 여부
+    // 하위 비트: 실제 값
+    // 상위 비트: 대기자 수 (최적화용)
+} sem_t;
+```
+
+### 명명된(Named) vs 무명(Unnamed) 세마포어
+
+```
+Named Semaphore:
+┌─────────────────────────────────────────┐
+│ Process A              Process B        │
+│ sem_open("/my_sem")    sem_open("/my_sem")
+│         ↓                    ↓          │
+│     ┌──────────────────────────┐        │
+│     │  /dev/shm/sem.my_sem    │ ← 공유 │
+│     │  (메모리 매핑 파일)       │        │
+│     └──────────────────────────┘        │
+└─────────────────────────────────────────┘
+
+Unnamed Semaphore:
+┌─────────────────────────────────────────┐
+│ 같은 프로세스 내 스레드들 공유           │
+│ sem_init(&sem, 0, initial_value)       │
+│         pshared=0: 스레드 간만 공유     │
+│         pshared=1: mmap 영역에서 프로세스 간│
+└─────────────────────────────────────────┘
+```
+
+### 플랫폼별 구현 차이
+
+| 플랫폼 | 내부 구현 | 특징 |
+|--------|----------|------|
+| **Linux** | Futex 기반 | Fast path는 user-space atomic |
+| **macOS** | dispatch_semaphore (GCD) | Mach 커널 세마포어 래핑 |
+| **Windows** | 커널 오브젝트 (HANDLE) | 항상 커널 모드 진입 |
+| **FreeBSD** | umtx 기반 | Linux futex 유사 |
+
+### Linux POSIX Semaphore 상세 동작
+
+```c
+// Linux sem_wait 내부 (단순화)
+int sem_wait(sem_t *sem) {
+    unsigned int *futex_addr = &sem->value;
+
+    while (1) {
+        unsigned int val = atomic_load(futex_addr);
+
+        // Fast path: count > 0
+        if (likely(val > 0)) {
+            if (atomic_cmpxchg(futex_addr, val, val - 1) == val)
+                return 0;  // 성공
+            continue;  // 재시도
+        }
+
+        // Slow path: count == 0, futex 대기
+        futex(futex_addr, FUTEX_WAIT_PRIVATE, 0, NULL);
+    }
+}
+
+// Linux sem_post 내부 (단순화)
+int sem_post(sem_t *sem) {
+    unsigned int *futex_addr = &sem->value;
+
+    // count 증가
+    unsigned int old = atomic_fetch_add(futex_addr, 1);
+
+    // 대기자가 있을 가능성이 있으면 깨움
+    // (성능 최적화: 상위 비트로 대기자 존재 추적)
+    if (likely(old == 0)) {
+        futex(futex_addr, FUTEX_WAKE_PRIVATE, 1);
+    }
+
+    return 0;
+}
+```
+
+### 성능 특성
+
+| 연산 | Uncontended | Contended |
+|------|-------------|-----------|
+| **sem_wait** | ~50ns (atomic만) | ~1-10μs (커널 대기) |
+| **sem_post** | ~50ns | ~50ns (wake 포함) |
+| **sem_trywait** | ~20ns | ~20ns |
+
+---
+
 ## 💻 C++ 구현 (C++20)
 
 ### C++20 std::counting_semaphore

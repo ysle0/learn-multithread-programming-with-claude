@@ -111,6 +111,278 @@ int main() {
 }
 ```
 
+## Internal Mechanisms
+
+### std::future의 내부 구조
+
+std::promise/future 쌍은 공유 상태(Shared State)를 통해 통신합니다.
+
+```cpp
+// libstdc++ shared state 구조 (간략화)
+template<typename T>
+struct __shared_state {
+    // 상태 플래그
+    enum State {
+        NOT_READY,
+        READY,
+        EXCEPTION
+    };
+    std::atomic<State> _state{NOT_READY};
+
+    // 저장된 값 또는 예외
+    union {
+        T _value;
+        std::exception_ptr _exception;
+    };
+
+    // 대기 동기화
+    std::mutex _mutex;
+    std::condition_variable _cv;
+
+    // 연속(continuation) 지원 (C++20)
+    std::function<void()> _continuation;
+
+    // 참조 카운트
+    std::atomic<int> _ref_count{2};  // promise + future
+
+    // 값 설정 (promise.set_value)
+    void set_value(T val) {
+        std::lock_guard lock(_mutex);
+        if (_state != NOT_READY) {
+            throw std::future_error(future_errc::promise_already_satisfied);
+        }
+        new (&_value) T(std::move(val));
+        _state.store(READY, std::memory_order_release);
+        _cv.notify_all();
+
+        if (_continuation) {
+            _continuation();
+        }
+    }
+
+    // 값 획득 (future.get)
+    T get_value() {
+        std::unique_lock lock(_mutex);
+        _cv.wait(lock, [this] {
+            return _state.load(std::memory_order_acquire) != NOT_READY;
+        });
+
+        if (_state == EXCEPTION) {
+            std::rethrow_exception(_exception);
+        }
+
+        return std::move(_value);
+    }
+};
+```
+
+### 메모리 레이아웃
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                Future/Promise Memory Layout                  │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  std::promise<T>                std::future<T>              │
+│  ┌─────────────────┐            ┌─────────────────┐         │
+│  │ shared_state*   │────┐  ┌────│ shared_state*   │         │
+│  └─────────────────┘    │  │    └─────────────────┘         │
+│                         │  │                                │
+│                         ▼  ▼                                │
+│                   ┌──────────────┐                          │
+│                   │ Shared State │  (힙에 할당)              │
+│                   │              │                          │
+│                   │ ref_count: 2 │                          │
+│                   │ state: ...   │                          │
+│                   │ value/exc    │                          │
+│                   │ mutex        │                          │
+│                   │ cv           │                          │
+│                   └──────────────┘                          │
+│                                                             │
+│  Promise 소멸 시: ref_count-- (1로)                         │
+│  Future 소멸 시: ref_count-- (0이면 delete)                 │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### std::async의 동작 모드
+
+```cpp
+/*
+ * std::launch::async:
+ *   - 새 스레드에서 즉시 실행
+ *   - std::thread와 유사하지만 future 반환
+ *
+ * std::launch::deferred:
+ *   - future.get() 또는 wait() 호출 시점에 실행
+ *   - 호출한 스레드에서 실행 (새 스레드 없음)
+ *   - "lazy evaluation"
+ *
+ * std::launch::async | std::launch::deferred (기본값):
+ *   - 구현체가 선택
+ *   - 시스템 부하에 따라 결정
+ */
+
+// 내부 구현 개념
+template<typename F, typename... Args>
+auto async(std::launch policy, F&& f, Args&&... args) {
+    using R = std::invoke_result_t<F, Args...>;
+
+    if (policy & std::launch::async) {
+        // 새 스레드 생성
+        std::promise<R> promise;
+        std::future<R> future = promise.get_future();
+
+        std::thread([promise = std::move(promise),
+                     f = std::forward<F>(f),
+                     ...args = std::forward<Args>(args)]() mutable {
+            try {
+                if constexpr (std::is_void_v<R>) {
+                    f(args...);
+                    promise.set_value();
+                } else {
+                    promise.set_value(f(args...));
+                }
+            } catch (...) {
+                promise.set_exception(std::current_exception());
+            }
+        }).detach();  // 또는 future 소멸자에서 join
+
+        return future;
+    }
+    else if (policy & std::launch::deferred) {
+        // 함수와 인자를 저장, 나중에 실행
+        return deferred_future<R>(
+            [f = std::forward<F>(f), ...args = std::forward<Args>(args)]() {
+                return f(args...);
+            });
+    }
+}
+```
+
+### Future의 블로킹 대기 구현
+
+```c
+// future.get()이 호출될 때의 커널 수준 동작
+
+// 1. User space: condition_variable::wait()
+void wait() {
+    std::unique_lock lock(_mutex);
+    _cv.wait(lock, [this] { return _state != NOT_READY; });
+}
+
+// 2. pthread_cond_wait → futex 시스템 콜
+// futex(&_cv.__data.__wseq, FUTEX_WAIT, expected, NULL);
+
+// 3. 커널: 스레드를 대기 큐에 추가
+//    스케줄러가 다른 스레드 실행
+
+// 4. promise.set_value() 호출 시
+//    → pthread_cond_signal() → futex(FUTEX_WAKE, 1)
+//    → 커널이 대기 스레드 깨움
+
+// 5. 스레드가 런큐에 추가, 스케줄링되어 실행 재개
+```
+
+### std::packaged_task의 구조
+
+```cpp
+// packaged_task는 callable을 래핑하고 future를 제공
+template<typename R, typename... Args>
+class packaged_task<R(Args...)> {
+    // 내부적으로 shared_state와 callable 보유
+    std::shared_ptr<__shared_state<R>> _state;
+    std::function<R(Args...)> _func;
+
+public:
+    packaged_task(std::function<R(Args...)> f)
+        : _state(std::make_shared<__shared_state<R>>()),
+          _func(std::move(f)) {}
+
+    std::future<R> get_future() {
+        return std::future<R>(_state);
+    }
+
+    void operator()(Args... args) {
+        try {
+            if constexpr (std::is_void_v<R>) {
+                _func(args...);
+                _state->set_value();
+            } else {
+                _state->set_value(_func(args...));
+            }
+        } catch (...) {
+            _state->set_exception(std::current_exception());
+        }
+    }
+};
+
+/*
+ * 사용 패턴:
+ *
+ * 1. packaged_task 생성
+ * 2. get_future()로 future 획득
+ * 3. task를 다른 스레드로 전달 (move)
+ * 4. 다른 스레드에서 task() 호출
+ * 5. 원래 스레드에서 future.get()
+ *
+ * Thread Pool과 함께 자주 사용됨
+ */
+```
+
+### Continuation (then) 구현 원리
+
+```cpp
+// C++20 이전의 then() 구현 패턴
+template<typename T>
+template<typename F>
+auto Future<T>::then(F&& func) -> Future<std::invoke_result_t<F, T>> {
+    using R = std::invoke_result_t<F, T>;
+
+    Promise<R> next_promise;
+    Future<R> next_future = next_promise.get_future();
+
+    std::unique_lock lock(_state->mutex);
+
+    if (_state->ready) {
+        // 이미 ready: 즉시 실행
+        lock.unlock();
+        try {
+            if constexpr (std::is_void_v<T>) {
+                next_promise.set_value(func());
+            } else {
+                next_promise.set_value(func(_state->get_value()));
+            }
+        } catch (...) {
+            next_promise.set_exception(std::current_exception());
+        }
+    } else {
+        // 아직 not ready: continuation 등록
+        _state->continuation = [func = std::forward<F>(func),
+                                promise = std::move(next_promise),
+                                state = _state]() mutable {
+            try {
+                promise.set_value(func(state->get_value()));
+            } catch (...) {
+                promise.set_exception(std::current_exception());
+            }
+        };
+    }
+
+    return next_future;
+}
+
+/*
+ * Continuation 체인:
+ *
+ * future1 → then(f1) → future2 → then(f2) → future3
+ *
+ * future1 완료 시:
+ *   1. f1 실행 → future2 완료
+ *   2. f2 실행 → future3 완료
+ *   3. 최종 결과 사용 가능
+ */
+```
+
 ## Advanced Implementation: Composable Futures
 
 ### Custom Future with Continuations

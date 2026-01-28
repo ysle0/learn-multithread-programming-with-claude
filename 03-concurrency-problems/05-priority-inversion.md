@@ -609,6 +609,367 @@ void* user_interface(void* arg) {
 // Priority inheritance is ESSENTIAL for patient safety
 ```
 
+## Internal Mechanisms
+
+### Linux 커널의 rt_mutex와 우선순위 상속
+
+Linux 커널은 rt_mutex를 통해 우선순위 상속(Priority Inheritance)을 구현합니다.
+
+#### rt_mutex 구조체
+
+```c
+// linux/include/linux/rtmutex.h
+struct rt_mutex {
+    raw_spinlock_t      wait_lock;      // 대기자 리스트 보호
+    struct rb_root_cached waiters;       // 우선순위 정렬된 대기자들
+    struct task_struct  *owner;          // 현재 소유자
+
+    // PI chain 추적용
+    struct rt_mutex_waiter *top_waiter;  // 가장 높은 우선순위 대기자
+};
+
+struct rt_mutex_waiter {
+    struct rb_node          tree_entry;     // RB 트리 노드
+    struct rb_node          pi_tree_entry;  // PI 트리 노드
+    struct task_struct      *task;          // 대기 중인 태스크
+    struct rt_mutex         *lock;          // 대기 중인 락
+    int                     prio;           // 대기자 우선순위
+    u64                     deadline;       // SCHED_DEADLINE용
+};
+```
+
+#### 우선순위 상속 체인 (PI Chain)
+
+```
+PI Chain 예시:
+
+  High (prio=99)         Medium (prio=50)        Low (prio=10)
+  ┌──────────┐           ┌──────────┐           ┌──────────┐
+  │ Thread H │           │ Thread M │           │ Thread L │
+  │ prio: 99 │           │ prio: 50 │           │ prio: 10 │
+  └────┬─────┘           └────┬─────┘           └────┬─────┘
+       │                      │                      │
+       │ waits for            │ waits for            │ owns
+       ▼                      ▼                      ▼
+  ┌─────────┐            ┌─────────┐            ┌─────────┐
+  │ Mutex A │───────────►│ Mutex B │───────────►│ Mutex C │
+  │ owner:M │            │ owner:L │            │ owner:L │
+  └─────────┘            └─────────┘            └─────────┘
+
+  PI Chain: H → A → M → B → L
+
+  우선순위 전파:
+    L의 effective priority = max(10, 50, 99) = 99
+    M의 effective priority = max(50, 99) = 99 (중간 노드)
+```
+
+#### 커널 PI 구현 (간략화)
+
+```c
+// linux/kernel/locking/rtmutex.c
+
+static int rt_mutex_adjust_prio_chain(struct task_struct *task,
+                                      int deadlock_detect,
+                                      struct rt_mutex *orig_lock,
+                                      struct rt_mutex *next_lock,
+                                      struct rt_mutex_waiter *orig_waiter) {
+    struct rt_mutex_waiter *waiter, *top_waiter;
+    struct rt_mutex *lock;
+    struct task_struct *next;
+    int ret = 0;
+
+    // PI chain 순회
+    for (;;) {
+        // 현재 태스크가 대기 중인 락 확인
+        waiter = task->pi_blocked_on;
+        if (!waiter)
+            break;  // chain 끝
+
+        // 대기 중인 락
+        lock = waiter->lock;
+
+        // 락 소유자
+        next = rt_mutex_owner(lock);
+        if (!next)
+            break;  // 소유자 없음
+
+        // 우선순위 상속 필요 여부 확인
+        if (waiter->prio <= next->normal_prio) {
+            // 대기자 우선순위가 더 높음
+            // → 소유자 우선순위 상승
+
+            // effective priority 업데이트
+            rt_mutex_setprio(next, waiter->prio);
+
+            // 소유자의 PI waiter 리스트 업데이트
+            rt_mutex_enqueue_pi(next, waiter);
+        }
+
+        // 교착 탐지
+        if (deadlock_detect && next == current) {
+            ret = -EDEADLK;
+            break;
+        }
+
+        // chain 다음 노드로
+        task = next;
+
+        // 최대 깊이 제한 (무한 루프 방지)
+        if (++chain_depth > MAX_CHAIN_DEPTH) {
+            ret = -EDEADLK;  // 너무 긴 chain
+            break;
+        }
+    }
+
+    return ret;
+}
+
+// 우선순위 설정
+static void rt_mutex_setprio(struct task_struct *p, int prio) {
+    struct rq *rq;
+
+    rq = task_rq_lock(p);
+
+    // effective priority 저장
+    p->prio = prio;
+
+    // 스케줄러에게 알림
+    if (task_on_rq_queued(p)) {
+        dequeue_task(rq, p, DEQUEUE_SAVE);
+        enqueue_task(rq, p, ENQUEUE_RESTORE);
+    }
+
+    // 필요시 선점
+    check_preempt_curr(rq, p);
+
+    task_rq_unlock(rq);
+}
+```
+
+### FUTEX_LOCK_PI 시스템 콜
+
+사용자 공간에서 우선순위 상속을 사용하는 방법입니다.
+
+```c
+// linux/kernel/futex.c
+
+static int futex_lock_pi(u32 __user *uaddr, int fshared,
+                        ktime_t *time, int trylock) {
+    struct futex_hash_bucket *hb;
+    struct futex_q q;
+    struct rt_mutex_waiter rt_waiter;
+    struct task_struct *owner;
+    int ret;
+
+    // 1. Fast path: userspace에서 lock 시도
+    // 값이 0이면 현재 TID로 설정
+    ret = futex_trylock_pi(uaddr);
+    if (ret == 0)
+        return 0;  // 즉시 획득 성공
+
+    // 2. Slow path: 커널 진입
+    hb = futex_hash(&q.key);
+    spin_lock(&hb->lock);
+
+    // 현재 소유자 확인 (futex 값 = owner TID)
+    owner = futex_find_owner(uaddr);
+    if (!owner) {
+        // 소유자를 찾을 수 없음
+        ret = -EINVAL;
+        goto out_unlock;
+    }
+
+    // 3. rt_mutex 연결 및 PI 설정
+    // futex에 연결된 rt_mutex를 통해 PI chain 구축
+    ret = rt_mutex_start_proxy_lock(&q.pi_state->pi_mutex,
+                                    &rt_waiter, current);
+
+    if (ret) {
+        // 이미 chain에 있음 (교착 상태 가능)
+        goto out_unlock;
+    }
+
+    // 4. 대기
+    spin_unlock(&hb->lock);
+
+    ret = rt_mutex_wait_proxy_lock(&q.pi_state->pi_mutex,
+                                   time, &rt_waiter);
+
+    // 5. 깨어남: 락 획득 완료
+    return ret;
+
+out_unlock:
+    spin_unlock(&hb->lock);
+    return ret;
+}
+
+// Futex 값 형식 (PI mode)
+/*
+ * Bit 31: FUTEX_WAITERS (대기자 있음)
+ * Bit 30: FUTEX_OWNER_DIED (소유자 사망)
+ * Bit 0-29: Owner TID
+ *
+ * 예: 0x80001234 = TID 0x1234가 소유, 대기자 있음
+ */
+```
+
+### PTHREAD_PRIO_INHERIT 구현
+
+```c
+// glibc pthread mutex with priority inheritance
+// nptl/pthread_mutex_lock.c (개념적)
+
+int __pthread_mutex_lock_pi(pthread_mutex_t *mutex) {
+    int kind = mutex->__data.__kind;
+    pid_t tid = THREAD_GETMEM(THREAD_SELF, tid);
+
+    // Fast path: 비경합 상태
+    if (atomic_compare_exchange_weak(&mutex->__data.__lock,
+                                     0, tid)) {
+        return 0;  // 즉시 획득
+    }
+
+    // Slow path: 경합 상태 - PI futex 사용
+    int oldval = atomic_load(&mutex->__data.__lock);
+
+    while (1) {
+        // FUTEX_WAITERS 비트 설정
+        int newval = oldval | FUTEX_WAITERS;
+
+        if (oldval != newval) {
+            if (!atomic_compare_exchange_weak(&mutex->__data.__lock,
+                                              &oldval, newval))
+                continue;
+        }
+
+        // PI futex 대기
+        // → 커널이 소유자 우선순위를 자동으로 상승
+        int ret = syscall(SYS_futex, &mutex->__data.__lock,
+                         FUTEX_LOCK_PI, 0, NULL, NULL, 0);
+
+        if (ret == 0) {
+            // 획득 성공
+            return 0;
+        }
+
+        if (ret != -EAGAIN)
+            return ret;
+
+        // 재시도
+        oldval = atomic_load(&mutex->__data.__lock);
+    }
+}
+
+int __pthread_mutex_unlock_pi(pthread_mutex_t *mutex) {
+    pid_t tid = THREAD_GETMEM(THREAD_SELF, tid);
+    int oldval = atomic_load(&mutex->__data.__lock);
+
+    // 대기자 확인
+    if (!(oldval & FUTEX_WAITERS)) {
+        // 대기자 없음: userspace unlock
+        if (atomic_compare_exchange_strong(&mutex->__data.__lock,
+                                           &oldval, 0))
+            return 0;
+    }
+
+    // 대기자 있음: 커널 호출하여 PI 정리 및 wake
+    return syscall(SYS_futex, &mutex->__data.__lock,
+                   FUTEX_UNLOCK_PI, 0, NULL, NULL, 0);
+}
+```
+
+### Priority Ceiling 프로토콜
+
+```c
+// PTHREAD_PRIO_PROTECT 구현 원리
+
+typedef struct {
+    pthread_mutex_t mutex;
+    int ceiling;          // 최대 우선순위
+    int saved_priority;   // 원래 우선순위 저장
+} ceiling_mutex_t;
+
+int ceiling_mutex_lock(ceiling_mutex_t *cm) {
+    // 현재 우선순위 저장
+    struct sched_param param;
+    int policy;
+    pthread_getschedparam(pthread_self(), &policy, &param);
+    cm->saved_priority = param.sched_priority;
+
+    // 우선순위가 ceiling보다 높으면 에러
+    if (param.sched_priority > cm->ceiling) {
+        return EINVAL;  // Priority Ceiling 위반
+    }
+
+    // 우선순위를 ceiling으로 상승
+    param.sched_priority = cm->ceiling;
+    pthread_setschedparam(pthread_self(), policy, &param);
+
+    // 실제 락 획득 (이제 선점되지 않음)
+    return pthread_mutex_lock(&cm->mutex);
+}
+
+int ceiling_mutex_unlock(ceiling_mutex_t *cm) {
+    // 락 해제
+    int ret = pthread_mutex_unlock(&cm->mutex);
+
+    // 원래 우선순위 복원
+    struct sched_param param;
+    int policy;
+    pthread_getschedparam(pthread_self(), &policy, &param);
+    param.sched_priority = cm->saved_priority;
+    pthread_setschedparam(pthread_self(), policy, &param);
+
+    return ret;
+}
+
+/*
+ * Priority Ceiling 장점:
+ *   - 교착 방지 (single-lock case)
+ *   - 구현 단순
+ *   - 예측 가능한 동작
+ *
+ * 단점:
+ *   - ceiling을 미리 알아야 함
+ *   - 불필요한 우선순위 상승 발생
+ */
+```
+
+### VxWorks 우선순위 역전 해결 (Mars Pathfinder)
+
+```c
+// VxWorks semMCreate 옵션
+
+// 문제가 된 원래 코드
+SEM_ID dataSem = semMCreate(SEM_Q_PRIORITY);
+
+// 수정된 코드 (priority inheritance 활성화)
+SEM_ID dataSem = semMCreate(SEM_Q_PRIORITY | SEM_INVERSION_SAFE);
+
+/*
+ * SEM_INVERSION_SAFE 옵션:
+ *   - 세마포어 보유자가 높은 우선순위 태스크에 의해
+ *     블록되면 자동으로 우선순위 상승
+ *   - 세마포어 해제 시 원래 우선순위 복원
+ *
+ * VxWorks 내부 구현:
+ *   - 각 세마포어에 "소유자" 개념
+ *   - 소유자의 pending priority list 관리
+ *   - 블록 시 priority inheritance chain 구축
+ */
+
+// Mars Pathfinder 특정 상황:
+// - 버스 관리 태스크 (Low): dataSem 보유
+// - 통신 태스크 (Medium): 버스 관리 선점
+// - 데이터 수집 태스크 (High): dataSem 대기 → 블록
+//
+// 해결 후:
+// - High가 dataSem 대기 시 Low의 우선순위 → High로 상승
+// - Medium이 Low를 선점 불가
+// - Low가 빠르게 완료 → High 실행
+// - Watchdog timeout 발생 안 함
+```
+
 ## Detection and Analysis
 
 ### 1. Timeline Analysis

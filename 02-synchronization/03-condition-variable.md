@@ -144,6 +144,173 @@ while (!predicate()) {
 
 **중요**: `wait()`는 **Spurious Wakeup**을 방지하기 위해 Predicate(조건)를 반복 확인합니다.
 
+---
+
+## 🔧 내부 구현 메커니즘
+
+### Linux pthread_cond 구조
+
+```c
+// glibc pthread_cond_t 내부 (단순화)
+typedef struct {
+    unsigned int __wseq;        // Waiter sequence number
+    unsigned int __g1_start;    // Group 1 시작
+    unsigned int __g_refs[2];   // Group 참조 카운트
+    unsigned int __g_size[2];   // Group 크기
+    unsigned int __g_signals;   // 시그널 수
+    unsigned int __wrefs;       // Writer 참조
+    // ...
+} pthread_cond_t;
+```
+
+### wait() 원자적 동작 (Mutex unlock + Sleep)
+
+```c
+// pthread_cond_wait 내부 동작 (단순화)
+int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex) {
+    // 1. 현재 sequence 저장
+    unsigned int seq = atomic_load(&cond->__wseq);
+
+    // 2. Mutex 해제 (원자적 시작점)
+    pthread_mutex_unlock(mutex);
+
+    // 3. Futex 대기 (seq가 변하면 깨어남)
+    //    이 시점에서 unlock과 sleep이 원자적으로 보장됨
+    futex_wait(&cond->__wseq, seq);
+
+    // 4. Mutex 재획득
+    pthread_mutex_lock(mutex);
+
+    return 0;
+}
+```
+
+**원자성 보장 원리**:
+```
+Thread 1 (waiter):              Thread 2 (signaler):
+   seq = load(__wseq)
+   unlock(mutex)                 lock(mutex)
+   futex_wait(__wseq, seq)       modify_shared_data()
+      ↓                          unlock(mutex)
+      │                          __wseq++
+      │                          futex_wake(__wseq)
+      ←─────────────────────────────┘
+   lock(mutex)
+```
+
+### signal vs broadcast 내부 구현
+
+```c
+// pthread_cond_signal
+int pthread_cond_signal(pthread_cond_t *cond) {
+    // Sequence 번호 증가
+    atomic_fetch_add(&cond->__wseq, 1);
+
+    // Futex wake: 한 스레드만 깨움
+    futex_wake(&cond->__wseq, 1);
+    return 0;
+}
+
+// pthread_cond_broadcast
+int pthread_cond_broadcast(pthread_cond_t *cond) {
+    atomic_fetch_add(&cond->__wseq, 1);
+
+    // 모든 대기자 깨움
+    futex_wake(&cond->__wseq, INT_MAX);
+    return 0;
+}
+```
+
+### FUTEX_REQUEUE 최적화 (Thundering Herd 방지)
+
+```c
+// 최적화된 broadcast (glibc 실제 구현)
+int optimized_broadcast(pthread_cond_t *cond, pthread_mutex_t *mutex) {
+    atomic_fetch_add(&cond->__wseq, 1);
+
+    // 한 스레드만 깨우고, 나머지는 mutex의 futex로 이동
+    // → Thundering Herd 방지
+    futex_requeue(&cond->__wseq,    // 원래 대기 위치
+                  1,                 // 깨울 스레드 수
+                  INT_MAX,           // requeue할 스레드 수
+                  &mutex->__lock);   // 새 대기 위치
+    return 0;
+}
+```
+
+**Thundering Herd 문제**:
+```
+일반 broadcast:
+cond에서 10개 스레드 깨움 → 10개 모두 mutex 경쟁 → 1개 획득, 9개 다시 sleep
+
+REQUEUE 최적화:
+cond에서 1개만 깨움 → 나머지 9개는 mutex futex로 직접 이동
+→ 불필요한 context switching 감소
+```
+
+### Spurious Wakeup 원인
+
+**1. 시그널/인터럽트**:
+```c
+// 커널이 EINTR로 futex_wait 중단 가능
+while (futex_wait(...) == -EINTR) {
+    // 재시도 필요
+}
+```
+
+**2. 구현 최적화**:
+```c
+// 일부 구현에서 성능상 이유로 추가 스레드 깨움 가능
+// → 항상 조건 재확인 필요
+```
+
+**3. FUTEX_WAKE 타이밍**:
+```c
+// wake 호출 시점과 실제 깨어나는 시점 차이
+// → 조건이 다시 바뀔 수 있음
+```
+
+### Mesa vs Hoare 의미론
+
+```
+Mesa 의미론 (대부분의 구현):
+┌─────────────────────────────────────────┐
+│ Signaler                  Waiter        │
+│    │                         │          │
+│    │ signal() ───────────→ [wake]       │
+│    │ [계속 실행]             │           │
+│    │     ↓                   │          │
+│    │ unlock()                │          │
+│    │                         ↓          │
+│    │                    [mutex lock]    │
+│    │                    [조건 재확인!]   │
+└─────────────────────────────────────────┘
+
+Hoare 의미론 (이론적):
+┌─────────────────────────────────────────┐
+│ Signaler                  Waiter        │
+│    │                         │          │
+│    │ signal() ──────────→ [즉시 실행]   │
+│    │ [suspend]               │          │
+│    │                         ↓          │
+│    │                    [조건 보장됨]    │
+└─────────────────────────────────────────┘
+```
+
+**실제 구현이 Mesa를 사용하는 이유**:
+- 구현이 훨씬 간단
+- Hoare는 signal 호출자를 suspend해야 함
+- 대부분의 OS 스케줄러와 호환
+
+### 성능 특성
+
+| 연산 | Uncontended | Contended |
+|------|-------------|-----------|
+| **wait (sleep)** | - | ~1-2μs |
+| **wait (wake)** | - | ~1-2μs |
+| **notify_one** | ~50ns | ~100ns |
+| **notify_all** | ~50ns | ~N×100ns |
+
 ### 3. notify_one() vs notify_all()
 
 ```cpp

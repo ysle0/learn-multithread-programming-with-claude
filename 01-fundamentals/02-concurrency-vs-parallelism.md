@@ -424,10 +424,300 @@ class MyActor extends Actor {
 
 ---
 
+## 🔬 내부 메커니즘 심층 분석
+
+### 하드웨어 수준의 병렬성
+
+#### 1. SMT (Simultaneous Multi-Threading / Hyper-Threading)
+
+Intel의 하이퍼스레딩은 단일 물리 코어에서 2개의 논리 프로세서를 제공합니다.
+
+```
+물리 코어 1개 + SMT
+┌────────────────────────────────────────────────┐
+│               Physical Core                     │
+│  ┌─────────────┐  ┌─────────────┐              │
+│  │ Logical CPU0│  │ Logical CPU1│   Execution  │
+│  │ (Registers) │  │ (Registers) │     Units    │
+│  │   Thread 0  │  │   Thread 1  │   (공유)     │
+│  └─────────────┘  └─────────────┘              │
+│         │                │                      │
+│         └────────┬───────┘                      │
+│                  ▼                              │
+│  ┌──────────────────────────────────────────┐  │
+│  │    Shared Execution Units                 │  │
+│  │  ALU  ALU  FPU  SIMD  Load  Store  Branch │  │
+│  └──────────────────────────────────────────┘  │
+└────────────────────────────────────────────────┘
+```
+
+**특징**:
+- 레지스터 세트는 별도, 실행 유닛은 공유
+- 한 스레드가 실행 유닛 대기 시 다른 스레드 실행
+- 실제 성능 향상: ~1.15~1.30배 (워크로드에 따라 다름)
+- 캐시 경합으로 오히려 느려질 수 있음
+
+```bash
+# Linux에서 SMT 확인
+$ lscpu | grep "Thread(s) per core"
+Thread(s) per core:  2
+
+# SMT 비활성화 (보안/성능 이유)
+$ echo off | sudo tee /sys/devices/system/cpu/smt/control
+```
+
+#### 2. SIMD (Single Instruction, Multiple Data)
+
+```
+SIMD 병렬 처리 (AVX-256)
+┌────────────────────────────────────────────────┐
+│  Scalar Addition (1 operation)                 │
+│  a + b = c                                     │
+│                                                │
+│  SIMD Addition (8 operations simultaneously)  │
+│  ┌────┬────┬────┬────┬────┬────┬────┬────┐   │
+│  │ a0 │ a1 │ a2 │ a3 │ a4 │ a5 │ a6 │ a7 │   │
+│  └────┴────┴────┴────┴────┴────┴────┴────┘   │
+│    +    +    +    +    +    +    +    +       │
+│  ┌────┬────┬────┬────┬────┬────┬────┬────┐   │
+│  │ b0 │ b1 │ b2 │ b3 │ b4 │ b5 │ b6 │ b7 │   │
+│  └────┴────┴────┴────┴────┴────┴────┴────┘   │
+│    =    =    =    =    =    =    =    =       │
+│  ┌────┬────┬────┬────┬────┬────┬────┬────┐   │
+│  │ c0 │ c1 │ c2 │ c3 │ c4 │ c5 │ c6 │ c7 │   │
+│  └────┴────┴────┴────┴────┴────┴────┴────┘   │
+└────────────────────────────────────────────────┘
+```
+
+**SIMD 확장 세트**:
+| 기술 | 비트 폭 | 32비트 float 동시 처리 |
+|------|---------|----------------------|
+| SSE | 128-bit | 4개 |
+| AVX | 256-bit | 8개 |
+| AVX-512 | 512-bit | 16개 |
+| ARM NEON | 128-bit | 4개 |
+
+```cpp
+// SIMD 예시 (자동 벡터화)
+void vector_add(float* a, float* b, float* c, int n) {
+    #pragma omp simd  // 컴파일러에게 SIMD 힌트
+    for (int i = 0; i < n; i++) {
+        c[i] = a[i] + b[i];  // 컴파일러가 SIMD로 변환
+    }
+}
+
+// 명시적 intrinsics (AVX)
+#include <immintrin.h>
+void vector_add_avx(float* a, float* b, float* c, int n) {
+    for (int i = 0; i < n; i += 8) {
+        __m256 va = _mm256_load_ps(&a[i]);  // 8개 float 로드
+        __m256 vb = _mm256_load_ps(&b[i]);
+        __m256 vc = _mm256_add_ps(va, vb);  // 8개 동시 덧셈
+        _mm256_store_ps(&c[i], vc);
+    }
+}
+```
+
+### OS 스케줄링과 동시성
+
+#### Linux CFS (Completely Fair Scheduler)
+
+```
+CFS 스케줄링 구조
+┌────────────────────────────────────────────────┐
+│              Red-Black Tree                     │
+│                    ┌───┐                        │
+│                    │ 5 │ vruntime=5ms          │
+│                   /     \                       │
+│              ┌───┐       ┌───┐                 │
+│              │ 3 │       │ 8 │                 │
+│             /     \           \                │
+│        ┌───┐     ┌───┐       ┌───┐            │
+│        │ 1 │     │ 4 │       │10 │            │
+│        └───┘     └───┘       └───┘            │
+│                                                │
+│  가장 왼쪽 노드 = vruntime 최소 = 다음 실행   │
+└────────────────────────────────────────────────┘
+```
+
+**vruntime 계산**:
+```c
+// 실제 실행 시간 → 가상 실행 시간 변환
+vruntime += actual_runtime * (NICE_0_WEIGHT / weight)
+
+// nice 값에 따른 가중치
+nice  0: weight = 1024  (기준)
+nice -1: weight = 1277  (더 많이 실행)
+nice +1: weight =  820  (덜 실행)
+```
+
+#### 시분할 (Time-slicing) 상세
+
+```
+타임 슬라이스 배분
+┌────────────────────────────────────────────────┐
+│  Thread A (nice 0)  │  Thread B (nice +5)      │
+│  weight: 1024       │  weight: 335             │
+│                     │                          │
+│  Total weight = 1024 + 335 = 1359              │
+│                     │                          │
+│  A's share: 1024/1359 × period = 75%          │
+│  B's share:  335/1359 × period = 25%          │
+│                     │                          │
+│  시간 ──────────────────────────────>         │
+│  [───── A ─────][── B ──][───── A ─────][B]   │
+└────────────────────────────────────────────────┘
+```
+
+### 멀티코어 메모리 계층 구조
+
+```
+멀티코어 캐시 계층
+┌─────────────────────────────────────────────────────┐
+│                      Core 0                          │
+│  ┌─────┐                                            │
+│  │ CPU │ → L1 Cache (32KB, ~4 cycles)              │
+│  └─────┘      │                                     │
+│               └→ L2 Cache (256KB, ~12 cycles)      │
+│                      │                              │
+├──────────────────────┼──────────────────────────────┤
+│                      │                 Core 1        │
+│                      │            ┌─────┐           │
+│                      │     L1 ← │ CPU │            │
+│                      │       │    └─────┘           │
+│                      │       └→ L2                  │
+│                      │            │                 │
+├──────────────────────┴────────────┴─────────────────┤
+│          L3 Cache (Shared, 8MB+, ~40 cycles)        │
+├─────────────────────────────────────────────────────┤
+│          Main Memory (DDR4/5, ~100+ cycles)         │
+└─────────────────────────────────────────────────────┘
+
+MESI 프로토콜에 의한 캐시 일관성:
+- Modified: 이 캐시만 최신값 보유, 메모리와 다름
+- Exclusive: 이 캐시만 보유, 메모리와 동일
+- Shared: 여러 캐시가 동일한 값 보유
+- Invalid: 유효하지 않은 데이터
+```
+
+### 병렬 처리의 오버헤드
+
+```c
+// 병렬화 오버헤드 분석
+double parallel_overhead_analysis(int n, int num_threads) {
+    // 1. 스레드 생성 비용: ~10-50μs per thread
+    double thread_creation = num_threads * 20e-6;
+
+    // 2. 스레드 종료/합류 비용: ~5-20μs per thread
+    double thread_join = num_threads * 10e-6;
+
+    // 3. 동기화 비용 (barrier): ~1-5μs
+    double sync_cost = 2e-6;
+
+    // 4. 캐시 일관성 오버헤드 (False Sharing)
+    // 캐시 라인 64B, 여러 스레드가 인접 데이터 수정 시
+    double cache_coherence = /* 워크로드 의존 */;
+
+    // 5. 로드 밸런싱 비용
+    // 불균등 분배 시 가장 느린 스레드 대기
+    double load_imbalance = /* 데이터 의존 */;
+
+    return thread_creation + thread_join + sync_cost;
+}
+
+// 최소 작업 크기 (병렬화 이득이 오버헤드를 넘어야 함)
+// 경험적으로: 작업당 최소 ~1ms 이상의 계산이 필요
+```
+
+### 실제 확장성 측정
+
+```bash
+# Linux에서 병렬 성능 측정
+$ time ./program --threads=1
+real    0m4.000s
+
+$ time ./program --threads=4
+real    0m1.200s  # 3.33x speedup (4x가 아님!)
+
+# 이유 분석:
+# 1. Amdahl의 법칙: 직렬 부분 존재
+# 2. 동기화 오버헤드
+# 3. 캐시 경합
+# 4. 메모리 대역폭 병목
+```
+
+```
+실제 확장성 그래프 (일반적)
+                                          이론적 선형 (N배)
+Speedup                                  /
+   │                                   /
+ 8 ┤                                 /
+   │                               /  ← 실제 확장성
+ 6 ┤                             /  /
+   │                           /  /
+ 4 ┤                         / /
+   │                       / /
+ 2 ┤                     //
+   │                   //
+ 1 ┤─────────────────//───────────────────
+   └──────┬──────┬──────┬──────┬──────┬──
+          1      2      4      8      16   Cores
+
+병목 원인:
+1-2 cores: 거의 선형
+2-4 cores: 동기화 오버헤드 증가
+4-8 cores: 메모리 대역폭 포화
+8+ cores: 심각한 경합, 수확 체감
+```
+
+### NUMA (Non-Uniform Memory Access)
+
+```
+NUMA 아키텍처 (2-socket 시스템)
+┌─────────────────────────────────────────────────────┐
+│  Socket 0                    Socket 1               │
+│  ┌───────────────┐          ┌───────────────┐      │
+│  │ Core 0  Core 1│          │ Core 4  Core 5│      │
+│  │ Core 2  Core 3│          │ Core 6  Core 7│      │
+│  └───────┬───────┘          └───────┬───────┘      │
+│          │                          │               │
+│  ┌───────┴───────┐          ┌───────┴───────┐      │
+│  │  Local Memory │←─ QPI ──→│  Local Memory │      │
+│  │  (Node 0)     │  ~100ns  │  (Node 1)     │      │
+│  │   ~70ns       │  추가    │   ~70ns       │      │
+│  └───────────────┘          └───────────────┘      │
+└─────────────────────────────────────────────────────┘
+
+메모리 접근 레이턴시:
+- Local memory: ~70ns
+- Remote memory: ~150-200ns (2x 느림!)
+```
+
+```bash
+# NUMA 토폴로지 확인
+$ numactl --hardware
+available: 2 nodes (0-1)
+node 0 cpus: 0 1 2 3
+node 0 size: 32768 MB
+node 1 cpus: 4 5 6 7
+node 1 size: 32768 MB
+node distances:
+node   0   1
+  0:  10  21
+  1:  21  10
+
+# NUMA 친화적 실행
+$ numactl --cpunodebind=0 --membind=0 ./program
+```
+
+---
+
 ## 📚 참고 자료
 
 - [Concurrency is not Parallelism (Rob Pike)](https://go.dev/blog/waza-talk)
 - "Seven Concurrency Models in Seven Weeks" - Paul Butcher
+- Intel® 64 and IA-32 Architectures Optimization Reference Manual
+- "What Every Programmer Should Know About Memory" - Ulrich Drepper
 
 ---
 

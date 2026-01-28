@@ -166,6 +166,173 @@ if (x.compare_exchange_strong(expected, 1)) {
 
 ---
 
+## 🔧 하드웨어 내부 메커니즘
+
+### x86-64 LOCK 접두사
+
+```asm
+; 일반 명령어 (비원자적)
+add [memory], 1       ; Read-Modify-Write가 3개 단계로 분리
+
+; LOCK 접두사 (원자적)
+lock add [memory], 1  ; 단일 버스 트랜잭션으로 실행
+```
+
+**LOCK 접두사 동작**:
+```
+1. 캐시 라인 독점 획득 (MESI Modified 상태)
+2. Read-Modify-Write 수행
+3. 다른 코어의 해당 캐시 라인 무효화
+
+(과거) 버스 락: 전체 메모리 버스 잠금
+(현재) 캐시 락: 해당 캐시 라인만 잠금 (훨씬 효율적)
+```
+
+### CMPXCHG (Compare-and-Exchange) 명령어
+
+```asm
+; x86-64 CMPXCHG 동작
+lock cmpxchg [mem], new_value
+; 의사 코드:
+;   if (*mem == EAX) {
+;       *mem = new_value
+;       ZF = 1  ; 성공
+;   } else {
+;       EAX = *mem
+;       ZF = 0  ; 실패
+;   }
+```
+
+**CMPXCHG16B (128-bit CAS)**:
+```asm
+; Double-width CAS (포인터 + 태그)
+lock cmpxchg16b [mem]
+; RDX:RAX (old) vs [mem]
+; RCX:RBX (new)
+; 128비트 원자적 교환 가능
+```
+
+### ARM LL/SC (Load-Link / Store-Conditional)
+
+```asm
+; ARM64 LL/SC
+loop:
+    ldxr x0, [x1]           ; Load-Exclusive: 값 읽기 + 예약
+    add x0, x0, #1          ; 수정
+    stxr w2, x0, [x1]       ; Store-Conditional: 예약 유효하면 저장
+    cbnz w2, loop           ; 실패하면 재시도
+```
+
+**LL/SC vs CMPXCHG 차이**:
+```
+CMPXCHG (x86):
+- 값만 비교
+- ABA 문제에 취약
+
+LL/SC (ARM):
+- "수정 여부" 추적
+- 중간에 다른 쓰기 있으면 SC 실패
+- ABA 문제 자연스럽게 해결
+```
+
+### MESI 캐시 일관성 프로토콜
+
+```
+┌─────────────────────────────────────────────────┐
+│                 MESI States                      │
+├─────────────────────────────────────────────────┤
+│  Modified (M): 이 코어만 최신, 메모리와 다름    │
+│  Exclusive (E): 이 코어만 보유, 메모리와 같음   │
+│  Shared (S): 여러 코어가 보유, 읽기만 가능      │
+│  Invalid (I): 무효, 다시 읽어야 함              │
+└─────────────────────────────────────────────────┘
+
+LOCK 명령 실행 시:
+1. 해당 캐시 라인을 Modified 상태로 전환
+2. 다른 코어의 같은 라인을 Invalid로 만듦
+3. RMW 연산 수행
+4. 완료 후 다른 코어가 읽으면 Shared로 전환
+```
+
+### RMW (Read-Modify-Write) 원자성 보장
+
+```
+단일 버스 트랜잭션:
+┌─────────────────────────────────────────┐
+│ CPU Core                                 │
+│   ↓ LOCK ADD [mem], 1                   │
+│   ├─ 1. 캐시 라인 요청 (RFO)            │
+│   │     → 다른 코어 캐시 무효화         │
+│   ├─ 2. 값 읽기                          │
+│   ├─ 3. 덧셈                             │
+│   └─ 4. 값 쓰기                          │
+│        (이 전체가 원자적)                │
+└─────────────────────────────────────────┘
+```
+
+### 정렬(Alignment) 요구사항
+
+```cpp
+// 원자성을 위해 자연 정렬(Natural Alignment) 필수
+
+// ✅ 올바른 정렬
+alignas(8) std::atomic<int64_t> counter;  // 8바이트 정렬
+
+// ❌ 잘못된 정렬 (정의되지 않은 동작)
+struct Packed {
+    char x;
+    std::atomic<int64_t> counter;  // 1바이트 오프셋, 미정렬!
+} __attribute__((packed));
+```
+
+**미정렬 접근의 문제**:
+```
+메모리 레이아웃:
+┌────┬────┬────┬────┬────┬────┬────┬────┬────┐
+│ x  │ c0 │ c1 │ c2 │ c3 │ c4 │ c5 │ c6 │ c7 │
+└────┴────┴────┴────┴────┴────┴────┴────┴────┘
+      ↑ counter가 캐시 라인 경계를 걸침
+      → 원자성 보장 불가!
+```
+
+### is_lock_free() 확인
+
+```cpp
+#include <atomic>
+#include <iostream>
+
+int main() {
+    std::atomic<int> a;
+    std::atomic<double> b;
+    std::atomic<std::pair<int,int>> c;
+
+    std::cout << "int: " << a.is_lock_free() << std::endl;      // 보통 true
+    std::cout << "double: " << b.is_lock_free() << std::endl;   // 보통 true
+    std::cout << "pair: " << c.is_lock_free() << std::endl;     // 보통 false
+
+    // 컴파일 타임 확인
+    static_assert(std::atomic<int>::is_always_lock_free);
+    // static_assert(std::atomic<std::pair<int,int>>::is_always_lock_free); // 실패!
+}
+```
+
+**Lock-Free가 아닌 경우**:
+```cpp
+// 내부적으로 mutex 사용
+template<typename T>
+struct atomic_with_lock {
+    std::mutex mtx;
+    T value;
+
+    void store(T v) {
+        std::lock_guard<std::mutex> lock(mtx);
+        value = v;
+    }
+};
+```
+
+---
+
 ## 🎯 실전 사용 예시
 
 ### 1. Lock-Free 카운터

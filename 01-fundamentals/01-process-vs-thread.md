@@ -376,10 +376,259 @@ int main() {
 
 ---
 
+## 🔬 내부 메커니즘 심층 분석
+
+### 커널 자료구조
+
+#### Linux: task_struct
+
+Linux에서 프로세스와 스레드는 모두 `task_struct` 구조체로 표현됩니다.
+
+```c
+// include/linux/sched.h (단순화)
+struct task_struct {
+    // 스케줄링 정보
+    volatile long state;        // 프로세스 상태
+    int prio, static_prio;      // 우선순위
+
+    // 프로세스/스레드 식별
+    pid_t pid;                  // Process ID
+    pid_t tgid;                 // Thread Group ID (메인 스레드의 PID)
+
+    // 메모리 관리
+    struct mm_struct *mm;       // 메모리 디스크립터 (가상 주소 공간)
+
+    // 파일 시스템
+    struct fs_struct *fs;       // 현재 디렉토리, 루트 디렉토리
+    struct files_struct *files; // 열린 파일 디스크립터 테이블
+
+    // 시그널
+    struct signal_struct *signal;
+    struct sighand_struct *sighand;
+
+    // 스레드 정보
+    struct thread_struct thread; // CPU 레지스터 상태
+
+    // 부모/자식 관계
+    struct task_struct *parent;
+    struct list_head children;
+    struct list_head sibling;
+
+    // 스레드 그룹 (같은 프로세스의 스레드들)
+    struct list_head thread_group;
+};
+```
+
+**핵심 포인트**:
+- `pid`: 각 스레드마다 고유 (Linux에서 스레드 = 경량 프로세스)
+- `tgid`: Thread Group ID, 같은 프로세스의 모든 스레드가 동일한 값
+- `getpid()` 시스템 콜은 실제로 `tgid`를 반환 (POSIX 호환)
+- `gettid()` 시스템 콜은 실제 `pid`를 반환
+
+#### Windows: EPROCESS / ETHREAD
+
+```c
+// Windows 커널 구조 (단순화)
+struct _EPROCESS {
+    KPROCESS Pcb;                    // 스케줄링 정보
+    HANDLE UniqueProcessId;          // 프로세스 ID
+    PVOID VirtualAddress;            // 가상 주소 공간
+    HANDLE_TABLE ObjectTable;        // 핸들 테이블 (파일, 동기화 객체 등)
+    LIST_ENTRY ThreadListHead;       // 스레드 리스트
+    // ...
+};
+
+struct _ETHREAD {
+    KTHREAD Tcb;                     // 스케줄링 정보
+    PVOID StartAddress;              // 스레드 시작 주소
+    CLIENT_ID Cid;                   // Process ID + Thread ID
+    struct _EPROCESS *Process;       // 소속 프로세스
+    // ...
+};
+```
+
+### clone() 시스템 콜과 플래그
+
+Linux에서 `fork()`와 `pthread_create()`는 모두 내부적으로 `clone()` 시스템 콜을 사용합니다.
+
+```c
+// clone() 플래그에 따른 공유 범위 결정
+int clone(int (*fn)(void *), void *stack, int flags, void *arg);
+
+// 주요 플래그
+#define CLONE_VM      0x00000100  // 메모리 공간 공유
+#define CLONE_FS      0x00000200  // 파일 시스템 정보 공유
+#define CLONE_FILES   0x00000400  // 파일 디스크립터 테이블 공유
+#define CLONE_SIGHAND 0x00000800  // 시그널 핸들러 공유
+#define CLONE_THREAD  0x00010000  // 같은 스레드 그룹
+```
+
+#### fork() vs pthread_create() 내부 차이
+
+```c
+// fork() 호출 시 (프로세스 생성)
+clone(NULL, NULL, SIGCHLD, NULL);
+// → 모든 것이 복사됨 (Copy-on-Write)
+
+// pthread_create() 호출 시 (스레드 생성)
+clone(start_routine, stack,
+      CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND |
+      CLONE_THREAD | CLONE_SYSVSEM | CLONE_SETTLS |
+      CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID,
+      arg);
+// → 대부분의 자원을 공유
+```
+
+### 메모리 레이아웃 상세
+
+```
+x86-64 Linux 프로세스 가상 주소 공간 (48-bit)
+┌─────────────────────────────────────┐ 0xFFFF_FFFF_FFFF_FFFF
+│         Kernel Space (상위)          │
+│         (모든 프로세스 공유)          │
+├─────────────────────────────────────┤ 0xFFFF_8000_0000_0000
+│         Non-canonical hole          │
+├─────────────────────────────────────┤ 0x0000_7FFF_FFFF_FFFF
+│                                     │
+│     Stack (grows down) ↓            │ ← 각 스레드마다 별도
+│     [Thread 1 Stack]                │
+│     [Thread 2 Stack]                │
+│     [Thread 3 Stack]                │
+│     ...                             │
+│                                     │
+├─────────────────────────────────────┤
+│     Memory-mapped regions           │ ← mmap, 공유 라이브러리
+│     (shared libraries, mmap)        │
+├─────────────────────────────────────┤
+│                                     │
+│     Heap (grows up) ↑               │ ← 모든 스레드 공유
+│     (malloc, new)                   │
+│                                     │
+├─────────────────────────────────────┤
+│     BSS (uninitialized data)        │ ← 모든 스레드 공유
+├─────────────────────────────────────┤
+│     Data (initialized data)         │ ← 모든 스레드 공유
+├─────────────────────────────────────┤
+│     Text (code)                     │ ← 모든 스레드 공유, Read-only
+├─────────────────────────────────────┤ 0x0000_0000_0040_0000
+│         Reserved                    │
+└─────────────────────────────────────┘ 0x0000_0000_0000_0000
+```
+
+### 스레드 스택 할당
+
+```c
+// pthread 스택 할당 내부 동작
+void *pthread_stack_allocation(size_t size) {
+    // 1. 스택 크기 결정 (기본 8MB on Linux)
+    size_t stack_size = size ? size : PTHREAD_STACK_DEFAULT;
+
+    // 2. Guard page 포함하여 메모리 매핑
+    void *stack = mmap(NULL,
+                       stack_size + GUARD_SIZE,
+                       PROT_READ | PROT_WRITE,
+                       MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK,
+                       -1, 0);
+
+    // 3. Guard page 설정 (스택 오버플로우 감지)
+    mprotect(stack, GUARD_SIZE, PROT_NONE);
+
+    return stack + GUARD_SIZE;  // 실제 스택 시작점
+}
+```
+
+```
+Thread Stack Layout
+┌───────────────────┐ 높은 주소
+│   Thread Local    │
+│    Storage (TLS)  │
+├───────────────────┤
+│                   │
+│   Stack (사용 중)  │
+│        ↓          │
+│   (grows down)    │
+│                   │
+│   Stack (미사용)   │
+│                   │
+├───────────────────┤
+│   Guard Page      │ ← PROT_NONE, 접근 시 SIGSEGV
+│   (보호 페이지)    │
+└───────────────────┘ 낮은 주소
+```
+
+### 컨텍스트 스위칭 비용 분석
+
+```c
+// 스레드 컨텍스트 (task_struct.thread)
+struct thread_struct {
+    // x86-64 레지스터 상태
+    unsigned long sp;     // Stack Pointer
+    unsigned long ip;     // Instruction Pointer
+    unsigned long fs;     // TLS base (FS segment)
+    unsigned long gs;     // Per-CPU data (kernel)
+
+    // FPU/SSE/AVX 상태 (Lazy saving)
+    struct fpu fpu;
+
+    // 디버그 레지스터
+    unsigned long debugreg[8];
+};
+```
+
+**스레드 vs 프로세스 컨텍스트 스위칭 비용**:
+
+| 항목 | 스레드 전환 | 프로세스 전환 |
+|------|-------------|---------------|
+| 레지스터 저장/복원 | ✓ (~100 cycles) | ✓ (~100 cycles) |
+| 스택 포인터 전환 | ✓ (~10 cycles) | ✓ (~10 cycles) |
+| TLB Flush | ✗ 불필요 | ✓ 필요 (~1000+ cycles) |
+| 캐시 무효화 | 부분적 | 전체 가능 |
+| 페이지 테이블 전환 | ✗ 불필요 | ✓ 필요 (CR3 레지스터) |
+| **총 비용** | ~1-2 μs | ~3-5 μs |
+
+**PCID (Process Context ID) 최적화**:
+```
+Intel Haswell 이후 지원 (CR4.PCIDE = 1)
+- TLB 엔트리에 12비트 PCID 태그 추가
+- 프로세스 전환 시 TLB flush 불필요
+- 다른 프로세스 엔트리는 PCID로 구분
+→ 프로세스 전환 비용 크게 감소
+```
+
+### /proc 파일시스템으로 확인
+
+```bash
+# 프로세스 정보
+$ cat /proc/[pid]/status
+Name:   myprogram
+Pid:    12345
+Tgid:   12345
+Threads: 4
+
+# 스레드 목록 (같은 프로세스 내)
+$ ls /proc/12345/task/
+12345  12346  12347  12348
+
+# 각 스레드의 스택 주소
+$ cat /proc/12345/task/12346/maps | grep stack
+7f1234560000-7f1234580000 rw-p 00000000 00:00 0 [stack:12346]
+
+# 메모리 맵 (공유 확인)
+$ cat /proc/12345/maps
+00400000-00452000 r-xp ... /myprogram        # Code (공유)
+00651000-00652000 rw-p ... /myprogram        # Data (공유)
+7f1234500000-7f1234520000 rw-p ... [heap]    # Heap (공유)
+7f1234560000-7f1234580000 rw-p ... [stack:12346] # Thread stack (독립)
+```
+
+---
+
 ## 📖 참고 자료
 
 - "Operating Systems: Three Easy Pieces" - Chapter 26 (Threads)
 - "The Linux Programming Interface" - Chapter 28 (Processes)
+- Linux Kernel Source: `include/linux/sched.h`
+- "Understanding the Linux Kernel" - Bovet & Cesati
 - POSIX Threads Programming: https://computing.llnl.gov/tutorials/pthreads/
 
 ---

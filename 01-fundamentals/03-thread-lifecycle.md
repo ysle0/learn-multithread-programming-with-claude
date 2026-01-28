@@ -450,10 +450,262 @@ Throughput = Completed Tasks / Total Time
 
 ---
 
+## 🔬 내부 메커니즘 심층 분석
+
+### Linux 커널 스레드 상태
+
+```c
+// include/linux/sched.h
+// 실제 Linux 커널에서 사용하는 상태 정의
+#define TASK_RUNNING           0x0000  // 실행 중 또는 실행 가능
+#define TASK_INTERRUPTIBLE     0x0001  // 대기 중, 시그널로 깨울 수 있음
+#define TASK_UNINTERRUPTIBLE   0x0002  // 대기 중, 시그널 무시 (I/O 대기)
+#define __TASK_STOPPED         0x0004  // 중지됨 (SIGSTOP)
+#define __TASK_TRACED          0x0008  // 디버거에 의해 추적 중
+#define TASK_PARKED            0x0040  // 파킹됨 (kthread)
+#define TASK_DEAD              0x0080  // 종료됨, 리소스 해제 대기
+#define TASK_WAKEKILL          0x0100  // SIGKILL로 깨울 수 있음
+#define TASK_WAKING            0x0200  // 깨우는 중
+#define TASK_NOLOAD            0x0400  // load average에 포함 안 됨
+#define TASK_NEW               0x0800  // 새로 생성됨
+```
+
+```
+Linux 상태 전이 다이어그램 (상세):
+
+       fork()/clone()
+            ↓
+    ┌───────────────┐
+    │  TASK_NEW     │ ← 방금 생성됨
+    └───────────────┘
+            ↓ wake_up_new_task()
+    ┌───────────────┐
+    │ TASK_RUNNING  │ ← Run Queue에 추가됨
+    │  (runnable)   │
+    └───────────────┘
+            ↓ schedule() 선택
+    ┌───────────────┐
+    │ TASK_RUNNING  │ ← CPU에서 실행 중
+    │  (running)    │
+    └───────────────┘
+            │
+     ┌──────┴──────┬─────────────┬─────────────┐
+     ↓             ↓             ↓             ↓
+┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐
+│INTERRUP │  │UNINTERR │  │ STOPPED │  │  DEAD   │
+│TIBLE    │  │UPTIBLE  │  │         │  │         │
+│wait_    │  │I/O,     │  │SIGSTOP  │  │exit()   │
+│event()  │  │mutex    │  │         │  │         │
+└────┬────┘  └────┬────┘  └────┬────┘  └─────────┘
+     │            │            │
+     └──────┬─────┴────────────┘
+            ↓ wake_up()
+    ┌───────────────┐
+    │ TASK_RUNNING  │
+    │  (runnable)   │
+    └───────────────┘
+```
+
+### Run Queue와 CFS 스케줄러
+
+```c
+// kernel/sched/sched.h
+struct rq {
+    raw_spinlock_t lock;       // Run Queue 락
+
+    unsigned int nr_running;    // TASK_RUNNING 스레드 수
+    u64 nr_switches;           // Context Switch 횟수
+
+    struct cfs_rq cfs;         // CFS Run Queue (Red-Black Tree)
+    struct rt_rq rt;           // Real-Time Run Queue
+    struct dl_rq dl;           // Deadline Run Queue
+
+    struct task_struct *curr;  // 현재 실행 중인 태스크
+    struct task_struct *idle;  // Idle 태스크
+
+    // CPU별 통계
+    u64 clock;                 // 현재 시간
+    u64 clock_task;            // 태스크 시간
+
+    // Load tracking
+    struct sched_avg avg;
+};
+
+// CFS Run Queue (완전 공정 스케줄러)
+struct cfs_rq {
+    struct rb_root_cached tasks_timeline;  // Red-Black Tree
+    struct sched_entity *curr;             // 현재 실행 중
+    u64 min_vruntime;                      // 최소 vruntime
+
+    unsigned int nr_running;               // 실행 가능 태스크 수
+};
+```
+
+```
+CFS Red-Black Tree:
+
+                    ┌─────┐
+                    │vrt=5│ ← 루트
+                    └──┬──┘
+                 ┌─────┴─────┐
+              ┌──┴──┐     ┌──┴──┐
+              │vrt=3│     │vrt=8│
+              └──┬──┘     └──┬──┘
+            ┌────┴────┐      └────┐
+         ┌──┴──┐   ┌──┴──┐    ┌──┴──┐
+         │vrt=1│   │vrt=4│    │vrt=9│
+         └─────┘   └─────┘    └─────┘
+            ↑
+       leftmost (다음 실행 대상)
+
+vruntime 계산:
+vruntime += delta_exec * (NICE_0_LOAD / weight)
+
+nice 0 (기본): weight = 1024
+nice -5:       weight = 3121  (더 많이 실행)
+nice +5:       weight = 335   (덜 실행)
+```
+
+### Wait Queue 구현
+
+```c
+// include/linux/wait.h
+struct wait_queue_head {
+    spinlock_t lock;
+    struct list_head head;
+};
+
+struct wait_queue_entry {
+    unsigned int flags;
+    void *private;              // 대기 중인 task_struct
+    wait_queue_func_t func;     // 깨우기 함수
+    struct list_head entry;
+};
+
+// 사용 예시 (커널 내부)
+DECLARE_WAIT_QUEUE_HEAD(my_wait_queue);
+
+// 대기 (TASK_INTERRUPTIBLE로 전환)
+wait_event_interruptible(my_wait_queue, condition);
+
+// 내부 동작:
+// 1. current를 wait queue에 추가
+// 2. set_current_state(TASK_INTERRUPTIBLE)
+// 3. schedule() 호출 → 다른 태스크 실행
+// 4. 깨어나면 condition 확인
+// 5. condition false면 다시 대기
+
+// 깨우기
+wake_up(&my_wait_queue);       // 하나만 깨움
+wake_up_all(&my_wait_queue);   // 모두 깨움
+```
+
+### /proc 파일시스템으로 상태 확인
+
+```bash
+# 스레드 상태 확인
+$ cat /proc/[pid]/stat
+# 3번째 필드가 상태
+# R: Running
+# S: Sleeping (TASK_INTERRUPTIBLE)
+# D: Disk sleep (TASK_UNINTERRUPTIBLE) ← "unkillable"
+# T: Stopped
+# Z: Zombie
+
+# 예시
+$ cat /proc/1234/stat
+1234 (myprogram) S 1233 1234 1234 ...
+                 ^ 상태: Sleeping
+
+# 스레드별 상태 (멀티스레드 프로그램)
+$ ls /proc/1234/task/
+1234  1235  1236  1237
+
+$ cat /proc/1234/task/1235/stat
+1235 (worker-1) R ...  # Running
+
+$ cat /proc/1234/task/1236/stat
+1236 (worker-2) D ...  # Disk sleep (I/O 대기)
+
+# D 상태 원인 분석
+$ cat /proc/1236/stack
+[<0>] io_schedule+0x46/0x70
+[<0>] blk_mq_get_tag+0x123/0x2a0
+[<0>] __blk_mq_alloc_request+0x6d/0x150
+...
+```
+
+### TASK_UNINTERRUPTIBLE (D 상태) 이해
+
+```
+TASK_UNINTERRUPTIBLE의 중요성:
+
+┌────────────────────────────────────────────────────────┐
+│ 상황: 디스크 I/O 진행 중                               │
+│                                                        │
+│ 만약 INTERRUPTIBLE이라면:                              │
+│ 1. read() 시스템 콜 진행 중                           │
+│ 2. 시그널 도착 (예: SIGTERM)                          │
+│ 3. 시스템 콜 중단됨                                    │
+│ 4. 하지만 하드웨어는 아직 DMA 전송 중!                │
+│ 5. 데이터 불일치 → 파일시스템 손상 가능               │
+│                                                        │
+│ TASK_UNINTERRUPTIBLE 사용:                            │
+│ 1. read() 시스템 콜 진행 중                           │
+│ 2. 시그널 도착 → 무시됨                               │
+│ 3. DMA 완료될 때까지 대기                             │
+│ 4. 완료 후 시그널 처리                                │
+│ 5. 데이터 일관성 보장                                  │
+└────────────────────────────────────────────────────────┘
+
+주의: D 상태 스레드는 kill -9로도 종료 불가!
+해결: I/O 완료 대기 또는 시스템 재부팅
+```
+
+### ftrace로 스케줄러 추적
+
+```bash
+# ftrace 활성화
+$ echo 1 > /sys/kernel/debug/tracing/events/sched/sched_switch/enable
+$ echo 1 > /sys/kernel/debug/tracing/events/sched/sched_wakeup/enable
+
+# 추적 시작
+$ echo 1 > /sys/kernel/debug/tracing/tracing_on
+$ ./my_program &
+$ sleep 1
+$ echo 0 > /sys/kernel/debug/tracing/tracing_on
+
+# 결과 확인
+$ cat /sys/kernel/debug/tracing/trace
+
+# 출력 예시:
+#           TASK-PID   CPU#  |  TIMESTAMP  FUNCTION
+#              | |       |   |      |        |
+         worker-1234  [001]  1234.567890: sched_switch:
+                prev_comm=worker prev_pid=1234 prev_state=S
+                ==> next_comm=worker-2 next_pid=1235
+
+         worker-2-1235  [001]  1234.567900: sched_wakeup:
+                comm=worker pid=1234 target_cpu=001
+
+# prev_state 해석:
+# R = TASK_RUNNING
+# S = TASK_INTERRUPTIBLE
+# D = TASK_UNINTERRUPTIBLE
+# T = __TASK_STOPPED
+# t = __TASK_TRACED
+# X = TASK_DEAD
+# Z = EXIT_ZOMBIE
+```
+
+---
+
 ## 📚 참고 자료
 
 - "Operating Systems: Three Easy Pieces" - Chapter 7 (Scheduling)
 - [Java Thread States](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/lang/Thread.State.html)
+- Linux Kernel Source: `kernel/sched/core.c`, `kernel/sched/fair.c`
+- "Understanding the Linux Kernel" - Chapter 7 (Process Scheduling)
 
 ---
 

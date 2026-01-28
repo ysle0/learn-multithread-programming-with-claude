@@ -355,6 +355,165 @@ void upgrade_example() {
 
 ---
 
+## 🔧 내부 구현 메커니즘
+
+### 32비트 상태 카운터 인코딩
+
+```c
+// pthread_rwlock 내부 상태 (단순화)
+// 32비트 정수 하나로 모든 상태 표현
+
+┌────────────────────────────────────────┐
+│   31   │ 30-16  │     15-0            │
+│ Writer │ Writer │ Reader Count        │
+│ Active │ Waiting│                     │
+└────────────────────────────────────────┘
+
+예시:
+0x00000000 = Unlocked (아무도 없음)
+0x00000003 = 3명의 Reader 활성
+0x80000000 = Writer가 락 보유
+0x00010002 = 2명의 Reader + 1명의 Writer 대기
+```
+
+### Reader 획득 알고리즘
+
+```c
+void read_lock(rwlock_t *rw) {
+    while (true) {
+        uint32_t state = atomic_load(&rw->state);
+
+        // Writer가 활성이면 대기
+        if (state & WRITER_ACTIVE_BIT) {
+            futex_wait(&rw->state, state);
+            continue;
+        }
+
+        // Writer-preference: Writer 대기 중이면 양보 (선택적)
+        if ((state & WRITER_WAITING_MASK) && !rw->reader_preference) {
+            futex_wait(&rw->state, state);
+            continue;
+        }
+
+        // Reader 수 증가 시도
+        uint32_t new_state = state + 1;
+        if (atomic_cmpxchg(&rw->state, state, new_state)) {
+            return;  // 성공
+        }
+        // CAS 실패, 재시도
+    }
+}
+```
+
+### Writer 획득 알고리즘
+
+```c
+void write_lock(rwlock_t *rw) {
+    // 1단계: Writer 대기 등록
+    atomic_fetch_add(&rw->state, WRITER_WAITING_INCREMENT);
+
+    while (true) {
+        uint32_t state = atomic_load(&rw->state);
+
+        // Reader나 다른 Writer가 있으면 대기
+        if ((state & READER_COUNT_MASK) || (state & WRITER_ACTIVE_BIT)) {
+            futex_wait(&rw->state, state);
+            continue;
+        }
+
+        // Writer 활성 비트 설정 시도
+        uint32_t new_state = (state - WRITER_WAITING_INCREMENT) | WRITER_ACTIVE_BIT;
+        if (atomic_cmpxchg(&rw->state, state, new_state)) {
+            return;  // 성공
+        }
+    }
+}
+```
+
+### Linux pthread_rwlock 구조
+
+```c
+// glibc pthread_rwlock_t 내부 (단순화)
+struct pthread_rwlock_t {
+    unsigned int __readers;      // Reader 카운트
+    unsigned int __writers;      // Writer 대기/활성 상태
+    unsigned int __wrphase_futex; // Writer phase futex
+    unsigned int __writers_futex; // Writer 대기 futex
+    unsigned int __pad3;
+    unsigned int __pad4;
+    int __cur_writer;            // 현재 Writer TID (디버깅용)
+    // ...
+};
+```
+
+### Linux 커널 rwsem (Reader-Writer Semaphore)
+
+```c
+// 커널 rwsem 최적화: Optimistic Spinning
+struct rw_semaphore {
+    atomic_long_t count;        // Reader/Writer 상태
+    struct list_head wait_list; // 대기 큐
+    raw_spinlock_t wait_lock;   // 대기 큐 보호용
+    struct optimistic_spin_queue osq; // 낙관적 스핀 큐
+    struct task_struct *owner;  // 현재 소유자
+};
+
+// count 비트 레이아웃 (64비트):
+// [63]: Writer locked
+// [62]: Writer waiting
+// [61:0]: Reader count (음수면 Writer 진입 대기 표시)
+```
+
+**낙관적 스핀 (Optimistic Spinning)**:
+```c
+// 락 홀더가 running 상태면 spin, 아니면 sleep
+bool rwsem_optimistic_spin(struct rw_semaphore *sem) {
+    while (true) {
+        struct task_struct *owner = READ_ONCE(sem->owner);
+
+        if (!owner)
+            return true;  // 락 해제됨
+
+        if (!owner_on_cpu(owner))
+            break;  // 홀더가 running 아님, spin 중단
+
+        cpu_relax();  // PAUSE 명령
+    }
+    return false;  // sleep으로 전환
+}
+```
+
+### 성능 특성
+
+| 연산 | Uncontended | Reader 경합 | Writer 경합 |
+|------|-------------|------------|------------|
+| **read_lock** | ~30ns | ~30ns (동시 가능) | ~1μs+ (대기) |
+| **read_unlock** | ~20ns | ~20ns | ~50ns (wake) |
+| **write_lock** | ~50ns | ~1μs+ (Reader 대기) | ~1μs+ (대기) |
+| **write_unlock** | ~30ns | ~100ns (broadcast) | ~50ns |
+
+### Windows SRWLock 구조
+
+```c
+// Windows SRWLock (매우 경량)
+typedef struct _RTL_SRWLOCK {
+    PVOID Ptr;  // 단일 포인터에 모든 상태 인코딩
+} RTL_SRWLOCK;
+
+// Ptr 비트 레이아웃:
+// [0]: Locked (Writer)
+// [1]: Waiting
+// [2:63]: Reader count 또는 Wait block 포인터
+```
+
+**SRWLock 특징**:
+- 8바이트만 사용 (pthread_rwlock은 ~56바이트)
+- Recursive 미지원
+- Upgrade/Downgrade 미지원
+- 극도로 빠른 uncontended 경로
+
+---
+
 ## 🔍 정책: Reader-Preference vs Writer-Preference
 
 ### 1. Reader-Preference (읽기 우선)

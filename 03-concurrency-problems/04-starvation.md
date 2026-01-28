@@ -664,6 +664,324 @@ Task* get_next_with_feedback() {
 // Even low-priority tasks get served when high queue is empty
 ```
 
+## Internal Mechanisms
+
+### Linux CFS 스케줄러의 공정성 보장
+
+Linux의 Completely Fair Scheduler(CFS)는 vruntime을 통해 기아 상태를 방지합니다.
+
+#### vruntime 계산
+
+```c
+// linux/kernel/sched/fair.c
+
+/*
+ * vruntime = 실제 실행 시간 × (NICE_0_LOAD / 스레드 weight)
+ *
+ * weight는 nice 값에 따라 결정:
+ *   nice  0: weight = 1024 (기준)
+ *   nice -1: weight = 1277 (25% 더 많은 CPU)
+ *   nice +1: weight = 820  (25% 적은 CPU)
+ */
+
+static void update_curr(struct cfs_rq *cfs_rq) {
+    struct sched_entity *curr = cfs_rq->curr;
+    u64 now = rq_clock_task(rq_of(cfs_rq));
+    u64 delta_exec;
+
+    // 실제 실행 시간
+    delta_exec = now - curr->exec_start;
+    curr->exec_start = now;
+
+    // 통계 업데이트
+    curr->sum_exec_runtime += delta_exec;
+
+    // vruntime 계산 (가중치 적용)
+    curr->vruntime += calc_delta_fair(delta_exec, curr);
+
+    // 최소 vruntime 업데이트
+    update_min_vruntime(cfs_rq);
+}
+
+static inline u64 calc_delta_fair(u64 delta, struct sched_entity *se) {
+    // delta × (NICE_0_LOAD / se->load.weight)
+    if (unlikely(se->load.weight != NICE_0_LOAD))
+        delta = __calc_delta(delta, NICE_0_LOAD, &se->load);
+
+    return delta;
+}
+```
+
+#### 레드블랙 트리 기반 스케줄링
+
+```
+                    CFS 런큐 구조
+
+              ┌─────────────────────┐
+              │    Red-Black Tree   │
+              │  (vruntime 정렬)    │
+              └─────────┬───────────┘
+                        │
+             ┌──────────┴──────────┐
+             │                     │
+        ┌────┴────┐           ┌────┴────┐
+        │  vr=100 │           │  vr=200 │
+        │ (실행)  │           │         │
+        └────┬────┘           └────┬────┘
+             │                     │
+        ┌────┴────┐           ┌────┴────┐
+        │  vr=50  │           │  vr=150 │
+        │ ← 다음! │           │         │
+        └─────────┘           └─────────┘
+
+  - 항상 가장 작은 vruntime (왼쪽 끝) 선택
+  - 실행 시 vruntime 증가 → 트리 재정렬
+  - 모든 태스크가 결국 가장 작은 vruntime을 가지게 됨
+  - 기아 상태 불가능!
+```
+
+#### Aging 메커니즘
+
+```c
+// 새 태스크 또는 wakeup 시 vruntime 설정
+static void place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
+                        int initial) {
+    u64 vruntime = cfs_rq->min_vruntime;
+
+    // 새 태스크: 약간의 보너스 (빠른 시작)
+    if (initial)
+        vruntime += sched_vslice(cfs_rq, se);
+
+    // 오래 잠들었던 태스크: min_vruntime에 맞춤
+    // (너무 작은 vruntime으로 인한 CPU 독점 방지)
+    se->vruntime = max_vruntime(se->vruntime, vruntime);
+}
+
+// 잠들었다 깨어난 태스크의 vruntime 조정
+static void task_waking_fair(struct task_struct *p) {
+    struct sched_entity *se = &p->se;
+    struct cfs_rq *cfs_rq = cfs_rq_of(se);
+
+    // 잠든 동안의 시간을 보상하지 않음
+    // 대신 현재 min_vruntime과 비교하여 적절한 위치에 삽입
+    se->vruntime -= cfs_rq->min_vruntime;
+}
+```
+
+### 실시간 스케줄러와 기아
+
+```c
+// SCHED_FIFO/SCHED_RR에서의 기아 문제와 해결책
+
+// Linux의 RT throttling (기아 방지)
+// /proc/sys/kernel/sched_rt_runtime_us (기본: 950000)
+// /proc/sys/kernel/sched_rt_period_us  (기본: 1000000)
+
+// 의미: RT 태스크는 1초 중 최대 0.95초만 실행
+// 나머지 0.05초는 일반 태스크에게 보장
+
+// 커널 구현 (간략화)
+static void check_rt_throttle(struct rt_rq *rt_rq) {
+    if (rt_rq->rt_time > rt_rq->rt_runtime) {
+        // RT 태스크가 할당량 초과
+        rt_rq->rt_throttled = 1;
+
+        // 일반 태스크 스케줄링 허용
+        resched_curr(rq);
+    }
+}
+
+// 주기적으로 RT 시간 리셋
+static enum hrtimer_restart sched_rt_period_timer(struct hrtimer *timer) {
+    struct rt_rq *rt_rq = container_of(timer, struct rt_rq, rt_period_timer);
+
+    // 새 주기 시작: 할당량 리셋
+    rt_rq->rt_time = 0;
+    rt_rq->rt_throttled = 0;
+
+    // 다음 주기 타이머 설정
+    hrtimer_forward_now(timer, rt_rq->rt_period);
+    return HRTIMER_RESTART;
+}
+```
+
+### PTHREAD 뮤텍스의 공정성
+
+```c
+// glibc의 PTHREAD_MUTEX_ADAPTIVE_NP 구현
+// 짧은 대기는 spin, 긴 대기는 futex
+
+#define MAX_SPIN_COUNT 100
+
+int __pthread_mutex_lock(pthread_mutex_t *mutex) {
+    int type = mutex->__data.__kind;
+
+    // Adaptive mutex: spin 먼저 시도
+    if (type == PTHREAD_MUTEX_ADAPTIVE_NP) {
+        int spin_count = MAX_SPIN_COUNT;
+
+        while (spin_count-- > 0) {
+            if (lll_trylock(&mutex->__data.__lock) == 0) {
+                return 0;  // spin 중 획득 성공
+            }
+            cpu_relax();
+        }
+    }
+
+    // Spin 실패 또는 일반 mutex: futex 대기
+    // 여기서 FIFO 보장은 futex 구현에 의존
+
+    // FUTEX_WAIT_PRIVATE with FIFO semantics
+    while (lll_cmpxchg(&mutex->__data.__lock, 0, 1) != 0) {
+        // 대기자로 등록 (2 = contended)
+        int oldval = atomic_exchange(&mutex->__data.__lock, 2);
+
+        if (oldval != 0) {
+            // futex 대기 (커널이 FIFO 순서로 깨움)
+            futex_wait(&mutex->__data.__lock, 2);
+        }
+    }
+
+    return 0;
+}
+```
+
+### 읽기-쓰기 락에서의 공정성 구현
+
+```c
+// Writer 우선 RWLock의 내부 동작
+typedef struct {
+    atomic_int state;
+    // 비트 레이아웃:
+    // [31]: writer_active
+    // [30]: writer_pending
+    // [29:0]: reader_count
+
+    futex_t writer_futex;
+    futex_t reader_futex;
+} fair_rwlock_t;
+
+#define WRITER_ACTIVE  (1U << 31)
+#define WRITER_PENDING (1U << 30)
+#define READER_MASK    ((1U << 30) - 1)
+
+void fair_rwlock_rdlock(fair_rwlock_t *lock) {
+    int state;
+
+    while (1) {
+        state = atomic_load(&lock->state);
+
+        // Writer가 대기 중이면 Reader 진입 차단 (기아 방지)
+        if (state & (WRITER_ACTIVE | WRITER_PENDING)) {
+            futex_wait(&lock->reader_futex, state);
+            continue;
+        }
+
+        // Reader 카운트 증가 시도
+        if (atomic_compare_exchange_weak(&lock->state, &state,
+                                         state + 1)) {
+            return;  // 성공
+        }
+    }
+}
+
+void fair_rwlock_wrlock(fair_rwlock_t *lock) {
+    int state;
+
+    // 1단계: Writer 대기 플래그 설정
+    while (1) {
+        state = atomic_load(&lock->state);
+
+        if (atomic_compare_exchange_weak(&lock->state, &state,
+                                         state | WRITER_PENDING)) {
+            break;
+        }
+    }
+
+    // 2단계: 모든 Reader 종료 대기
+    while (1) {
+        state = atomic_load(&lock->state);
+
+        if ((state & READER_MASK) == 0 && !(state & WRITER_ACTIVE)) {
+            // Reader 없고 다른 Writer 없음
+            int new_state = (state & ~WRITER_PENDING) | WRITER_ACTIVE;
+            if (atomic_compare_exchange_weak(&lock->state, &state,
+                                             new_state)) {
+                return;  // 성공
+            }
+        } else {
+            futex_wait(&lock->writer_futex, state);
+        }
+    }
+}
+```
+
+### 타임아웃 기반 기아 방지
+
+```c
+// 최대 대기 시간 보장
+
+struct fair_resource {
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+    bool in_use;
+
+    // 대기 큐 (FIFO)
+    struct waiter *head;
+    struct waiter *tail;
+};
+
+struct waiter {
+    pthread_t thread;
+    struct timespec deadline;
+    struct waiter *next;
+    bool ready;
+};
+
+int acquire_with_deadline(struct fair_resource *res,
+                          int timeout_ms) {
+    struct waiter w;
+    w.thread = pthread_self();
+    w.next = NULL;
+    w.ready = false;
+
+    // deadline 계산
+    clock_gettime(CLOCK_REALTIME, &w.deadline);
+    w.deadline.tv_sec += timeout_ms / 1000;
+    w.deadline.tv_nsec += (timeout_ms % 1000) * 1000000;
+    if (w.deadline.tv_nsec >= 1000000000) {
+        w.deadline.tv_sec++;
+        w.deadline.tv_nsec -= 1000000000;
+    }
+
+    pthread_mutex_lock(&res->mutex);
+
+    // 대기 큐에 추가 (FIFO 보장)
+    if (res->tail) {
+        res->tail->next = &w;
+    } else {
+        res->head = &w;
+    }
+    res->tail = &w;
+
+    // 내 차례까지 대기
+    while (!w.ready) {
+        int rc = pthread_cond_timedwait(&res->cond, &res->mutex,
+                                        &w.deadline);
+        if (rc == ETIMEDOUT) {
+            // 큐에서 제거
+            remove_waiter(res, &w);
+            pthread_mutex_unlock(&res->mutex);
+            return -ETIMEDOUT;
+        }
+    }
+
+    res->in_use = true;
+    pthread_mutex_unlock(&res->mutex);
+    return 0;
+}
+```
+
 ## Detection Strategies
 
 ### 1. Wait Time Monitoring

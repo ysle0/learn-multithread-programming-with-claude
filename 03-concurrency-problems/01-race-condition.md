@@ -471,6 +471,208 @@ void release(SharedObject* obj) {
 }
 ```
 
+## Internal Mechanisms
+
+### ThreadSanitizer (TSan) 내부 동작
+
+ThreadSanitizer는 컴파일러 계측(instrumentation)을 통해 데이터 레이스를 탐지합니다.
+
+#### Shadow Memory 구조
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Application Memory                       │
+│  ┌─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┐        │
+│  │ 8B  │ 8B  │ 8B  │ 8B  │ 8B  │ 8B  │ 8B  │ 8B  │        │
+│  └──┬──┴──┬──┴──┬──┴──┬──┴──┬──┴──┬──┴──┬──┴──┬──┘        │
+│     │     │     │     │     │     │     │     │            │
+│     ▼     ▼     ▼     ▼     ▼     ▼     ▼     ▼            │
+│  ┌─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┐        │
+│  │Shadow│Shadow│Shadow│Shadow│Shadow│Shadow│Shadow│Shadow│ │
+│  │ Cell │ Cell │ Cell │ Cell │ Cell │ Cell │ Cell │ Cell │ │
+│  │ 32B  │ 32B  │ 32B  │ 32B  │ 32B  │ 32B  │ 32B  │ 32B  │ │
+│  └─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┘        │
+│                     Shadow Memory (8x larger)               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### Shadow Cell 구조 (각 8바이트 앱 메모리당)
+
+```c
+// TSan shadow cell: 4개의 shadow word (각 8바이트)
+struct ShadowCell {
+    ShadowWord words[4];  // 최근 4개 접근 기록
+};
+
+struct ShadowWord {
+    // 64-bit packed format:
+    // [TID:16][Epoch:42][IsWrite:1][AccessSize:2][Offset:3]
+    uint16_t tid;         // Thread ID (최대 65535개 스레드)
+    uint64_t epoch : 42;  // Vector clock epoch
+    uint8_t  is_write : 1;
+    uint8_t  size : 2;    // 1, 2, 4, 8 bytes
+    uint8_t  offset : 3;  // 8바이트 내 오프셋 (0-7)
+};
+```
+
+#### Happens-Before 관계 추적
+
+```c
+// TSan이 추적하는 동기화 이벤트들
+void tsan_mutex_lock(void* mutex) {
+    // mutex의 release epoch와 현재 스레드의 clock 동기화
+    ThreadState* thr = get_current_thread();
+    MutexInfo* m = get_mutex_info(mutex);
+
+    // Acquire semantics: 이전 holder의 clock을 가져옴
+    thr->clock.acquire(m->release_clock);
+}
+
+void tsan_mutex_unlock(void* mutex) {
+    ThreadState* thr = get_current_thread();
+    MutexInfo* m = get_mutex_info(mutex);
+
+    // Release semantics: 현재 clock을 mutex에 저장
+    m->release_clock.release(thr->clock);
+    thr->clock.tick();  // epoch 증가
+}
+
+// 메모리 접근 시 레이스 체크
+void tsan_memory_access(void* addr, int size, bool is_write) {
+    ShadowCell* shadow = addr_to_shadow(addr);
+    ThreadState* thr = get_current_thread();
+
+    for (int i = 0; i < 4; i++) {
+        ShadowWord prev = shadow->words[i];
+
+        // 다른 스레드의 접근이고, 둘 중 하나가 write이고,
+        // happens-before 관계가 없으면 = RACE!
+        if (prev.tid != thr->tid &&
+            (prev.is_write || is_write) &&
+            !thr->clock.happens_after(prev.tid, prev.epoch)) {
+
+            report_race(addr, prev, thr);
+        }
+    }
+
+    // 현재 접근 기록 (가장 오래된 것 교체)
+    shadow->words[oldest_idx] = make_shadow_word(thr, is_write, size);
+}
+```
+
+### 하드웨어 수준 가시성 문제
+
+데이터 레이스는 CPU 캐시 일관성 문제와 밀접하게 관련됩니다.
+
+#### Store Buffer와 가시성
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    CPU 0                    CPU 1           │
+│  ┌─────────────┐                      ┌─────────────┐      │
+│  │   Core 0    │                      │   Core 1    │      │
+│  │  ┌───────┐  │                      │  ┌───────┐  │      │
+│  │  │ Load  │  │                      │  │ Load  │  │      │
+│  │  │ Queue │  │                      │  │ Queue │  │      │
+│  │  └───────┘  │                      │  └───────┘  │      │
+│  │      │      │                      │      │      │      │
+│  │  ┌───────┐  │                      │  ┌───────┐  │      │
+│  │  │ Store │  │  ← 다른 CPU에서      │  │ Store │  │      │
+│  │  │Buffer │  │    안 보임!          │  │Buffer │  │      │
+│  │  └───┬───┘  │                      │  └───┬───┘  │      │
+│  └──────┼──────┘                      └──────┼──────┘      │
+│         │                                    │              │
+│         ▼                                    ▼              │
+│  ┌──────────────────────────────────────────────────┐      │
+│  │              L3 Cache (Shared)                   │      │
+│  └──────────────────────────────────────────────────┘      │
+└─────────────────────────────────────────────────────────────┘
+
+문제 시나리오:
+  CPU 0: x = 1    (Store Buffer에 저장, 아직 캐시에 반영 안됨)
+  CPU 1: r = x    (캐시에서 읽음 = 0, CPU 0의 store를 못 봄)
+```
+
+#### MESI 프로토콜과 레이스
+
+```c
+// 데이터 레이스가 발생하는 MESI 상태 전이 예시
+/*
+시간    CPU 0 Action       CPU 0 State    CPU 1 Action       CPU 1 State
+────    ──────────────    ───────────    ──────────────    ───────────
+ 1      Read X            Shared (S)     -                  Invalid (I)
+ 2      -                 Shared (S)     Read X             Shared (S)
+ 3      Write X=1         Modified (M)   -                  Invalid (I)
+ 4      -                 Modified (M)   Read X (stale!)    ← RACE!
+
+동기화 없이는 CPU 1이 stale 값을 읽을 수 있음
+*/
+```
+
+### 컴파일러 최적화와 레이스
+
+```c
+// 원본 코드
+int ready = 0;
+int data = 0;
+
+// Thread 1
+void producer() {
+    data = 42;
+    ready = 1;
+}
+
+// 컴파일러가 재배치 가능:
+void producer_reordered() {
+    ready = 1;     // 먼저 실행될 수 있음!
+    data = 42;
+}
+
+// Thread 2
+void consumer() {
+    while (ready == 0);
+    use(data);     // data가 42가 아닐 수 있음!
+}
+
+// 해결: volatile이 아닌 atomic 사용
+#include <stdatomic.h>
+atomic_int ready = 0;
+int data = 0;
+
+void producer_safe() {
+    data = 42;
+    atomic_store_explicit(&ready, 1, memory_order_release);
+}
+
+void consumer_safe() {
+    while (atomic_load_explicit(&ready, memory_order_acquire) == 0);
+    use(data);     // data = 42 보장
+}
+```
+
+### Helgrind vs TSan 비교
+
+```
+┌─────────────────┬──────────────────────┬──────────────────────┐
+│     Feature     │      Helgrind        │    ThreadSanitizer   │
+├─────────────────┼──────────────────────┼──────────────────────┤
+│ 구현 방식       │ 바이너리 계측        │ 컴파일러 계측        │
+│                 │ (Valgrind)           │ (-fsanitize=thread)  │
+├─────────────────┼──────────────────────┼──────────────────────┤
+│ 오버헤드        │ 20-100x 느림         │ 2-20x 느림           │
+├─────────────────┼──────────────────────┼──────────────────────┤
+│ 메모리 사용     │ ~2x                  │ ~5-10x (shadow mem)  │
+├─────────────────┼──────────────────────┼──────────────────────┤
+│ 정확도          │ Lockset algorithm    │ Happens-before       │
+│                 │ (false positives     │ (더 정확)            │
+│                 │  가능)               │                      │
+├─────────────────┼──────────────────────┼──────────────────────┤
+│ Lock 순서 분석  │ ✓ (강점)             │ 제한적               │
+├─────────────────┼──────────────────────┼──────────────────────┤
+│ 재컴파일 필요   │ 아니오               │ 예                   │
+└─────────────────┴──────────────────────┴──────────────────────┘
+```
+
 ## Detection Strategies
 
 ### 1. Code Review Checklist

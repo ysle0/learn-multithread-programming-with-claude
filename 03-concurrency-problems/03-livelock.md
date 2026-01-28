@@ -650,6 +650,280 @@ void reach_consensus_good(Node* nodes, int num_nodes) {
 }
 ```
 
+## Internal Mechanisms
+
+### 스케줄러 관점에서의 Livelock
+
+Linux CFS(Completely Fair Scheduler)가 livelock 상황을 어떻게 처리하는지 살펴봅니다.
+
+#### sched_yield() 내부 동작
+
+```c
+// linux/kernel/sched/core.c
+SYSCALL_DEFINE0(sched_yield)
+{
+    struct rq *rq = this_rq();
+
+    // 런큐 락 획득
+    raw_spin_lock_irq(&rq->lock);
+
+    // 현재 태스크를 런큐 끝으로 이동
+    schedstat_inc(rq->yld_count);
+
+    // CFS: vruntime을 최소값으로 설정하지 않음
+    // 대신 현재 vruntime 유지 → 공정성 보장
+    current->se.vruntime += sched_min_granularity;
+
+    // 재스케줄링 요청
+    set_need_resched();
+
+    raw_spin_unlock_irq(&rq->lock);
+
+    // 즉시 스케줄러 호출
+    schedule();
+
+    return 0;
+}
+```
+
+#### Livelock 발생 시 CPU 상태
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Livelock CPU State                       │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  CPU 0                          CPU 1                       │
+│  ┌─────────────────────┐       ┌─────────────────────┐     │
+│  │ Thread A            │       │ Thread B            │     │
+│  │ State: RUNNING      │       │ State: RUNNING      │     │
+│  │ CPU: 100%           │       │ CPU: 100%           │     │
+│  │                     │       │                     │     │
+│  │ trylock(mutex_b)    │       │ trylock(mutex_a)    │     │
+│  │ → EBUSY             │       │ → EBUSY             │     │
+│  │ unlock(mutex_a)     │       │ unlock(mutex_b)     │     │
+│  │ yield()             │       │ yield()             │     │
+│  │ lock(mutex_a)       │       │ lock(mutex_b)       │     │
+│  │ ... 반복 ...        │       │ ... 반복 ...        │     │
+│  └─────────────────────┘       └─────────────────────┘     │
+│                                                             │
+│  특징: TASK_RUNNING 상태이지만 유용한 작업 없음            │
+│        context switch 빈번 발생 (캐시 효율 저하)           │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 커널 레벨 Livelock 탐지
+
+```c
+// 커널에서 사용하는 livelock 탐지 기법 (예: 네트워크 스택)
+// linux/net/core/dev.c
+
+static void check_net_livelock(struct net_device *dev) {
+    // NAPI polling에서의 livelock 방지
+
+    // 작업량 제한 (budget)
+    int budget = netdev_budget;  // 기본값: 300
+
+    // 한 번의 poll에서 최대 budget 만큼만 처리
+    int work_done = dev->poll(dev, budget);
+
+    if (work_done >= budget) {
+        // 아직 처리할 패킷이 더 있음
+        // 다른 장치에게도 기회 제공 (공정성)
+        schedule_delayed_work(&dev->poll_work, 1);
+
+        // livelock 카운터 증가
+        dev->livelock_count++;
+
+        if (dev->livelock_count > LIVELOCK_THRESHOLD) {
+            // 경고 출력
+            netdev_warn(dev, "Possible livelock detected, "
+                       "throttling packet processing\n");
+
+            // 처리 속도 조절
+            dev->poll_budget = budget / 2;
+        }
+    } else {
+        // 모든 패킷 처리 완료
+        dev->livelock_count = 0;
+    }
+}
+```
+
+### Exponential Backoff 구현 세부사항
+
+```c
+// 이더넷 CSMA/CD 스타일 backoff
+// 실제 구현에서의 고려사항
+
+struct backoff_state {
+    int attempt;          // 현재 시도 횟수
+    int max_attempts;     // 최대 시도 (보통 16)
+    int slot_time_us;     // 슬롯 시간 (이더넷: 51.2μs)
+    uint32_t seed;        // 스레드별 난수 시드
+};
+
+int exponential_backoff(struct backoff_state *state) {
+    if (state->attempt >= state->max_attempts) {
+        return -ETIMEDOUT;  // 포기
+    }
+
+    // k = min(attempt, 10)
+    int k = (state->attempt < 10) ? state->attempt : 10;
+
+    // 0 ~ (2^k - 1) 범위의 난수 선택
+    int max_slots = (1 << k) - 1;
+    int slots = fast_random(&state->seed) % (max_slots + 1);
+
+    // 대기 시간 계산
+    int wait_time_us = slots * state->slot_time_us;
+
+    // 실제 대기 (busy-wait 대신 sleep 사용)
+    if (wait_time_us > 0) {
+        struct timespec ts = {
+            .tv_sec = wait_time_us / 1000000,
+            .tv_nsec = (wait_time_us % 1000000) * 1000
+        };
+        nanosleep(&ts, NULL);
+    }
+
+    state->attempt++;
+    return 0;
+}
+
+// 빠른 난수 생성 (xorshift)
+static inline uint32_t fast_random(uint32_t *seed) {
+    uint32_t x = *seed;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    *seed = x;
+    return x;
+}
+```
+
+### Lock-Free 환경에서의 Livelock
+
+```c
+// CAS 루프에서의 livelock 가능성
+
+// 문제: 여러 스레드가 동시에 CAS 시도
+void problematic_increment(atomic_int *counter) {
+    int old_val, new_val;
+
+    do {
+        old_val = atomic_load(counter);
+        new_val = old_val + 1;
+        // 모든 스레드가 동시에 실패 → livelock 유사 상황
+    } while (!atomic_compare_exchange_weak(counter, &old_val, new_val));
+}
+
+// 해결: Backoff 적용
+void increment_with_backoff(atomic_int *counter) {
+    struct backoff_state bs = {
+        .attempt = 0,
+        .max_attempts = 16,
+        .slot_time_us = 1,
+        .seed = (uint32_t)pthread_self()
+    };
+
+    int old_val, new_val;
+
+    do {
+        old_val = atomic_load(counter);
+        new_val = old_val + 1;
+
+        if (atomic_compare_exchange_weak(counter, &old_val, new_val)) {
+            return;  // 성공
+        }
+
+        // CAS 실패 시 backoff
+        if (exponential_backoff(&bs) < 0) {
+            // 포기 - 다른 전략 사용 (예: 락 기반)
+            fallback_to_lock(counter);
+            return;
+        }
+    } while (1);
+}
+```
+
+### 스핀락에서의 Livelock 방지
+
+```c
+// Linux 커널의 ticket spinlock (공정성 보장)
+// arch/x86/include/asm/spinlock.h (개념적)
+
+typedef struct {
+    atomic_int head;  // 서비스 중인 번호
+    atomic_int tail;  // 다음 발급 번호
+} ticket_spinlock_t;
+
+void ticket_spin_lock(ticket_spinlock_t *lock) {
+    // 번호표 받기 (원자적)
+    int my_ticket = atomic_fetch_add(&lock->tail, 1);
+
+    // 내 차례 대기
+    while (atomic_load(&lock->head) != my_ticket) {
+        // PAUSE 명령으로 CPU 절전 + 파이프라인 최적화
+        cpu_relax();  // x86: PAUSE instruction
+
+        // 선택적: 긴 대기 시 yield
+        if (should_yield()) {
+            sched_yield();
+        }
+    }
+
+    // 메모리 배리어
+    smp_mb();
+}
+
+void ticket_spin_unlock(ticket_spinlock_t *lock) {
+    smp_mb();
+    // 다음 번호 호출
+    atomic_fetch_add(&lock->head, 1);
+}
+
+// 장점:
+// - FIFO 순서 보장 → livelock/starvation 방지
+// - 공정한 대기 시간
+```
+
+### perf를 이용한 Livelock 분석
+
+```bash
+# Livelock 의심 상황에서의 분석
+
+# 1. context switch 횟수 확인
+perf stat -e context-switches,cpu-migrations \
+    -p <pid> sleep 5
+
+# 출력 예시 (livelock 시):
+#  1,234,567 context-switches    # 매우 높음!
+#      1,234 cpu-migrations
+
+# 2. 함수별 CPU 시간 분석
+perf record -g -p <pid> sleep 10
+perf report
+
+# livelock 시 특정 함수에서 대부분의 시간 소모:
+# 45% pthread_mutex_trylock
+# 40% pthread_mutex_unlock
+# 10% sched_yield
+#  5% 실제 작업
+
+# 3. 락 경합 분석
+perf lock record -p <pid>
+perf lock report
+
+# 4. 실시간 모니터링
+watch -n 1 "cat /proc/<pid>/status | grep -E '(State|voluntary|nonvoluntary)'"
+
+# livelock 시:
+# State: R (running)
+# voluntary_ctxt_switches: 매우 높음
+# nonvoluntary_ctxt_switches: 낮음
+```
+
 ## Detection Strategies
 
 ### 1. Progress Monitoring

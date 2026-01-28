@@ -486,10 +486,263 @@ mtx.unlock();
 
 ---
 
+## 🔬 내부 메커니즘 심층 분석
+
+### x86-64 컨텍스트 저장 구조
+
+```c
+// Linux 커널: arch/x86/include/asm/processor.h
+struct thread_struct {
+    // 스케줄링 관련
+    unsigned long sp;           // Stack Pointer (RSP)
+    unsigned short es, ds;      // 세그먼트 레지스터
+
+    // TLS (Thread Local Storage)
+    unsigned long fsbase;       // FS 베이스 주소 (user TLS)
+    unsigned long gsbase;       // GS 베이스 주소 (kernel per-CPU)
+
+    // 디버그 레지스터
+    unsigned long debugreg0;
+    unsigned long debugreg1;
+    unsigned long debugreg2;
+    unsigned long debugreg3;
+    unsigned long debugreg6;
+    unsigned long debugreg7;
+
+    // FPU 상태 (lazy saving)
+    struct fpu fpu;
+    // ...
+};
+```
+
+### FPU/SIMD 상태의 Lazy Saving
+
+```
+FPU 상태 저장 최적화 (Lazy FPU):
+
+기존 방식:
+┌─────────────────────────────────────────────────────┐
+│ Context Switch 시 항상 FPU 상태 저장/복원           │
+│ - FXSAVE: 512 bytes (SSE)                          │
+│ - XSAVE: 2KB+ (AVX-512)                            │
+│ → 비용: 수백 cycles                                 │
+└─────────────────────────────────────────────────────┘
+
+Lazy 방식 (현대 Linux):
+┌─────────────────────────────────────────────────────┐
+│ 1. Context Switch 시 FPU 상태 저장 건너뜀          │
+│ 2. CR0.TS (Task Switched) 플래그 설정              │
+│ 3. 새 스레드가 FPU 사용 시 #NM 예외 발생           │
+│ 4. 예외 핸들러에서:                                │
+│    - 이전 스레드 FPU 저장                          │
+│    - 현재 스레드 FPU 복원                          │
+│    - CR0.TS 클리어                                 │
+│                                                    │
+│ 장점: FPU 미사용 스레드 → 저장/복원 비용 0         │
+└─────────────────────────────────────────────────────┘
+
+최신 방식 (XSAVEOPT, 2018+):
+- Eager FPU: 항상 저장하지만 XSAVEOPT/XSAVEC로 최적화
+- 변경된 컴포넌트만 저장 (Intel MPX, AVX state 등)
+```
+
+### 실제 Context Switch 코드 (Linux 커널)
+
+```c
+// arch/x86/kernel/process_64.c (단순화)
+__visible __notrace_funcgraph struct task_struct *
+__switch_to(struct task_struct *prev_p, struct task_struct *next_p)
+{
+    struct thread_struct *prev = &prev_p->thread;
+    struct thread_struct *next = &next_p->thread;
+
+    // 1. FPU 상태 저장/복원
+    switch_fpu_prepare(prev_p, cpu);
+    switch_fpu_finish(next_p, cpu);
+
+    // 2. TLS 전환 (FS/GS 베이스)
+    savesegment(gs, prev->gsindex);
+    load_gs_index(next->gsindex);
+    wrmsrl(MSR_FS_BASE, next->fsbase);  // User TLS
+    wrmsrl(MSR_KERNEL_GS_BASE, next->gsbase);
+
+    // 3. 스택 전환
+    // 이 시점에서 RSP가 새 스레드의 커널 스택으로 전환
+
+    // 4. 디버그 레지스터 (필요시)
+    if (unlikely(next->debugreg7))
+        load_debugregs(next);
+
+    return prev_p;
+}
+```
+
+### PCID (Process-Context Identifier) 상세
+
+```
+PCID 없이 (구형 CPU):
+┌────────────────────────────────────────────────────┐
+│ 프로세스 A → 프로세스 B 전환                        │
+│                                                    │
+│ 1. CR3 레지스터에 새 페이지 테이블 로드            │
+│ 2. TLB 전체 flush (INVLPG 또는 CR3 reload)        │
+│                                                    │
+│ TLB 미스 폭증:                                     │
+│ - 프로세스 B의 첫 ~1000개 메모리 접근이 TLB miss  │
+│ - 각 miss: 4-level page walk = ~100 cycles        │
+│ - 총 비용: ~100,000 cycles = ~50μs               │
+└────────────────────────────────────────────────────┘
+
+PCID 사용 (Intel Haswell 이후):
+┌────────────────────────────────────────────────────┐
+│ CR4.PCIDE = 1 활성화                               │
+│                                                    │
+│ TLB 엔트리 구조:                                   │
+│ ┌─────────┬────────┬──────────┬─────────┐        │
+│ │ Virtual │ Physical│ Flags   │ PCID    │        │
+│ │ Address │ Address │         │ (12-bit)│        │
+│ └─────────┴────────┴──────────┴─────────┘        │
+│                                                    │
+│ 프로세스 A (PCID=1) → 프로세스 B (PCID=2) 전환    │
+│ 1. CR3 = B의 페이지 테이블 | PCID=2 | NOFLUSH    │
+│ 2. TLB flush 없음! (PCID로 구분)                  │
+│ 3. 다시 A로 돌아오면 TLB 히트                     │
+│                                                    │
+│ 성능 향상: ~50% 컨텍스트 스위칭 비용 감소         │
+└────────────────────────────────────────────────────┘
+```
+
+```bash
+# PCID 지원 확인
+$ grep pcid /proc/cpuinfo
+flags : ... pcid ...
+
+# PCID 사용 확인 (커널 부팅 로그)
+$ dmesg | grep PCID
+[    0.000000] x86/mm: PCID enabled
+```
+
+### 직접 vs 간접 비용 상세 분석
+
+```
+Context Switch 비용 분해 (x86-64, ~3GHz CPU):
+
+[직접 비용 - 피할 수 없음]
+┌──────────────────────────────────────────────────┐
+│ 레지스터 저장 (범용 16개)     │   ~50 cycles    │
+│ 레지스터 복원                 │   ~50 cycles    │
+│ 스케줄러 결정                 │  ~200 cycles    │
+│ 스택 전환                     │   ~30 cycles    │
+│ TLS 전환 (FS/GS base)        │   ~50 cycles    │
+│                               │                 │
+│ 소계                          │  ~400 cycles    │
+│                               │   ~130 ns       │
+└──────────────────────────────────────────────────┘
+
+[간접 비용 - 가변적]
+┌──────────────────────────────────────────────────┐
+│ TLB miss (프로세스 전환)                          │
+│ - 페이지 수에 비례                               │
+│ - PCID 있으면 크게 감소                          │
+│ - 최악: ~100,000 cycles                          │
+│                                                  │
+│ L1 캐시 miss                                     │
+│ - Cold cache 상태                                │
+│ - 워킹셋 크기에 비례                             │
+│ - 최악: ~50,000 cycles                           │
+│                                                  │
+│ L2/L3 캐시 miss                                  │
+│ - 더 큰 워킹셋                                   │
+│ - L3는 공유되어 덜 심각                          │
+│                                                  │
+│ Branch predictor 무효화                           │
+│ - 새 코드 경로 학습                              │
+│ - ~1,000 cycles                                  │
+│                                                  │
+│ 소계                          │ ~10,000-200,000 │
+│                               │ cycles          │
+│                               │ 3-70 μs         │
+└──────────────────────────────────────────────────┘
+```
+
+### perf로 정밀 측정
+
+```bash
+# Context Switch 횟수 측정
+$ perf stat -e context-switches,cpu-migrations ./program
+ Performance counter stats for './program':
+             5,234      context-switches
+                42      cpu-migrations
+
+# Context Switch 시간 분포 측정
+$ perf sched record ./program
+$ perf sched latency
+ Task                  | Runtime ms | Switches | Average delay
+ worker-thread         |    1234.56 |     500  |   0.023 ms
+
+# 스케줄러 이벤트 상세
+$ perf sched timehist
+           time    cpu  task name       wait time  sch delay   run time
+      1.000000 [001]  worker-1          0.000 ms    0.015 ms    1.234 ms
+      2.234000 [001]  worker-2          1.234 ms    0.023 ms    0.567 ms
+```
+
+### Voluntary vs Involuntary 스위칭
+
+```bash
+# /proc/[pid]/status에서 확인
+$ cat /proc/self/status | grep ctxt
+voluntary_ctxt_switches:        15
+nonvoluntary_ctxt_switches:     3
+
+# 의미:
+# - voluntary: 스레드가 자발적 양보 (I/O 대기, sleep, mutex 대기)
+# - nonvoluntary: 스케줄러 강제 선점 (time slice 만료)
+
+# 높은 nonvoluntary = CPU bound 작업 (정상)
+# 높은 voluntary = I/O bound 또는 과도한 동기화
+```
+
+### KPTI (Kernel Page Table Isolation) 영향
+
+```
+Meltdown 대응 KPTI 활성화 시:
+┌────────────────────────────────────────────────────┐
+│ User space와 Kernel space 페이지 테이블 분리       │
+│                                                    │
+│ 시스템 콜/인터럽트 시:                             │
+│ 1. CR3 전환 (User PT → Kernel PT)                 │
+│ 2. TLB 일부 flush                                 │
+│ 3. 처리 완료                                       │
+│ 4. CR3 전환 (Kernel PT → User PT)                 │
+│ 5. TLB 일부 flush                                 │
+│                                                    │
+│ 추가 비용: ~100-200 cycles per syscall            │
+│ Context switch 영향: ~5-10% 추가 오버헤드         │
+│                                                    │
+│ PCID + INVPCID로 완화:                            │
+│ - flush 범위 최소화                               │
+│ - 실제 오버헤드 ~2-5%로 감소                      │
+└────────────────────────────────────────────────────┘
+```
+
+```bash
+# KPTI 상태 확인
+$ cat /sys/devices/system/cpu/vulnerabilities/meltdown
+Mitigation: PTI
+
+# 부팅 시 비활성화 (보안 위험!)
+# 커널 파라미터: nopti
+```
+
+---
+
 ## 📚 참고 자료
 
 - "Operating Systems: Three Easy Pieces" - Chapter 6 (Mechanism: Limited Direct Execution)
 - [Linux Performance Tools](http://www.brendangregg.com/linuxperf.html)
+- Linux Kernel Source: `arch/x86/kernel/process_64.c`
+- Intel® 64 and IA-32 Architectures Software Developer's Manual - Volume 3
 
 ---
 

@@ -410,6 +410,221 @@ public:
 };
 ```
 
+## Internal Mechanisms
+
+### 워커 스레드의 생명주기
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                  Worker Thread Lifecycle                     │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌────────┐                                                 │
+│  │ Created │                                                │
+│  └────┬───┘                                                 │
+│       │ thread::start()                                     │
+│       ▼                                                     │
+│  ┌──────────┐     ┌────────────┐                           │
+│  │  Running │────▶│ Processing │                           │
+│  │ (Waiting)│◀────│   (Task)   │                           │
+│  └────┬─────┘     └────────────┘                           │
+│       │           cond_wait()  task()                       │
+│       │ stop_ = true                                        │
+│       ▼                                                     │
+│  ┌──────────┐                                               │
+│  │ Finished │                                               │
+│  └──────────┘                                               │
+│                                                             │
+│  대기 상태에서 CPU 사용량: ~0%                              │
+│  - futex(FUTEX_WAIT) 시스템 콜로 sleep                      │
+│  - 작업 도착 시 futex(FUTEX_WAKE)로 깨움                    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### condition_variable::notify_one()의 동작
+
+```c
+// 여러 워커가 대기 중일 때 notify_one()이 하나만 깨우는 원리
+
+// glibc pthread_cond_signal 내부 (간략화)
+int pthread_cond_signal(pthread_cond_t *cond) {
+    // futex_wake의 count = 1
+    // 커널이 대기 큐에서 하나만 선택하여 깨움
+    futex(&cond->__data.__wseq, FUTEX_WAKE, 1);
+    return 0;
+}
+
+/*
+ * 커널의 대기 큐 관리:
+ *
+ * ┌─────────────────────────────────────────┐
+ * │         Futex Wait Queue                │
+ * ├─────────────────────────────────────────┤
+ * │ Worker 1 (TASK_INTERRUPTIBLE)           │
+ * │ Worker 2 (TASK_INTERRUPTIBLE)           │
+ * │ Worker 3 (TASK_INTERRUPTIBLE)           │
+ * └─────────────────────────────────────────┘
+ *
+ * notify_one() 호출 시:
+ *   - 커널이 큐의 첫 번째 스레드를 TASK_RUNNING으로 변경
+ *   - 런큐에 추가
+ *   - 나머지는 계속 대기
+ */
+```
+
+### std::function의 오버헤드
+
+```cpp
+// std::function은 type erasure를 사용
+// 작은 함수: Small Buffer Optimization (SBO)
+// 큰 함수: 힙 할당
+
+struct FunctionStorage {
+    // SBO 버퍼 (보통 16-32 바이트)
+    alignas(max_align_t) char buffer[32];
+
+    // 또는 힙 포인터
+    void* heap_ptr;
+
+    // vtable 포인터 (호출, 복사, 소멸 함수)
+    const FunctionVTable* vtable;
+};
+
+/*
+ * 성능 영향:
+ *
+ * 1. SBO 내 함수 (람다 캡처 < 32바이트):
+ *    - 힙 할당 없음
+ *    - vtable 간접 호출만 있음
+ *
+ * 2. 힙 할당 필요한 함수:
+ *    - malloc/free 오버헤드
+ *    - 캐시 미스 가능성
+ *
+ * 최적화 팁:
+ *   - 람다 캡처 최소화
+ *   - 큰 데이터는 포인터로 캡처
+ *   - 고성능 필요시 function_ref 사용
+ */
+```
+
+### Task Stealing의 Deque 구조
+
+```
+Chase-Lev Work-Stealing Deque:
+
+                    Owner Thread                 Thief Thread
+                        │                             │
+                        ▼                             ▼
+                    ┌───────┐                   ┌───────┐
+                    │ push  │                   │ steal │
+                    │ pop   │                   │       │
+                    └───┬───┘                   └───┬───┘
+                        │                           │
+              ┌─────────▼───────────────────────────▼─────────┐
+              │   [0]  [1]  [2]  [3]  [4]  [5]  [6]  [7]     │
+              │    ↑                                 ↑        │
+              │  bottom                            top        │
+              └───────────────────────────────────────────────┘
+
+Owner (단일 스레드):
+  - push_bottom(): buffer[bottom++] = task
+  - pop_bottom(): task = buffer[--bottom]
+  - 락 불필요 (단일 스레드)
+
+Thief (다른 스레드):
+  - steal(): task = buffer[top++]
+  - CAS 사용 (top 경쟁 가능)
+
+경쟁 시나리오:
+  - bottom == top + 1 일 때 (요소 1개)
+  - Owner와 Thief가 동시에 접근
+  - Owner가 우선권 (Thief는 재시도)
+```
+
+```cpp
+// Chase-Lev Deque의 핵심 연산 (간략화)
+template<typename T>
+class WorkStealingDeque {
+    std::atomic<size_t> top_{0};
+    std::atomic<size_t> bottom_{0};
+    std::vector<T> buffer_;
+
+    // Owner만 호출
+    void push(T task) {
+        size_t b = bottom_.load(relaxed);
+        buffer_[b % SIZE] = task;
+        atomic_thread_fence(release);
+        bottom_.store(b + 1, relaxed);
+    }
+
+    // Owner만 호출
+    std::optional<T> pop() {
+        size_t b = bottom_.load(relaxed) - 1;
+        bottom_.store(b, relaxed);
+        atomic_thread_fence(seq_cst);  // Owner-Thief 동기화
+        size_t t = top_.load(relaxed);
+
+        if (t <= b) {
+            T task = buffer_[b % SIZE];
+            if (t == b) {
+                // 마지막 요소: Thief와 경쟁
+                if (!top_.compare_exchange_strong(t, t + 1)) {
+                    bottom_.store(b + 1, relaxed);
+                    return std::nullopt;  // Thief가 가져감
+                }
+                bottom_.store(b + 1, relaxed);
+            }
+            return task;
+        }
+        bottom_.store(b + 1, relaxed);
+        return std::nullopt;
+    }
+
+    // Thief가 호출
+    std::optional<T> steal() {
+        size_t t = top_.load(acquire);
+        atomic_thread_fence(seq_cst);
+        size_t b = bottom_.load(acquire);
+
+        if (t < b) {
+            T task = buffer_[t % SIZE];
+            if (!top_.compare_exchange_strong(t, t + 1)) {
+                return std::nullopt;  // 다른 Thief가 가져감
+            }
+            return task;
+        }
+        return std::nullopt;
+    }
+};
+```
+
+### 스레드 풀 크기 튜닝
+
+```
+Little's Law 적용:
+
+L = λ × W
+
+L: 시스템 내 평균 작업 수 (필요한 스레드 수)
+λ: 작업 도착률 (tasks/sec)
+W: 평균 서비스 시간 (sec/task)
+
+예시:
+  - 1초에 100개 작업 도착 (λ = 100)
+  - 각 작업 처리에 0.5초 (W = 0.5)
+  - 필요 스레드 수: L = 100 × 0.5 = 50개
+
+I/O-bound 작업의 스레드 수:
+
+  N = 코어 수 × (1 + 대기시간/CPU시간)
+
+예시 (HTTP 요청 처리):
+  - 8코어 CPU
+  - 요청당 100ms 대기, 10ms 처리
+  - N = 8 × (1 + 100/10) = 8 × 11 = 88 스레드
+```
+
 ### 3. Work Stealing Thread Pool
 
 각 워커가 자신의 큐를 가지고, 작업이 없으면 다른 워커의 큐에서 "훔쳐" 옵니다.

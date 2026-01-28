@@ -385,6 +385,318 @@ void* philosopher_ordered(void* arg) {
 }
 ```
 
+## Internal Mechanisms
+
+### 커널 수준 교착 탐지
+
+Linux 커널은 락 의존성 검증기(Lock Dependency Validator, lockdep)를 통해 잠재적 교착 상태를 탐지합니다.
+
+#### Lockdep 구조
+
+```c
+// Linux kernel: include/linux/lockdep.h
+struct lock_class {
+    struct hlist_node       hash_entry;
+    struct list_head        lock_entry;
+
+    // 락 그래프에서의 의존성
+    struct list_head        locks_after;   // 이 락 이후에 잡힌 락들
+    struct list_head        locks_before;  // 이 락 이전에 잡힌 락들
+
+    const char              *name;
+    int                     name_version;
+
+    unsigned long           usage_mask;    // 사용 패턴 (IRQ context 등)
+    struct lock_class_key   *key;
+};
+
+// 락 체인: 락 획득 순서 추적
+struct lock_chain {
+    u64                     chain_key;     // 해시 키
+    int                     depth;         // 체인 깊이
+    int                     base;          // 체인 시작 인덱스
+    struct hlist_node       entry;
+};
+```
+
+#### 의존성 그래프 구축
+
+```
+Lockdep가 추적하는 락 획득 순서:
+
+Thread 1: lock(A) → lock(B) → unlock(B) → unlock(A)
+Thread 2: lock(B) → lock(C) → unlock(C) → unlock(B)
+
+생성되는 의존성 그래프:
+   A → B  (A를 잡은 후 B를 잡음)
+   B → C  (B를 잡은 후 C를 잡음)
+
+만약 Thread 3가: lock(C) → lock(A) 시도하면:
+   C → A 추가 시도
+   사이클 탐지: A → B → C → A
+   WARNING 출력!
+```
+
+#### Lockdep 사이클 탐지 알고리즘
+
+```c
+// 간략화된 사이클 탐지 (DFS 기반)
+static int check_deadlock(struct lock_class *source,
+                         struct lock_class *target) {
+    struct list_head *entry;
+    struct lock_list *lock;
+
+    // source에서 target으로 가는 경로가 있으면 교착 가능
+    list_for_each(entry, &source->locks_after) {
+        lock = list_entry(entry, struct lock_list, entry);
+
+        if (lock->class == target) {
+            // 직접 의존성: source → target
+            // 역방향 의존성 추가 시 사이클!
+            print_deadlock_warning(source, target);
+            return 1;
+        }
+
+        // 재귀적으로 검사
+        if (check_deadlock(lock->class, target))
+            return 1;
+    }
+
+    return 0;
+}
+
+// 새로운 락 의존성 추가 시 호출
+static int add_lock_dependency(struct lock_class *prev,
+                               struct lock_class *next) {
+    // 역방향 경로 존재 확인 (사이클 검사)
+    if (check_deadlock(next, prev)) {
+        // 교착 가능! prev → next 추가 시 사이클 형성
+        return -EDEADLK;
+    }
+
+    // 안전: 의존성 추가
+    list_add(&next->entry, &prev->locks_after);
+    list_add(&prev->entry, &next->locks_before);
+
+    return 0;
+}
+```
+
+#### Lockdep 출력 예시
+
+```
+=============================================
+[ INFO: possible circular locking dependency detected ]
+5.10.0-rc1 #1 Not tainted
+----------------------------------------------
+test/1234 is trying to acquire lock:
+ffff8881234abcde (&mutex_B){+.+.}-{3:3}, at: function_b+0x40/0x100
+
+but task is already holding lock:
+ffff8881234def01 (&mutex_A){+.+.}-{3:3}, at: function_a+0x30/0x80
+
+which lock already depends on the new lock.
+
+the existing dependency chain (in reverse order) is:
+
+-> #1 (&mutex_A){+.+.}-{3:3}:
+       lock_acquire+0xb0/0x200
+       __mutex_lock+0x80/0x900
+       mutex_lock+0x10/0x30
+       function_x+0x20/0x60
+
+-> #0 (&mutex_B){+.+.}-{3:3}:
+       lock_acquire+0xb0/0x200
+       __mutex_lock+0x80/0x900
+       mutex_lock+0x10/0x30
+       function_a+0x30/0x80
+
+other info that might help us debug this:
+ Possible unsafe locking scenario:
+       CPU0                    CPU1
+       ----                    ----
+  lock(&mutex_A);
+                               lock(&mutex_B);
+                               lock(&mutex_A);
+  lock(&mutex_B);
+
+ *** DEADLOCK ***
+```
+
+### Wait-For Graph 구현
+
+```c
+// 사용자 공간에서의 Wait-For Graph 구현
+typedef struct {
+    int thread_id;
+    int waiting_for_thread;  // -1 if not waiting
+    pthread_mutex_t* held_locks[MAX_LOCKS];
+    int num_held_locks;
+} ThreadLockInfo;
+
+ThreadLockInfo thread_info[MAX_THREADS];
+
+// 교착 탐지 (사이클 탐지)
+bool detect_deadlock_cycle() {
+    // 방문 상태: 0=미방문, 1=방문중, 2=완료
+    int visited[MAX_THREADS] = {0};
+
+    for (int i = 0; i < MAX_THREADS; i++) {
+        if (visited[i] == 0) {
+            if (dfs_detect_cycle(i, visited)) {
+                return true;  // 교착 발견!
+            }
+        }
+    }
+    return false;
+}
+
+bool dfs_detect_cycle(int thread_id, int* visited) {
+    visited[thread_id] = 1;  // 방문 중
+
+    int waiting_for = thread_info[thread_id].waiting_for_thread;
+    if (waiting_for >= 0) {
+        if (visited[waiting_for] == 1) {
+            // 방문 중인 노드 재방문 = 사이클!
+            print_deadlock_cycle(thread_id, waiting_for);
+            return true;
+        }
+        if (visited[waiting_for] == 0) {
+            if (dfs_detect_cycle(waiting_for, visited))
+                return true;
+        }
+    }
+
+    visited[thread_id] = 2;  // 완료
+    return false;
+}
+```
+
+### pthread_mutex 내부의 교착 탐지
+
+```c
+// glibc pthread_mutex의 에러 체킹 모드
+// PTHREAD_MUTEX_ERRORCHECK 타입 사용 시
+
+int pthread_mutex_lock(pthread_mutex_t *mutex) {
+    int type = mutex->__data.__kind & PTHREAD_MUTEX_KIND_MASK;
+
+    if (type == PTHREAD_MUTEX_ERRORCHECK_NP) {
+        // 소유권 확인
+        if (mutex->__data.__owner == pthread_self()) {
+            // 같은 스레드가 이미 보유 중 = 잠재적 교착!
+            return EDEADLK;
+        }
+    }
+
+    // 실제 락 획득 시도
+    int result = lll_lock(&mutex->__data.__lock, ...);
+
+    if (result == 0) {
+        mutex->__data.__owner = pthread_self();
+    }
+
+    return result;
+}
+```
+
+### 타임아웃 기반 교착 회피
+
+```c
+// POSIX 타임아웃 락의 커널 구현
+// linux/kernel/futex.c (간략화)
+
+static int futex_lock_timeout(u32 __user *uaddr,
+                             ktime_t *timeout) {
+    struct futex_hash_bucket *hb;
+    struct futex_q q;
+    int ret;
+
+    // 타임아웃 설정
+    hrtimer_init_sleeper(&timeout_timer, current);
+    hrtimer_start(&timeout_timer, *timeout, HRTIMER_MODE_ABS);
+
+retry:
+    // Fast path: 락 획득 시도
+    if (futex_trylock(uaddr)) {
+        hrtimer_cancel(&timeout_timer);
+        return 0;
+    }
+
+    // Slow path: 대기
+    futex_queue(&q, hb);
+
+    // 타임아웃 또는 락 해제 대기
+    set_current_state(TASK_INTERRUPTIBLE);
+
+    if (timeout_timer.task == NULL) {
+        // 타임아웃 발생!
+        ret = -ETIMEDOUT;
+        goto out;
+    }
+
+    schedule();
+
+    if (signal_pending(current)) {
+        ret = -EINTR;
+        goto out;
+    }
+
+    goto retry;
+
+out:
+    hrtimer_cancel(&timeout_timer);
+    return ret;
+}
+```
+
+### 락 계층 구조 (Lock Hierarchy)
+
+```c
+// 락 순서를 강제하는 시스템
+
+typedef struct {
+    pthread_mutex_t mutex;
+    int level;              // 계층 레벨 (낮을수록 먼저 획득)
+    const char* name;
+} HierarchicalMutex;
+
+// 스레드별 현재 보유 중인 최고 레벨
+__thread int current_max_level = -1;
+
+int hierarchical_lock(HierarchicalMutex* hm) {
+    // 락 순서 검증
+    if (hm->level <= current_max_level) {
+        fprintf(stderr, "Lock order violation! "
+                "Trying to acquire level %d (%s) "
+                "while holding level %d\n",
+                hm->level, hm->name, current_max_level);
+        // 옵션: abort() 또는 에러 반환
+        abort();
+    }
+
+    int ret = pthread_mutex_lock(&hm->mutex);
+    if (ret == 0) {
+        current_max_level = hm->level;
+    }
+    return ret;
+}
+
+void hierarchical_unlock(HierarchicalMutex* hm) {
+    pthread_mutex_unlock(&hm->mutex);
+    // 레벨 복원 로직 (스택 사용 필요)
+}
+
+/*
+사용 예시:
+  HierarchicalMutex db_lock     = {.level = 100, .name = "db"};
+  HierarchicalMutex table_lock  = {.level = 200, .name = "table"};
+  HierarchicalMutex row_lock    = {.level = 300, .name = "row"};
+
+  // 항상 db → table → row 순서로 획득
+*/
+```
+
 ## Detection Strategies
 
 ### 1. Resource Allocation Graph

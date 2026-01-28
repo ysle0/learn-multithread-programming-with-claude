@@ -274,6 +274,117 @@ void timed_lock_example() {
 
 ---
 
+## 🔧 내부 구현 메커니즘
+
+### pthread_mutex 내부 구조
+
+```c
+// glibc pthread_mutex 내부 구조 (단순화)
+typedef struct {
+    int __lock;              // 0: unlocked, 1: locked, 2: contended
+    unsigned int __count;    // Recursive mutex 카운트
+    int __owner;             // 소유자 스레드 ID
+    int __kind;              // PTHREAD_MUTEX_NORMAL, RECURSIVE, ERRORCHECK
+    // ...
+} pthread_mutex_t;
+```
+
+**__lock 필드 상태**:
+- `0`: Unlocked - 락이 해제된 상태
+- `1`: Locked (uncontended) - 락이 획득되었지만 대기자 없음
+- `2`: Locked (contended) - 락이 획득되고 대기자 있음
+
+### Lock 동작 순서
+
+```
+pthread_mutex_lock() 내부 동작:
+
+1. Fast Path (User Space만):
+   cmpxchg(&__lock, 0, 1)  // 0이면 1로 변경
+   └─ 성공 → 즉시 반환 (~20ns)
+
+2. Slow Path (Kernel 진입):
+   cmpxchg(&__lock, 0, 2)  // 실패하면
+   └─ futex(FUTEX_WAIT, &__lock, 2)  // 커널에서 대기
+      └─ 대기 큐에 추가
+      └─ 스레드 sleep
+```
+
+### Unlock 동작 순서
+
+```
+pthread_mutex_unlock() 내부 동작:
+
+1. atomic_fetch_sub(&__lock, 1)
+   └─ 이전 값이 1 → 대기자 없음, 즉시 반환
+   └─ 이전 값이 2 → 대기자 있음:
+      atomic_store(&__lock, 0)
+      futex(FUTEX_WAKE, &__lock, 1)  // 한 스레드 깨움
+```
+
+### Windows CRITICAL_SECTION 구조
+
+```c
+typedef struct _RTL_CRITICAL_SECTION {
+    PRTL_CRITICAL_SECTION_DEBUG DebugInfo;
+    LONG LockCount;           // -1: unlocked, ≥0: locked
+    LONG RecursionCount;      // 재진입 횟수
+    HANDLE OwningThread;      // 소유자 스레드
+    HANDLE LockSemaphore;     // 커널 대기용 세마포어
+    ULONG_PTR SpinCount;      // 스핀 횟수 (기본 4000)
+} RTL_CRITICAL_SECTION;
+```
+
+**Adaptive Spinning**:
+```
+CRITICAL_SECTION 동작:
+
+1. SpinCount 동안 busy-wait:
+   for (i = 0; i < SpinCount; i++) {
+       if (TryEnterCriticalSection()) return;
+       _mm_pause();  // CPU hint
+   }
+
+2. 스핀 실패 시 커널 대기:
+   WaitForSingleObject(LockSemaphore, INFINITE)
+```
+
+### 성능 특성
+
+| 연산 | Uncontended | Contended |
+|------|-------------|-----------|
+| **lock** | ~20ns (CAS만) | ~1-10μs (커널 전환) |
+| **unlock** | ~20ns | ~1μs (wake 필요 시) |
+| **trylock** | ~10ns | ~10ns |
+
+### Adaptive Mutex (Linux NPTL)
+
+```c
+// Linux NPTL Adaptive Mutex 동작
+void adaptive_lock(pthread_mutex_t *mutex) {
+    int spin_count = 100;  // 짧은 스핀 시도
+
+    // 1단계: User-space 스핀
+    while (spin_count-- > 0) {
+        if (atomic_exchange(&mutex->__lock, 1) == 0)
+            return;  // 성공
+
+        // 락 홀더가 running 상태인지 확인
+        if (!is_owner_running(mutex))
+            break;  // 스핀 중단
+
+        cpu_relax();  // PAUSE 명령
+    }
+
+    // 2단계: Futex 대기
+    while (atomic_exchange(&mutex->__lock, 2) != 0) {
+        futex_wait(&mutex->__lock, 2);
+    }
+}
+```
+
+---
+
 ## 🔒 Spinlock vs Sleeping Mutex
 
 ### Spinlock (바쁜 대기)

@@ -248,6 +248,206 @@ int main() {
 }
 ```
 
+## Internal Mechanisms
+
+### std::shared_mutex의 구현
+
+Linux에서 std::shared_mutex는 pthread_rwlock을 래핑하며, 내부적으로 futex를 사용합니다.
+
+#### 상태 인코딩
+
+```c
+// glibc pthread_rwlock 상태 (간략화)
+struct pthread_rwlock_t {
+    unsigned int __readers;
+    // 비트 레이아웃:
+    // [31]: WRPHASE (Writer가 락을 획득했거나 대기 중)
+    // [30]: WRLOCKED (Writer가 락을 보유 중)
+    // [29:0]: Reader 수
+
+    unsigned int __writers_futex;  // Writer 대기용 futex
+    unsigned int __readers_futex;  // Reader 대기용 futex
+
+    // ...
+};
+
+/*
+ * 상태 예시:
+ *
+ * 0x00000000: 락 해제됨, reader 없음
+ * 0x00000003: 3개의 reader가 보유 중
+ * 0xC0000000: Writer가 락 보유 중 (WRPHASE | WRLOCKED)
+ * 0x80000002: Writer 대기 중, 2개 reader 보유 (WRPHASE만)
+ */
+```
+
+#### Reader 락 획득 흐름
+
+```c
+int pthread_rwlock_rdlock(pthread_rwlock_t *rwlock) {
+    unsigned int r;
+
+retry:
+    r = atomic_load(&rwlock->__readers);
+
+    // Fast path: Writer 없고 reader 추가 가능
+    if (!(r & (WRPHASE | WRLOCKED))) {
+        if (atomic_compare_exchange_weak(&rwlock->__readers, &r, r + 1)) {
+            return 0;  // 성공!
+        }
+        goto retry;
+    }
+
+    // Slow path: Writer가 있거나 대기 중
+    // Reader는 futex에서 대기
+    while (r & WRPHASE) {
+        futex_wait(&rwlock->__readers_futex, ...);
+        r = atomic_load(&rwlock->__readers);
+    }
+
+    goto retry;
+}
+```
+
+#### Writer 락 획득 흐름
+
+```c
+int pthread_rwlock_wrlock(pthread_rwlock_t *rwlock) {
+    unsigned int r;
+
+    // 1단계: WRPHASE 플래그 설정 (새 reader 차단)
+    r = atomic_load(&rwlock->__readers);
+    while (!atomic_compare_exchange_weak(&rwlock->__readers, &r,
+                                          r | WRPHASE)) {
+        // CAS 실패, 재시도
+    }
+
+    // 2단계: 모든 기존 reader 종료 대기
+    while ((r & READER_MASK) != 0) {
+        futex_wait(&rwlock->__writers_futex, ...);
+        r = atomic_load(&rwlock->__readers);
+    }
+
+    // 3단계: WRLOCKED 설정
+    atomic_fetch_or(&rwlock->__readers, WRLOCKED);
+
+    return 0;
+}
+```
+
+### Lock Striping 기법
+
+대규모 동시 접근을 위한 최적화입니다.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Lock Striping                            │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  단일 RWLock:                                               │
+│    모든 스레드가 하나의 락을 경쟁                            │
+│    ┌────────────┐                                           │
+│    │  RWLock    │◀─── Thread 1, 2, 3, 4, 5, 6 ...          │
+│    └────────────┘                                           │
+│                                                             │
+│  Lock Striping (n개 락):                                    │
+│    키의 해시에 따라 락 분산                                  │
+│    ┌────────────┐                                           │
+│    │ RWLock[0]  │◀─── Thread 1, 4 (hash % n == 0)          │
+│    └────────────┘                                           │
+│    ┌────────────┐                                           │
+│    │ RWLock[1]  │◀─── Thread 2, 5 (hash % n == 1)          │
+│    └────────────┘                                           │
+│    ┌────────────┐                                           │
+│    │ RWLock[2]  │◀─── Thread 3, 6 (hash % n == 2)          │
+│    └────────────┘                                           │
+│                                                             │
+│  경합 감소: n배 (이상적인 경우)                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+```cpp
+// Lock Striping 구현 예시
+template<typename K, typename V, size_t NumStripes = 16>
+class StripedMap {
+    struct Stripe {
+        std::shared_mutex mutex;
+        std::unordered_map<K, V> data;
+    };
+
+    std::array<Stripe, NumStripes> stripes_;
+
+    size_t get_stripe(const K& key) {
+        return std::hash<K>{}(key) % NumStripes;
+    }
+
+public:
+    V get(const K& key) {
+        size_t idx = get_stripe(key);
+        std::shared_lock lock(stripes_[idx].mutex);
+        return stripes_[idx].data.at(key);
+    }
+
+    void put(const K& key, const V& value) {
+        size_t idx = get_stripe(key);
+        std::unique_lock lock(stripes_[idx].mutex);
+        stripes_[idx].data[key] = value;
+    }
+};
+```
+
+### 읽기 편향 워크로드 최적화
+
+```cpp
+// 스레드 로컬 읽기 카운터 (contention 감소)
+class OptimizedRWLock {
+    std::atomic<int> writer_active_{0};
+    std::atomic<int> writer_waiting_{0};
+
+    // 각 스레드별 로컬 읽기 카운터
+    // 중앙 카운터 업데이트 빈도 감소
+    struct alignas(64) LocalCounter {
+        std::atomic<int> count{0};
+    };
+    std::array<LocalCounter, 64> local_readers_;
+
+    int get_slot() {
+        // 스레드 ID 기반 슬롯 선택
+        return std::hash<std::thread::id>{}(
+            std::this_thread::get_id()) % 64;
+    }
+
+public:
+    void lock_shared() {
+        int slot = get_slot();
+
+        // 로컬 카운터 증가 (빠름, 경합 없음)
+        local_readers_[slot].count.fetch_add(1, std::memory_order_acquire);
+
+        // Writer 대기 확인
+        if (writer_waiting_.load(std::memory_order_acquire) > 0 ||
+            writer_active_.load(std::memory_order_acquire)) {
+            // 느린 경로: Writer가 있으면 대기
+            slow_path_read_lock();
+        }
+    }
+
+    void unlock_shared() {
+        int slot = get_slot();
+        local_readers_[slot].count.fetch_sub(1, std::memory_order_release);
+        // Writer가 대기 중이면 notify
+    }
+
+    int total_readers() {
+        int sum = 0;
+        for (auto& lc : local_readers_) {
+            sum += lc.count.load(std::memory_order_relaxed);
+        }
+        return sum;
+    }
+};
+```
+
 ## Advanced Implementation: Custom Reader-Writer Lock
 
 ### Reader-Preferred Lock

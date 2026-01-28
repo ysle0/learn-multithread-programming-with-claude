@@ -90,6 +90,176 @@ Assembly Code → [Out-of-Order] → Store Buffer → Cache → Memory
 
 ---
 
+## 🔧 하드웨어 메모리 모델 상세
+
+### Store Buffer와 Invalidation Queue
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ CPU Core 0                        CPU Core 1                  │
+├──────────────────────────────────────────────────────────────┤
+│ ┌─────────────┐                  ┌─────────────┐             │
+│ │   CPU       │                  │   CPU       │             │
+│ └──────┬──────┘                  └──────┬──────┘             │
+│        │                                │                     │
+│ ┌──────┴──────┐                  ┌──────┴──────┐             │
+│ │Store Buffer │ ← 쓰기 대기      │Store Buffer │             │
+│ └──────┬──────┘                  └──────┬──────┘             │
+│        │                                │                     │
+│ ┌──────┴──────┐                  ┌──────┴──────┐             │
+│ │ Invalidation│ ← 무효화 대기    │ Invalidation│             │
+│ │ Queue       │                  │ Queue       │             │
+│ └──────┬──────┘                  └──────┬──────┘             │
+│        │                                │                     │
+│ ┌──────┴──────┐                  ┌──────┴──────┐             │
+│ │  L1 Cache   │                  │  L1 Cache   │             │
+│ └──────┬──────┘                  └──────┬──────┘             │
+└────────┼────────────────────────────────┼────────────────────┘
+         └────────────────┬───────────────┘
+                   ┌──────┴──────┐
+                   │ Shared L3   │
+                   │ Cache       │
+                   └──────┬──────┘
+                   ┌──────┴──────┐
+                   │   Memory    │
+                   └─────────────┘
+```
+
+**Store Buffer 역할**:
+```
+문제: 캐시 미스 시 메모리 쓰기가 느림 (~100ns)
+해결: Store Buffer에 먼저 쓰고 CPU는 계속 실행
+     → 나중에 캐시로 drain
+
+부작용: 다른 코어에서 최신 값을 못 볼 수 있음
+```
+
+**Invalidation Queue 역할**:
+```
+문제: 무효화 요청 처리도 시간 소요
+해결: Invalidation Queue에 넣고 나중에 처리
+     → CPU가 블록되지 않음
+
+부작용: 무효화 처리 전에 오래된 값을 읽을 수 있음
+```
+
+### x86-64 TSO (Total Store Order) 모델
+
+```
+x86-64 보장:
+┌────────────────────────────────────────┐
+│  Load-Load:    순서 보장 ✓            │
+│  Load-Store:   순서 보장 ✓            │
+│  Store-Store:  순서 보장 ✓            │
+│  Store-Load:   재배치 가능 ✗          │
+└────────────────────────────────────────┘
+
+예시:
+    x = 1;          // Store
+    r = y;          // Load
+    // Store-Load 재배치 가능!
+    // r = y; 가 x = 1; 보다 먼저 실행될 수 있음
+```
+
+**TSO에서 MFENCE 필요한 경우**:
+```cpp
+// Store-Load 순서 보장이 필요할 때만
+x.store(1, std::memory_order_seq_cst);  // MFENCE 포함
+r = y.load(std::memory_order_seq_cst);
+```
+
+### ARM/AArch64 약한 메모리 모델
+
+```
+ARM 모델 (약한 순서):
+┌────────────────────────────────────────┐
+│  Load-Load:    재배치 가능 ✗          │
+│  Load-Store:   재배치 가능 ✗          │
+│  Store-Store:  재배치 가능 ✗          │
+│  Store-Load:   재배치 가능 ✗          │
+└────────────────────────────────────────┘
+→ 명시적 배리어 없이는 어떤 순서도 보장 안됨
+```
+
+**ARM 메모리 배리어 명령어**:
+```asm
+; DMB (Data Memory Barrier)
+dmb ish    ; Inner Shareable - 같은 프로세서 클러스터 내
+dmb osh    ; Outer Shareable - 전체 시스템
+
+; DSB (Data Synchronization Barrier)
+dsb ish    ; DMB + 모든 이전 명령 완료 보장
+
+; ISB (Instruction Synchronization Barrier)
+isb        ; 파이프라인 플러시
+
+; 특수 Load/Store
+ldar x0, [x1]   ; Load-Acquire
+stlr x0, [x1]   ; Store-Release
+```
+
+### Memory Order → 하드웨어 매핑
+
+```cpp
+// x86-64 매핑
+memory_order_relaxed  → (아무것도 안함)
+memory_order_acquire  → (아무것도 안함, TSO가 보장)
+memory_order_release  → (아무것도 안함, TSO가 보장)
+memory_order_acq_rel  → (아무것도 안함)
+memory_order_seq_cst  → MFENCE (Store 후에만)
+
+// ARM 매핑
+memory_order_relaxed  → (아무것도 안함)
+memory_order_acquire  → DMB ISHLD / LDAR
+memory_order_release  → DMB ISH / STLR
+memory_order_acq_rel  → DMB ISH
+memory_order_seq_cst  → DMB ISH + 추가 배리어
+```
+
+### 컴파일러 배리어 vs CPU 배리어
+
+```cpp
+// 컴파일러 배리어만 (CPU 재배치는 허용)
+asm volatile("" ::: "memory");
+std::atomic_signal_fence(std::memory_order_seq_cst);
+
+// CPU 배리어 포함 (진짜 메모리 배리어)
+std::atomic_thread_fence(std::memory_order_seq_cst);
+
+// x86-64
+asm volatile("mfence" ::: "memory");  // Full barrier
+asm volatile("lfence" ::: "memory");  // Load barrier
+asm volatile("sfence" ::: "memory");  // Store barrier
+
+// ARM
+asm volatile("dmb ish" ::: "memory"); // Full barrier
+```
+
+### 실제 배리어 비용
+
+```
+배리어 유형별 레이턴시 (대략적):
+
+x86-64:
+┌────────────────────────────────────┐
+│ SFENCE:  ~10-20 cycles            │
+│ LFENCE:  ~10-20 cycles            │
+│ MFENCE:  ~40-100 cycles           │
+│ LOCK:    ~20-50 cycles            │
+└────────────────────────────────────┘
+
+ARM:
+┌────────────────────────────────────┐
+│ DMB:     ~20-60 cycles            │
+│ DSB:     ~50-100 cycles           │
+│ ISB:     ~100+ cycles             │
+└────────────────────────────────────┘
+
+→ seq_cst가 느린 이유: 매번 MFENCE/DMB 실행
+```
+
+---
+
 ## 💻 Memory Ordering 모델
 
 ### C++ Memory Ordering

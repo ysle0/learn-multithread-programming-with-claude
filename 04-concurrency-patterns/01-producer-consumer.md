@@ -346,6 +346,175 @@ public:
 };
 ```
 
+## Internal Mechanisms
+
+### Condition Variable 기반 구현의 내부 동작
+
+Bounded Queue의 `put()`과 `get()` 연산이 커널 수준에서 어떻게 동작하는지 살펴봅니다.
+
+#### wait() 내부 동작
+
+```c
+// pthread_cond_wait()의 내부 동작 (glibc 간략화)
+int __pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex) {
+    // 1. futex 값 스냅샷 (대기 전 상태)
+    unsigned int seq = cond->__data.__wseq;
+
+    // 2. 대기자 카운트 증가
+    atomic_fetch_add(&cond->__data.__nwaiters, 1);
+
+    // 3. Mutex unlock (원자적으로 진행)
+    __pthread_mutex_unlock(mutex);
+
+    // 4. futex 대기 (커널 진입)
+    // 조건: cond의 sequence가 변경되지 않았다면 sleep
+    futex(&cond->__data.__wseq, FUTEX_WAIT, seq, NULL);
+
+    // 5. 깨어남: Mutex 재획득
+    __pthread_mutex_lock(mutex);
+
+    // 6. 대기자 카운트 감소
+    atomic_fetch_sub(&cond->__data.__nwaiters, 1);
+
+    return 0;
+}
+```
+
+#### notify_one() 내부 동작
+
+```c
+int __pthread_cond_signal(pthread_cond_t *cond) {
+    // 대기자가 없으면 아무것도 안 함
+    if (atomic_load(&cond->__data.__nwaiters) == 0)
+        return 0;
+
+    // sequence 증가
+    atomic_fetch_add(&cond->__data.__wseq, 1);
+
+    // futex wake: 하나의 대기자만 깨움
+    futex(&cond->__data.__wseq, FUTEX_WAKE, 1);
+
+    return 0;
+}
+```
+
+### SPSC Ring Buffer의 메모리 순서
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│              Single Producer Single Consumer                 │
+│                                                             │
+│  Producer (쓰기 스레드)          Consumer (읽기 스레드)      │
+│                                                             │
+│  1. buffer[tail] = item         1. item = buffer[head]      │
+│     ↓ (release)                    ↑ (acquire)              │
+│  2. tail.store(next_tail)       2. head가 tail보다 앞인지   │
+│                                    확인                      │
+│                                 3. head.store(next_head)    │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+
+메모리 순서 분석:
+
+Producer의 store(release):
+  - buffer[tail] = item 이 tail 업데이트 전에 완료됨을 보장
+  - Consumer가 새 tail을 보면 데이터도 반드시 보임
+
+Consumer의 load(acquire):
+  - tail.load() 이후의 buffer 읽기가 재배치되지 않음
+  - Producer가 쓴 데이터를 올바르게 읽음
+```
+
+#### 캐시 라인 최적화
+
+```cpp
+// False Sharing 방지를 위한 패딩
+template<typename T, size_t Capacity>
+class SPSCQueue {
+private:
+    // head와 tail을 서로 다른 캐시 라인에 배치
+    alignas(64) std::atomic<size_t> head_{0};  // Consumer만 수정
+    alignas(64) std::atomic<size_t> tail_{0};  // Producer만 수정
+
+    // 버퍼도 별도 캐시 라인
+    alignas(64) std::array<T, Capacity> buffer_;
+
+    /*
+     * 메모리 레이아웃:
+     *
+     * Cache Line 0: [head_][padding.................]
+     * Cache Line 1: [tail_][padding.................]
+     * Cache Line 2+: [buffer_........................]
+     *
+     * 이렇게 하면 Producer와 Consumer가 서로의 캐시 라인을
+     * 무효화하지 않음 → 성능 향상
+     */
+};
+```
+
+### Bounded Queue의 Backpressure 메커니즘
+
+```
+Producer 속도 > Consumer 속도인 경우:
+
+시간 ─────────────────────────────────────────────────────▶
+
+Producer: [produce][produce][produce][BLOCKED........][produce]
+                                      ↑
+                                      큐가 가득 참
+                                      futex_wait
+
+Consumer: [consume].....[consume].....[consume][consume][consume]
+                                       ↑
+                                       Consumer가 따라잡음
+                                       futex_wake → Producer 재개
+
+Backpressure 효과:
+  - Producer가 자연스럽게 throttle됨
+  - 메모리 사용량 제한 (bounded)
+  - 시스템 과부하 방지
+```
+
+### Multi-Producer Multi-Consumer (MPMC) 내부 구조
+
+```cpp
+// MPMC 큐에서의 슬롯별 시퀀스 번호 기법 (Dmitry Vyukov)
+template<typename T, size_t Capacity>
+class MPMCQueue {
+    struct Slot {
+        std::atomic<size_t> sequence;  // 슬롯 상태 추적
+        T data;
+    };
+
+    alignas(64) Slot buffer_[Capacity];
+    alignas(64) std::atomic<size_t> enqueue_pos_{0};
+    alignas(64) std::atomic<size_t> dequeue_pos_{0};
+
+    /*
+     * 슬롯 sequence의 의미:
+     *
+     * sequence == pos:      슬롯이 비어있음, enqueue 가능
+     * sequence == pos + 1:  슬롯에 데이터 있음, dequeue 가능
+     *
+     * 초기화: sequence[i] = i
+     *
+     * Enqueue:
+     *   1. pos = enqueue_pos_.fetch_add(1)
+     *   2. slot = &buffer_[pos % Capacity]
+     *   3. while (slot->sequence.load() != pos) spin; // 빈 슬롯 대기
+     *   4. slot->data = item
+     *   5. slot->sequence.store(pos + 1)  // 채워짐 표시
+     *
+     * Dequeue:
+     *   1. pos = dequeue_pos_.fetch_add(1)
+     *   2. slot = &buffer_[pos % Capacity]
+     *   3. while (slot->sequence.load() != pos + 1) spin; // 데이터 대기
+     *   4. item = slot->data
+     *   5. slot->sequence.store(pos + Capacity)  // 비워짐 표시
+     */
+};
+```
+
 ## Lock-Free Implementation (Single Producer, Single Consumer)
 
 ```cpp

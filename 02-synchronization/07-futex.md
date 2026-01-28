@@ -293,6 +293,179 @@ syscall(SYS_futex, &futex_word, FUTEX_WAKE, num_to_wake, NULL, NULL, 0);
 
 ---
 
+## 🔧 커널 내부 구현 상세
+
+### 커널 해시 테이블 구조
+
+```c
+// 커널의 futex 대기 큐 관리
+struct futex_hash_bucket {
+    atomic_t waiters;           // 대기자 수 (최적화용)
+    spinlock_t lock;            // 버킷 보호용 락
+    struct plist_head chain;    // 우선순위 리스트
+};
+
+// 전역 해시 테이블 (크기: 1 << futex_hashshift)
+static struct futex_hash_bucket *futex_queues;
+```
+
+**해시 함수**:
+```c
+// futex 주소를 해시 버킷으로 매핑
+struct futex_hash_bucket *hash_futex(union futex_key *key) {
+    u32 hash = jhash2((u32 *)&key->both.word,
+                      sizeof(key->both) / 4,
+                      key->both.offset);
+    return &futex_queues[hash & (futex_hashsize - 1)];
+}
+```
+
+**해시 충돌 영향**:
+```
+문제: 서로 다른 futex 주소가 같은 버킷에 매핑
+→ 관련 없는 스레드들이 같은 spinlock 경합
+→ False sharing과 유사한 성능 저하
+
+해결: 충분히 큰 해시 테이블 사용 (보통 256~1024 버킷)
+```
+
+### Futex Key 구조
+
+```c
+// 커널에서 futex를 식별하는 키
+union futex_key {
+    struct {
+        u64 i_seq;              // inode sequence (파일 기반)
+        unsigned long pgoff;    // 페이지 오프셋
+        unsigned int offset;    // 페이지 내 오프셋
+    } shared;                   // 프로세스 간 공유 futex
+
+    struct {
+        union {
+            struct mm_struct *mm;
+            u64 __tmp;
+        };
+        unsigned long address;  // 가상 주소
+        unsigned int offset;    // 페이지 내 오프셋
+    } private;                  // 프로세스 내 futex
+
+    struct {
+        u64 ptr;
+        unsigned long word;
+        unsigned int offset;
+    } both;
+};
+```
+
+### FUTEX_WAIT 커널 구현
+
+```c
+// kernel/futex.c (단순화)
+static int futex_wait(u32 __user *uaddr, unsigned int flags,
+                      u32 val, ktime_t *abs_time) {
+    struct futex_hash_bucket *hb;
+    struct futex_q q = FUTEX_Q_INIT;
+    int ret;
+
+    // 1. Futex 키 생성
+    ret = get_futex_key(uaddr, flags, &q.key);
+    if (ret)
+        return ret;
+
+    // 2. 해시 버킷 찾기 및 락
+    hb = queue_lock(&q);
+
+    // 3. 사용자 공간 값 확인 (원자적으로)
+    ret = get_futex_value_locked(&uval, uaddr);
+    if (ret)
+        goto out_unlock;
+
+    // 4. 값이 다르면 즉시 반환 (EAGAIN)
+    if (uval != val) {
+        ret = -EAGAIN;
+        goto out_unlock;
+    }
+
+    // 5. 대기 큐에 추가
+    futex_wait_queue(&q, hb);
+
+    // 6. 스케줄 아웃 (sleep)
+    if (!signal_pending(current))
+        schedule();
+
+    // 7. 깨어남
+    return ret;
+
+out_unlock:
+    queue_unlock(&q, hb);
+    return ret;
+}
+```
+
+### FUTEX_WAKE 커널 구현
+
+```c
+static int futex_wake(u32 __user *uaddr, unsigned int flags,
+                      int nr_wake) {
+    struct futex_hash_bucket *hb;
+    struct futex_q *q, *tmp;
+    union futex_key key;
+    int ret = 0;
+
+    // 1. Futex 키 생성
+    get_futex_key(uaddr, flags, &key);
+
+    // 2. 해시 버킷 락
+    hb = hash_futex(&key);
+    spin_lock(&hb->lock);
+
+    // 3. 대기 큐에서 매칭되는 스레드 찾기
+    plist_for_each_entry_safe(q, tmp, &hb->chain, list) {
+        if (match_futex(&q->key, &key)) {
+            // 4. 깨우기
+            wake_futex(q);
+            if (++ret >= nr_wake)
+                break;
+        }
+    }
+
+    spin_unlock(&hb->lock);
+    return ret;
+}
+```
+
+### FUTEX_PRIVATE_FLAG 최적화
+
+```c
+// Private futex (같은 프로세스 내):
+// - 가상 주소만으로 식별 가능
+// - 페이지 테이블 조회 불필요
+// - ~30% 더 빠름
+
+futex(addr, FUTEX_WAIT_PRIVATE, val);  // 빠름
+futex(addr, FUTEX_WAIT, val);          // 느림 (공유 가능)
+```
+
+### Futex vs 다른 동기화 비용
+
+```
+동기화 프리미티브 비용 비교 (uncontended):
+
+┌────────────────────────────────────────────┐
+│ Atomic CAS:             ~10-20 cycles     │
+│ Futex (fast path):      ~15-25 cycles     │
+│ pthread_mutex:          ~20-30 cycles     │
+│ Futex (slow path):      ~1000+ cycles     │
+│ System V Semaphore:     ~500+ cycles      │
+└────────────────────────────────────────────┘
+
+→ Fast path가 중요한 이유:
+   90%+ 경우가 uncontended
+   → 대부분 user-space에서만 처리
+```
+
+---
+
 ## 📊 성능 분석
 
 ### 벤치마크: Futex Mutex vs pthread_mutex
