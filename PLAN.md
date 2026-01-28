@@ -22,6 +22,7 @@ learn-multithread-programming-with-claude/
 │   ├── 02-concurrency-vs-parallelism.md  # 동시성 vs 병렬성
 │   ├── 03-thread-lifecycle.md       # 스레드 생명주기
 │   ├── 04-context-switching.md      # 컨텍스트 스위칭
+│   ├── 05-thread-local-storage.md   # Thread Local Storage 심층 분석
 │   └── examples/                    # 예시 코드
 │
 ├── 02-synchronization/              # 동기화 기법
@@ -151,6 +152,7 @@ learn-multithread-programming-with-claude/
 | 동시성 vs 병렬성 | 개념 차이, 언제 어떤 것을 쓸지 | Amdahl's Law, Gustafson's Law |
 | 스레드 생명주기 | New → Runnable → Running → Blocked → Terminated | 스케줄링 알고리즘 |
 | 컨텍스트 스위칭 | 오버헤드, 레지스터 저장/복원 | CPU 캐시 영향, TLB flush |
+| Thread Local Storage | TLS 개념, 내부 동작, Use Cases | ELF TLS 모델, TCB, DTV |
 
 ### 2. 동기화 기법 (02-synchronization/)
 

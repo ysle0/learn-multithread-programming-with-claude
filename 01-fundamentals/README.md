@@ -14,6 +14,7 @@
 2. ✅ 동시성과 병렬성의 개념적 차이
 3. ✅ 스레드의 생명주기와 상태 전이
 4. ✅ 컨텍스트 스위칭의 원리와 성능 영향
+5. ✅ Thread Local Storage의 내부 동작과 활용 방법
 
 ---
 
@@ -70,6 +71,21 @@
 - 오버헤드 최소화 전략
 
 **왜 중요한가**: 스레드를 무분별하게 생성하면 컨텍스트 스위칭 오버헤드로 성능이 저하될 수 있습니다.
+
+---
+
+### [05. Thread Local Storage (TLS)](./05-thread-local-storage.md)
+**핵심 개념**: TLS는 각 스레드가 고유한 데이터 복사본을 가질 수 있게 하여, 동기화 없이 스레드 안전한 코드를 작성할 수 있게 합니다.
+
+**다루는 내용**:
+- TLS의 개념과 필요성
+- 내부 동작 원리 (x86-64 FS 레지스터, TCB, DTV)
+- ELF TLS 모델 (Local Exec, Initial Exec, Local Dynamic, General Dynamic)
+- 정적 TLS vs 동적 TLS
+- Use Cases (Thread-Local Pool, errno, Cache, Random Generator)
+- 성능 분석 및 Best Practices
+
+**왜 중요한가**: Thread-Local Memory Pool, TCMalloc 등 고성능 메모리 할당기의 핵심 기술이며, errno 같은 스레드 안전한 전역 상태 관리에 필수적입니다.
 
 ---
 
@@ -151,6 +167,8 @@ CPU3: [C][C][C][C][C]...
 3. 스레드 생명주기 (필수)
    ↓
 4. 컨텍스트 스위칭 (필수)
+   ↓
+5. Thread Local Storage (권장)
    ↓
 다음 섹션: 02-synchronization/
 ```
