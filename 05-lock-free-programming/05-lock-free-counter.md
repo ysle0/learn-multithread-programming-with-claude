@@ -452,6 +452,262 @@ struct alignas(64) Counters {
 
 ---
 
+## 🔧 내부 메커니즘
+
+### x86 어셈블리: LOCK XADD
+
+`fetch_add`는 x86에서 **단일 명령어**로 구현됩니다:
+
+```asm
+; std::atomic<int>::fetch_add(1, memory_order_relaxed)
+; value가 [rdi]에 위치
+
+fetch_add_impl:
+    mov     eax, 1              ; 증가값
+    lock xadd [rdi], eax        ; 원자적 교환-더하기
+    ret                         ; eax에 이전 값 반환
+
+; LOCK XADD의 동작:
+; 1. [rdi]의 현재 값을 eax로 복사 (이전 값)
+; 2. eax + [rdi] 결과를 [rdi]에 저장
+; 3. 모든 것이 버스 락/캐시 락으로 원자적
+```
+
+**LOCK 프리픽스의 효과**:
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    LOCK XADD 캐시 동작                               │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  1. 캐시 라인을 Exclusive 상태로 획득                                │
+│  2. Read-Modify-Write를 단일 버스 트랜잭션으로 실행                    │
+│  3. 다른 CPU의 접근 차단 (캐시 라인 레벨)                              │
+│                                                                     │
+│  CPU 0                           CPU 1                              │
+│  ┌──────────┐                    ┌──────────┐                       │
+│  │ LOCK     │     BUS LOCK       │ (blocked)│                       │
+│  │ XADD     │ ─────────────────▶ │          │                       │
+│  │          │     또는            │          │                       │
+│  │          │  Cache Line Lock   │          │                       │
+│  └──────────┘                    └──────────┘                       │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### CAS vs LOCK XADD 하드웨어 비용
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    하드웨어 연산 비용 비교                            │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  LOCK XADD (fetch_add):                                             │
+│  ┌───────────────────────────────────────────┐                      │
+│  │  1 cycle: 명령어 디코드                    │                      │
+│  │  1 cycle: 캐시 락 획득                     │                      │
+│  │  1 cycle: Read + Modify + Write            │                      │
+│  │  1 cycle: 캐시 락 해제                     │                      │
+│  │  ─────────────────────────────────         │                      │
+│  │  총: ~4-10 cycles (L1 hit 시)              │                      │
+│  └───────────────────────────────────────────┘                      │
+│                                                                     │
+│  LOCK CMPXCHG (CAS) + 루프:                                         │
+│  ┌───────────────────────────────────────────┐                      │
+│  │  load: ~1 cycle                            │                      │
+│  │  add:  ~1 cycle                            │                      │
+│  │  cmpxchg: ~4-10 cycles                     │                      │
+│  │  ─────────────────────────────────         │                      │
+│  │  성공 시: ~6-12 cycles                      │                      │
+│  │  실패 시: 전체 재시도 (경합에 비례)          │                      │
+│  └───────────────────────────────────────────┘                      │
+│                                                                     │
+│  결론: LOCK XADD가 항상 더 빠름 (재시도 없음)                          │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### 분산 카운터 (Distributed Counter)
+
+고경합 환경에서는 **분산 카운터**가 훨씬 효율적입니다:
+
+```cpp
+// 고경합 분산 카운터 구현
+class DistributedCounter {
+    static constexpr int NUM_SHARDS = 16;  // CPU 수에 맞춤
+
+    struct alignas(64) Shard {  // False Sharing 방지
+        std::atomic<int64_t> count{0};
+    };
+
+    std::array<Shard, NUM_SHARDS> shards;
+
+    // 스레드별 샤드 선택 (해시 또는 thread_local)
+    int get_shard_index() {
+        // 방법 1: thread_id 해시
+        auto tid = std::hash<std::thread::id>{}(
+            std::this_thread::get_id());
+        return tid % NUM_SHARDS;
+
+        // 방법 2: CPU ID 사용 (Linux)
+        // return sched_getcpu() % NUM_SHARDS;
+    }
+
+public:
+    void increment() {
+        shards[get_shard_index()].count.fetch_add(
+            1, std::memory_order_relaxed);
+    }
+
+    int64_t get() const {
+        int64_t total = 0;
+        for (const auto& shard : shards) {
+            total += shard.count.load(std::memory_order_relaxed);
+        }
+        return total;
+    }
+};
+```
+
+**성능 비교**:
+```
+단일 atomic 카운터:
+  - 4 threads:  ~15M ops/sec
+  - 16 threads: ~8M ops/sec (경합으로 감소!)
+
+분산 카운터 (16 shards):
+  - 4 threads:  ~60M ops/sec
+  - 16 threads: ~120M ops/sec (선형 확장!)
+
+읽기 비용:
+  - 단일 카운터: O(1)
+  - 분산 카운터: O(NUM_SHARDS) - 쓰기가 많으면 이득
+```
+
+### Memory Ordering과 Visibility
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Relaxed Ordering의 영향                           │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Thread A                          Thread B                         │
+│  ─────────                         ─────────                         │
+│  data = 42;                                                         │
+│  counter.fetch_add(1, relaxed);    val = counter.load(relaxed);     │
+│                                    if (val == 1) {                  │
+│                                        x = data;  // ❌ 42 아닐 수 있음! │
+│                                    }                                │
+│                                                                     │
+│  Relaxed는 다른 변수와의 순서를 보장하지 않음                           │
+│                                                                     │
+├─────────────────────────────────────────────────────────────────────┤
+│                    Release-Acquire의 영향                            │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Thread A                          Thread B                         │
+│  ─────────                         ─────────                         │
+│  data = 42;                                                         │
+│  counter.fetch_add(1, release);    val = counter.load(acquire);     │
+│         │                               │                           │
+│         └──────── happens-before ───────┘                           │
+│                                    if (val == 1) {                  │
+│                                        x = data;  // ✅ 반드시 42!    │
+│                                    }                                │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Reference Counter의 특수 메모리 요구사항
+
+```cpp
+// Reference Count는 특별한 메모리 순서가 필요
+class RefCounted {
+    std::atomic<int> ref_count{1};
+
+public:
+    void add_ref() {
+        // relaxed OK: 다른 스레드가 이미 참조를 가진 상태에서만 호출
+        ref_count.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    void release() {
+        // release: 객체 접근이 이 시점 이전에 완료됨을 보장
+        if (ref_count.fetch_sub(1, std::memory_order_release) == 1) {
+            // acquire fence: 다른 스레드의 모든 접근이 보임
+            std::atomic_thread_fence(std::memory_order_acquire);
+
+            // 이제 안전하게 삭제 가능
+            delete this;
+        }
+    }
+};
+```
+
+**왜 release/acquire가 필요한가?**
+```
+Thread A (사용 중)               Thread B (release)
+─────────────────               ─────────────────
+obj->member = 42;
+                                if (count.fetch_sub(1, release) == 1) {
+                                    // acquire fence
+release 덕분에 ────────────────▶    // Thread A의 member = 42가 보임
+                                    delete obj;  // 안전!
+                                }
+```
+
+### CPU별 구현 차이
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    아키텍처별 fetch_add 구현                          │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  x86/x86-64:                                                        │
+│  ┌─────────────────────────────────────────────┐                    │
+│  │  lock xadd [mem], reg                       │                    │
+│  │  - 단일 명령어                               │                    │
+│  │  - 항상 순차 일관성 (TSO 덕분)                │                    │
+│  └─────────────────────────────────────────────┘                    │
+│                                                                     │
+│  ARM64:                                                             │
+│  ┌─────────────────────────────────────────────┐                    │
+│  │  ldaddal x0, x1, [x2]   (ARMv8.1 LSE)       │                    │
+│  │  - Large System Extension 필요              │                    │
+│  │                                             │                    │
+│  │  LSE 없는 경우 (LL/SC 루프):                 │                    │
+│  │  .loop:                                     │                    │
+│  │      ldaxr  x0, [x2]    ; load-acquire      │                    │
+│  │      add    x1, x0, x3                      │                    │
+│  │      stlxr  w4, x1, [x2] ; store-release    │                    │
+│  │      cbnz   w4, .loop                       │                    │
+│  └─────────────────────────────────────────────┘                    │
+│                                                                     │
+│  RISC-V:                                                            │
+│  ┌─────────────────────────────────────────────┐                    │
+│  │  amoadd.w.aqrl rd, rs2, (rs1)              │                    │
+│  │  - Atomic Memory Operation 확장             │                    │
+│  └─────────────────────────────────────────────┘                    │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### perf로 카운터 경합 분석
+
+```bash
+# 캐시 미스와 경합 분석
+$ perf stat -e cache-misses,cache-references,\
+    L1-dcache-load-misses,L1-dcache-loads \
+    ./counter_benchmark
+
+# False Sharing 탐지
+$ perf c2c record ./counter_benchmark
+$ perf c2c report
+
+# HITM (Hit Modified) 이벤트가 많으면 False Sharing
+```
+
+---
+
 ## 🔗 다음 단계
 
 Lock-Free Counter를 이해했다면:

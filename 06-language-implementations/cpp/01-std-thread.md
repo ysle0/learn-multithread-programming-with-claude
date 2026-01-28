@@ -606,6 +606,197 @@ std::thread t([] {
 t.join();
 ```
 
+## Internal Mechanisms
+
+### pthread/WinAPI Wrapper Structure
+
+`std::thread`는 플랫폼별 스레드 API의 얇은 래퍼입니다:
+
+```cpp
+// libstdc++ 내부 구조 (단순화)
+class thread {
+    typedef __gthread_t native_handle_type;  // pthread_t or HANDLE
+
+    struct _State {
+        virtual ~_State() = default;
+        virtual void _M_run() = 0;  // 실제 작업 수행
+    };
+
+    native_handle_type _M_id;  // 스레드 핸들
+
+public:
+    template<typename _Callable, typename... _Args>
+    explicit thread(_Callable&& __f, _Args&&... __args) {
+        // 1. callable과 인수를 decay_copy로 저장
+        // 2. __gthread_create 호출
+        // 3. 실패 시 std::system_error 던짐
+    }
+};
+```
+
+### Thread Creation System Call Flow
+
+```
+std::thread 생성자
+    │
+    ▼
+_M_start_thread() ─────────────────────────────────────────┐
+    │                                                      │
+    ▼ (Linux)                                              ▼ (Windows)
+pthread_create()                                    CreateThread()
+    │                                                      │
+    ▼                                                      ▼
+clone(CLONE_VM | CLONE_FS |                        NtCreateThreadEx()
+      CLONE_FILES | CLONE_SIGHAND |                        │
+      CLONE_THREAD | ...)                                  ▼
+    │                                              커널 스레드 객체 생성
+    ▼                                              스택 할당 (Reserved VM)
+do_fork() → copy_process()
+    │
+    ▼
+task_struct 할당
+스택 할당 (default 8MB, guard page 포함)
+TLS 영역 설정 (FS 레지스터)
+```
+
+### Thread Stack Layout (Linux x86-64)
+
+```
+High Address
+┌─────────────────────────────────────┐ ← Stack Top (pthread_attr_t.stackaddr)
+│          Arguments/Env             │
+├─────────────────────────────────────┤
+│             Red Zone               │ ← 128 bytes (leaf function optimization)
+├─────────────────────────────────────┤
+│          Stack Frames              │
+│    ┌─────────────────────────┐    │
+│    │ Return Address         │    │
+│    │ Saved RBP              │    │
+│    │ Local Variables        │    │
+│    │ Spilled Registers      │    │
+│    └─────────────────────────┘    │
+│              ...                   │
+├─────────────────────────────────────┤
+│         Guard Page(s)              │ ← PROT_NONE (4KB-64KB)
+│   (Stack overflow detection)       │
+├─────────────────────────────────────┤
+│            TLS Block               │ ← FS:0 기준
+│  ┌────────────────────────────┐   │
+│  │ Static TLS (.tdata)       │   │ ← 음수 오프셋
+│  │ pthread struct            │   │
+│  │ DTV (Dynamic Thread Vector)│   │
+│  └────────────────────────────┘   │
+└─────────────────────────────────────┘ ← Stack Bottom
+Low Address
+```
+
+### join() Internal Implementation
+
+```cpp
+// pthread_join 내부 동작 (glibc)
+int pthread_join(pthread_t thread, void **retval) {
+    struct pthread *pd = (struct pthread *)thread;
+
+    // 1. 이미 join 되었거나 detach 되었는지 확인
+    if (pd->joinid != 0)
+        return EINVAL;
+
+    // 2. 스레드 종료 대기 (futex 기반)
+    while (pd->tid != 0) {
+        // FUTEX_WAIT: pd->tid가 현재 값과 같으면 sleep
+        futex(&pd->tid, FUTEX_WAIT, pd->tid, NULL, NULL, 0);
+    }
+
+    // 3. 반환값 복사
+    if (retval)
+        *retval = pd->result;
+
+    // 4. 리소스 정리 (스택, TLS 해제)
+    __free_tcb(pd);
+
+    return 0;
+}
+```
+
+**detach()와의 차이**:
+```cpp
+// detach는 즉시 리소스 정리 책임을 스레드에게 넘김
+int pthread_detach(pthread_t thread) {
+    struct pthread *pd = (struct pthread *)thread;
+
+    // atomic하게 joinid 설정
+    // 스레드 종료 시 자체적으로 리소스 정리
+    pd->joinid = pd;  // self-pointer = detached
+
+    return 0;
+}
+```
+
+### jthread Stop Token Mechanism (C++20)
+
+```cpp
+// std::jthread의 협력적 취소 메커니즘
+class jthread {
+    std::stop_source _M_stop_source;  // 취소 토큰 소스
+    std::thread _M_thread;
+
+public:
+    template<typename _Callable, typename... _Args>
+    explicit jthread(_Callable&& __f, _Args&&... __args) {
+        // stop_token을 첫 번째 인수로 전달 (callable이 지원하면)
+        if constexpr (std::is_invocable_v<_Callable, stop_token, _Args...>) {
+            _M_thread = std::thread(std::forward<_Callable>(__f),
+                                   _M_stop_source.get_token(),
+                                   std::forward<_Args>(__args)...);
+        } else {
+            _M_thread = std::thread(std::forward<_Callable>(__f),
+                                   std::forward<_Args>(__args)...);
+        }
+    }
+
+    ~jthread() {
+        if (joinable()) {
+            request_stop();  // 취소 요청
+            join();          // 종료 대기
+        }
+    }
+
+    bool request_stop() noexcept {
+        return _M_stop_source.request_stop();
+    }
+};
+
+// stop_source 내부: atomic flag + callback 리스트
+struct __stop_state {
+    std::atomic<uint32_t> _M_owners{1};    // 참조 카운트
+    std::atomic<uint32_t> _M_value{0};     // bit 0: stop requested
+    __stop_callback_base* _M_callbacks{};  // 콜백 연결 리스트
+    std::mutex _M_mtx;
+};
+```
+
+### Hardware Concurrency Detection
+
+```cpp
+// std::thread::hardware_concurrency() 구현
+unsigned int hardware_concurrency() noexcept {
+#ifdef _WIN32
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    return si.dwNumberOfProcessors;
+#else
+    // Linux: /sys/devices/system/cpu/online 파싱 또는
+    long result = sysconf(_SC_NPROCESSORS_ONLN);
+    return (result > 0) ? result : 0;
+#endif
+}
+```
+
+**주의사항**:
+- 하이퍼스레딩 시 논리 코어 수 반환 (물리 코어의 2배)
+- 컨테이너/VM에서는 제한된 CPU가 아닌 호스트 CPU 수 반환할 수 있음
+- NUMA 시스템에서는 노드별 CPU 친화성 고려 필요
+
 ## Performance Considerations
 
 ### Thread Creation Cost

@@ -1182,6 +1182,213 @@ Thread 2: [retire][retire][retire][retire][retire]...
 3. 메모리 제한 설정
 ```
 
+## 🔧 내부 메커니즘
+
+### Crossbeam Epoch 내부 구조
+
+```rust
+// 실제 Crossbeam 구조 (단순화)
+struct Global {
+    // 전역 epoch (0, 1, 2 순환)
+    epoch: AtomicUsize,
+
+    // 등록된 스레드 리스트
+    locals: List<LocalHandle>,
+
+    // 전역 가비지 큐 (각 epoch별)
+    garbage: [Queue<Bag>; 3],
+}
+
+struct Local {
+    // 현재 스레드의 epoch
+    epoch: AtomicUsize,
+
+    // 현재 pin count (재진입 지원)
+    pin_count: Cell<usize>,
+
+    // 로컬 가비지 백
+    bag: UnsafeCell<Bag>,
+
+    // 가비지 백 크기 (GC 트리거용)
+    handle_count: Cell<usize>,
+}
+```
+
+### epoch::pin()의 실제 비용
+
+```rust
+// pin() 구현 분해
+pub fn pin() -> Guard {
+    LOCAL.with(|local| {
+        let count = local.pin_count.get();
+
+        if count == 0 {
+            // 첫 pin - epoch 동기화 필요
+            let global_epoch = GLOBAL.epoch.load(Ordering::Relaxed);
+            local.epoch.store(global_epoch, Ordering::Relaxed);
+
+            // seq_cst fence: epoch store가 다른 스레드에 보이도록
+            atomic::fence(Ordering::SeqCst);
+
+            // ~5-10 cycles (fence 비용)
+        }
+        // 재진입: count만 증가 (~1 cycle)
+
+        local.pin_count.set(count + 1);
+        Guard { local }
+    })
+}
+
+// Guard::drop() 구현
+impl Drop for Guard {
+    fn drop(&mut self) {
+        let count = self.local.pin_count.get();
+        self.local.pin_count.set(count - 1);
+
+        if count == 1 {
+            // 마지막 unpin - GC 시도
+            if self.should_try_advance() {
+                self.try_advance();
+            }
+        }
+    }
+}
+```
+
+### 3-Epoch 순환 이유
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    왜 3개의 Epoch인가?                                │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  2개로 불충분한 이유:                                                │
+│                                                                     │
+│  Thread A (epoch 0에서 retire):                                     │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │  retire(ptr) → bags[0].push(ptr)                            │    │
+│  │                                                             │    │
+│  │  전역 epoch이 0→1로 전이                                     │    │
+│  │                                                             │    │
+│  │  Thread B가 epoch 0에서 pin된 상태로 ptr 접근 중             │    │
+│  │                                                             │    │
+│  │  만약 바로 bags[0] 해제하면? → Use-After-Free!              │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                     │
+│  3개로 해결:                                                         │
+│                                                                     │
+│  bags[0]: epoch 0에서 retire                                        │
+│  bags[1]: epoch 1에서 retire                                        │
+│  bags[2]: epoch 2에서 retire                                        │
+│                                                                     │
+│  현재 epoch이 N일 때:                                                │
+│  - bags[(N+1) % 3] 해제 가능 (2 epoch 전)                           │
+│  - 모든 스레드가 최소 epoch N-1 이상이면 안전                        │
+│                                                                     │
+│  Timeline:                                                          │
+│  Epoch:  0 ──→ 1 ──→ 2 ──→ 0 ──→ 1 ...                             │
+│  해제:         bags[2]  bags[0]  bags[1]                            │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### try_advance() 상세
+
+```rust
+fn try_advance(&self) -> bool {
+    let current = GLOBAL.epoch.load(Ordering::Relaxed);
+
+    // 모든 활성 스레드 확인
+    for local in GLOBAL.locals.iter() {
+        // 비활성 스레드는 건너뜀
+        if local.pin_count.get() == 0 {
+            continue;
+        }
+
+        let local_epoch = local.epoch.load(Ordering::Acquire);
+
+        // 아직 현재 epoch를 못 본 스레드가 있으면 실패
+        if local_epoch != current {
+            return false;
+        }
+    }
+
+    // 모든 스레드가 현재 epoch → 전이 가능
+    // CAS로 한 스레드만 성공하도록
+    let next = (current + 1) % 3;
+    if GLOBAL.epoch.compare_exchange_weak(
+        current, next,
+        Ordering::AcqRel,
+        Ordering::Relaxed
+    ).is_ok() {
+        // 오래된 가비지 해제
+        let old_epoch = (next + 1) % 3;
+        GLOBAL.garbage[old_epoch].flush();
+        return true;
+    }
+
+    false
+}
+```
+
+### defer_destroy 최적화
+
+```rust
+// 실제 구현: 배치 처리로 오버헤드 최소화
+impl Guard {
+    pub unsafe fn defer_destroy<T>(&self, ptr: Shared<T>) {
+        let bag = &mut *self.local.bag.get();
+
+        // 로컬 백에 추가 (락 없음)
+        bag.push(Deferred::new(ptr, destroy::<T>));
+
+        // 백이 가득 차면 전역 큐로 이동
+        if bag.len() >= BAG_THRESHOLD {
+            self.flush_bag();
+        }
+    }
+
+    fn flush_bag(&self) {
+        let epoch = self.local.epoch.load(Ordering::Relaxed);
+        let bag = mem::replace(
+            &mut *self.local.bag.get(),
+            Bag::new()
+        );
+
+        // 전역 큐에 추가 (lock-free push)
+        GLOBAL.garbage[epoch].push(bag);
+    }
+}
+```
+
+### HP vs EBR 메모리 프로파일
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    메모리 사용량 비교                                 │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  시나리오: 64 스레드, 초당 100K retire                               │
+│                                                                     │
+│  Hazard Pointer:                                                    │
+│  - HP 배열: 64 × 2 × 8 = 1 KB (고정)                                │
+│  - Retire 리스트: ~10K 객체 (가변, 즉시 해제)                        │
+│  - 최대 메모리: ~1-2 MB                                              │
+│                                                                     │
+│  EBR:                                                               │
+│  - Epoch 카운터: 64 × 8 = 0.5 KB (고정)                             │
+│  - 가비지 백: 3 epoch × ~50K 객체 (가변)                            │
+│  - 최대 메모리: ~5-10 MB (긴 CS 시 더 증가)                          │
+│                                                                     │
+│  결론:                                                               │
+│  - HP: 메모리 사용량 예측 가능, 경계 있음                            │
+│  - EBR: 메모리 사용량 가변적, 최악 시 급증 가능                       │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## 9. 요약
 
 ### EBR 선택 기준

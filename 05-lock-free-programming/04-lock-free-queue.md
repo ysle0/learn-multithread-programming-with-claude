@@ -409,6 +409,271 @@ delete first;  // ❌ 다른 스레드가 아직 접근 중일 수 있음
 
 ---
 
+## 🔧 내부 메커니즘
+
+### Head/Tail 분리와 캐시 라인 최적화
+
+Michael-Scott Queue의 핵심 설계는 **Head와 Tail의 물리적 분리**입니다:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                     메모리 레이아웃 (비최적화)                         │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Cache Line 0 (64 bytes)                                            │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │  head (8B)  │  tail (8B)  │  padding...                     │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│        ↑              ↑                                             │
+│     Dequeue       Enqueue                                           │
+│     Thread        Thread                                            │
+│                                                                     │
+│  문제: head와 tail이 같은 캐시 라인 → False Sharing!                  │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                     메모리 레이아웃 (최적화)                          │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Cache Line 0 (64 bytes)           Cache Line 1 (64 bytes)          │
+│  ┌─────────────────────────┐       ┌─────────────────────────┐      │
+│  │  head (8B) + pad (56B)  │       │  tail (8B) + pad (56B)  │      │
+│  └─────────────────────────┘       └─────────────────────────┘      │
+│        ↑                                  ↑                         │
+│     Dequeue                           Enqueue                       │
+│     Threads                           Threads                       │
+│                                                                     │
+│  결과: head와 tail이 독립적으로 동작 → 경합 최소화                     │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**실측 성능 차이**:
+```
+False Sharing 있음:     ~15M ops/sec (4 threads)
+False Sharing 제거:     ~45M ops/sec (4 threads)
+→ 약 3배 성능 향상
+```
+
+### Helping 메커니즘의 정확한 동작
+
+Tail 업데이트가 2단계로 분리되어 있어 "중간 상태"가 존재합니다:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Enqueue 2단계 동작                            │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  단계 1: tail->next CAS                                             │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │                                                             │    │
+│  │   tail ─────────────────────┐                               │    │
+│  │                             ▼                               │    │
+│  │   [dummy] ──→ [A] ──→ [B] ──→ [NEW]                         │    │
+│  │     ↑                         ↑                             │    │
+│  │   head                   tail->next = NEW (CAS 성공)         │    │
+│  │                                                             │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                     │
+│  ⚠️ 중간 상태: tail이 실제 끝(NEW)을 가리키지 않음                    │
+│                                                                     │
+│  단계 2: tail CAS (또는 다른 스레드의 helping)                        │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │                                                             │    │
+│  │   [dummy] ──→ [A] ──→ [B] ──→ [NEW] ◀── tail                │    │
+│  │     ↑                                                       │    │
+│  │   head                                                      │    │
+│  │                                                             │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Helping 코드의 원자성 보장**:
+```cpp
+// Thread A: enqueue 중단 상태
+// tail -> [B], tail->next -> [NEW]
+
+// Thread B: 새로운 enqueue 시도
+Node* last = tail.load();           // last = [B]
+Node* next = last->next.load();     // next = [NEW] (not NULL!)
+
+if (next != nullptr) {
+    // "tail이 뒤처졌다" 감지
+    // Thread A를 대신해서 tail 이동
+    tail.compare_exchange_weak(last, next);
+    // 성공 여부와 관계없이 재시도
+    continue;
+}
+```
+
+**왜 Helping이 안전한가?**
+1. tail->next CAS는 **단 한 스레드만** 성공
+2. tail CAS는 **여러 스레드가** 시도할 수 있지만, 결과는 동일
+3. 잘못된 위치로 tail이 이동하는 것은 불가능 (항상 next 방향)
+
+### x86 어셈블리 분석: Enqueue CAS
+
+```asm
+; last->next.compare_exchange_weak(expected, new_node)
+; expected = NULL (0), new_node = %r12
+
+enqueue_cas:
+    mov    rax, 0                    ; expected = NULL
+    lock cmpxchg [rbx+8], r12        ; rbx = last, offset 8 = next 필드
+    jnz    enqueue_retry             ; ZF=0이면 실패, 재시도
+
+    ; CAS 성공 - tail 업데이트 시도
+    mov    rax, rbx                  ; expected = last
+    lock cmpxchg [rip+tail], r12     ; tail = new_node 시도
+    ; 실패해도 OK - 다른 스레드가 도움
+    ret
+
+enqueue_retry:
+    ; rax에 실제 값이 들어있음 (expected가 업데이트됨)
+    ; 이 값이 NULL이 아니면 helping 필요
+    test   rax, rax
+    jnz    help_tail_advance
+    jmp    enqueue_cas
+```
+
+### Memory Ordering 상세 분석
+
+```cpp
+// Enqueue에서의 동기화 패턴
+void enqueue(T value) {
+    Node* new_node = new Node(value);
+
+    while (true) {
+        // [1] acquire: 이후 읽기가 재배치되지 않음
+        Node* last = tail.load(memory_order_acquire);
+
+        // [2] acquire: last->next 읽기 동기화
+        Node* next = last->next.load(memory_order_acquire);
+
+        if (next == nullptr) {
+            // [3] release: new_node의 data가 먼저 보이도록
+            if (last->next.compare_exchange_weak(
+                next, new_node,
+                memory_order_release,    // 성공 시
+                memory_order_acquire)) { // 실패 시
+
+                // [4] release: tail 업데이트
+                tail.compare_exchange_weak(
+                    last, new_node,
+                    memory_order_release,
+                    memory_order_relaxed);  // 실패해도 무관
+                return;
+            }
+        }
+    }
+}
+```
+
+**동기화 그래프**:
+```
+Thread A (Enqueue)              Thread B (Dequeue)
+─────────────────               ─────────────────
+new_node->data = X
+        │
+        ▼ release
+last->next = new_node ─────────────→ next = first->next
+                           acquire         │
+                                          ▼
+                                    result = next->data
+                                    (X가 보임 - 보장됨!)
+```
+
+### Dequeue의 데이터 무결성
+
+더미 노드 설계가 **dequeue 안전성**을 보장합니다:
+
+```
+상태: [dummy] -> [A] -> [B]
+      head       real first
+
+Dequeue 순서:
+1. first = head (dummy)
+2. next = first->next (A - 실제 첫 데이터)
+3. result = next->data (A의 데이터 읽기)
+4. head CAS: dummy -> A
+
+핵심: 데이터를 읽는 시점에 해당 노드(A)는 아직 head가 아님
+      → 다른 dequeue가 A를 건드리지 않음
+```
+
+**일반적인 실수 (더미 노드 없이)**:
+```cpp
+// ❌ 잘못된 구현 (더미 노드 없음)
+T dequeue() {
+    Node* first = head.load();
+    T result = first->data;      // 데이터 읽기
+    head.compare_exchange(first, first->next);  // head 이동
+    // 문제: 데이터 읽는 동안 다른 스레드가 first를 dequeue할 수 있음!
+}
+```
+
+### MESI 프로토콜과 Two-Pointer Queue
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│            Head/Tail 분리의 MESI 효과                                │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  CPU 0 (Dequeue)                  CPU 1 (Enqueue)                   │
+│  ┌─────────────────┐              ┌─────────────────┐               │
+│  │ L1 Cache        │              │ L1 Cache        │               │
+│  │                 │              │                 │               │
+│  │ [head: E/M]     │              │ [tail: E/M]     │               │
+│  │                 │              │                 │               │
+│  └────────┬────────┘              └────────┬────────┘               │
+│           │                                │                        │
+│           └───────────────┬────────────────┘                        │
+│                           │                                         │
+│                    L3 Cache / Memory                                │
+│                                                                     │
+│  결과:                                                               │
+│  - head는 CPU 0에서 Exclusive/Modified                               │
+│  - tail은 CPU 1에서 Exclusive/Modified                               │
+│  - 서로 무효화하지 않음 (다른 캐시 라인)                                │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+
+대조: 단일 포인터 (Stack)
+┌─────────────────────────────────────────────────────────────────────┐
+│  CPU 0 (Push)                     CPU 1 (Pop)                       │
+│  ┌─────────────────┐              ┌─────────────────┐               │
+│  │ [top: M→I→M→I]  │   ping-     │ [top: I→M→I→M]  │               │
+│  │                 │ ◀──pong──▶  │                 │               │
+│  └─────────────────┘              └─────────────────┘               │
+│                                                                     │
+│  → 매 연산마다 캐시 라인 전송 필요                                     │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Linked List 순회의 안전성
+
+```cpp
+// 안전한 순회 패턴
+Node* current = head.load(memory_order_acquire);
+while (current != nullptr) {
+    // current가 유효한지 어떻게 보장하나?
+
+    // 문제: dequeue가 current를 delete할 수 있음
+    Node* next = current->next.load(memory_order_acquire);
+
+    // 해결: Hazard Pointer 또는 EBR
+    // HP: current를 HP에 등록 → delete 방지
+    // EBR: Grace Period 동안 delete 지연
+
+    current = next;
+}
+```
+
+---
+
 ## 🔬 실전 최적화
 
 ### 1. Backoff 전략

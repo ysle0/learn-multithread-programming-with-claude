@@ -841,6 +841,240 @@ T = 스레드 수, H = HP per thread, R = retired 노드 수
 
 ---
 
+## 🔧 내부 메커니즘
+
+### Memory Barrier의 정확한 위치와 이유
+
+HP의 정확성은 **메모리 배리어 배치**에 달려 있습니다:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    HP 프로토콜의 메모리 순서                          │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Reader (HP 설정)                  Writer (Retire + Scan)           │
+│  ─────────────────                 ─────────────────────            │
+│                                                                     │
+│  ptr = load(target)                                                 │
+│         │                                                           │
+│         ▼                                                           │
+│  store(HP, ptr)  ─────────┐                                         │
+│         │                 │ (이 store가 먼저 보여야)                 │
+│         ▼                 │                                         │
+│  ┌──── fence(seq_cst) ────┼─────── fence(seq_cst) ────┐            │
+│  │                        │                           │            │
+│  │                        │                           ▼            │
+│  │                        └───────────────▶ hp = load(HP)          │
+│  │                                          if (hp == node)        │
+│  │                                              → 해제 안 함        │
+│  │                                                                 │
+│  ▼                                                                 │
+│  validate = load(target)                                           │
+│  if (ptr != validate) retry                                        │
+│                                                                     │
+│  핵심: seq_cst fence가 HP store와 HP scan 사이의 전역 순서를 보장      │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**왜 acquire/release만으로는 부족한가?**
+
+```cpp
+// ❌ 불충분한 구현 (버그!)
+Node* hp_protect_wrong(int slot, _Atomic(Node*)* target) {
+    Node* ptr = atomic_load_explicit(target, memory_order_acquire);
+    atomic_store_explicit(&HP[slot], ptr, memory_order_release);
+    // ← fence 없음
+
+    // 재확인
+    Node* hp = atomic_load_explicit(target, memory_order_acquire);
+    if (ptr != hp) { /* retry */ }
+    return ptr;
+}
+
+// 문제 시나리오:
+// Reader                        Writer
+// ──────                        ──────
+// ptr = load(target) → A
+//                               unlink(A)
+//                               retire(A)
+//                               scan()
+//                               load(HP[0]) → NULL (아직 안 보임!)
+// store(HP[0], A)               → A 해제됨!
+//                               free(A)
+// validate = load(target)
+// 이미 use-after-free 발생 가능
+
+// acquire/release는 같은 변수 간의 동기화만 보장
+// HP[0]와 target은 다른 변수 → 전역 순서 보장 안 됨
+```
+
+### HP 배열의 캐시 동작
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    HP Scan의 캐시 비용                               │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  64 스레드, 2 HP/스레드 = 128개 HP (128 × 8 = 1024 bytes)           │
+│                                                                     │
+│  캐시 미스 분석:                                                     │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │ 최악의 경우 (각 HP가 다른 캐시 라인):                        │    │
+│  │   1024 / 64 = 16 캐시 라인                                  │    │
+│  │   16 × ~100ns (메모리 접근) = ~1.6μs per scan               │    │
+│  │                                                             │    │
+│  │ 최적화된 경우 (연속 배치):                                   │    │
+│  │   1024 bytes = 16 캐시 라인 (연속)                          │    │
+│  │   프리페치 효과로 ~400ns per scan                           │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                     │
+│  False Sharing 방지 vs Scan 효율 트레이드오프:                        │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │ 패딩 있음: HP 설정 빠름 (false sharing 없음)                 │    │
+│  │            Scan 느림 (캐시 라인 많음)                        │    │
+│  │                                                             │    │
+│  │ 패딩 없음: HP 설정 느릴 수 있음 (false sharing)              │    │
+│  │            Scan 빠름 (캐시 라인 적음)                        │    │
+│  │                                                             │    │
+│  │ 결론: 읽기 위주 → 패딩 없음                                  │    │
+│  │       쓰기 위주 → 패딩 있음                                  │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Folly HazPtr 내부 구현
+
+Facebook의 Folly 라이브러리 HP 구현 분석:
+
+```cpp
+// Folly의 핵심 구조 (간략화)
+class HazptrDomain {
+    // 스레드별 HP 레코드 리스트 (linked list)
+    std::atomic<HazptrRec*> hazptrs_;
+
+    // Retired 객체 리스트
+    std::atomic<HazptrObj*> retired_;
+
+    // 통계
+    std::atomic<int> hcount_;  // HP 수
+    std::atomic<int> rcount_;  // retired 수
+};
+
+class HazptrRec {
+    std::atomic<const void*> hazptr_;  // 실제 HP
+    std::atomic<HazptrRec*> next_;      // 다음 레코드
+    std::atomic<bool> active_;          // 사용 중 여부
+};
+
+// HP holder (RAII 스타일)
+template <typename T>
+class HazptrHolder {
+    HazptrRec* rec_;
+
+public:
+    T* protect(std::atomic<T*>& src) {
+        T* ptr;
+        T* expected;
+        do {
+            ptr = src.load(std::memory_order_acquire);
+            rec_->hazptr_.store(ptr, std::memory_order_release);
+            std::atomic_thread_fence(std::memory_order_seq_cst);
+            expected = src.load(std::memory_order_acquire);
+        } while (ptr != expected);
+        return ptr;
+    }
+
+    ~HazptrHolder() {
+        rec_->hazptr_.store(nullptr, std::memory_order_release);
+    }
+};
+```
+
+**Folly의 최적화 기법**:
+```
+1. Amortized Reclamation:
+   - retired 임계치 도달 시만 scan
+   - 임계치: H + R/2 (H = total HP, R = retired)
+
+2. Asymmetric Barriers:
+   - Reader: seq_cst fence (비용 높음)
+   - Writer: 여러 retired를 batch로 처리 (amortize)
+
+3. Thread-Local Caching:
+   - HP 레코드를 TLS에 캐시
+   - 매번 전역 리스트 탐색 불필요
+```
+
+### HP vs RCU 커널 구현 비교
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    HP vs RCU 구현 수준 비교                          │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Hazard Pointers (User-space):                                      │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │ hp_protect():                                               │    │
+│  │   1. atomic load (target)         ~1 cycle                  │    │
+│  │   2. atomic store (HP)            ~1 cycle                  │    │
+│  │   3. mfence (seq_cst)             ~30-100 cycles            │    │
+│  │   4. atomic load (validate)       ~1 cycle                  │    │
+│  │   총: ~35-105 cycles                                        │    │
+│  │                                                             │    │
+│  │ hp_scan():                                                  │    │
+│  │   O(T×H) HP 읽기 + O(R) retired 확인                        │    │
+│  │   ~1000+ cycles (64 threads)                                │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                     │
+│  RCU (Kernel, QSBR style):                                          │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │ rcu_read_lock():                                            │    │
+│  │   1. preempt_disable()            ~few cycles               │    │
+│  │   또는 just a compiler barrier                               │    │
+│  │   총: ~5 cycles (거의 무료!)                                 │    │
+│  │                                                             │    │
+│  │ synchronize_rcu():                                          │    │
+│  │   모든 CPU가 quiescent state 지날 때까지 대기               │    │
+│  │   ~수 밀리초 (grace period)                                 │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                     │
+│  결론:                                                               │
+│  - HP: 읽기 비용 높음, 해제 즉시 가능                                 │
+│  - RCU: 읽기 비용 거의 0, 해제 지연됨                                 │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### HP 디버깅 기법
+
+```cpp
+// 디버그 모드 HP 구현
+#ifdef DEBUG_HP
+    #define HP_SET(slot, ptr) do { \
+        fprintf(stderr, "[T%d] HP[%d] = %p\n", tid, slot, ptr); \
+        hp_records[tid].hp[slot] = ptr; \
+    } while(0)
+
+    #define HP_CLEAR(slot) do { \
+        fprintf(stderr, "[T%d] HP[%d] = NULL\n", tid, slot); \
+        hp_records[tid].hp[slot] = NULL; \
+    } while(0)
+
+    #define HP_RETIRE(ptr) do { \
+        fprintf(stderr, "[T%d] Retire %p\n", tid, ptr); \
+        hp_retire(ptr); \
+    } while(0)
+#endif
+
+// AddressSanitizer와 함께 사용
+// -fsanitize=address로 use-after-free 탐지
+// HP가 올바르게 동작하면 ASan 오류 없음
+```
+
+---
+
 ## 관련 문서
 
 - [ABA Problem](./07-aba-problem.md) - HP가 해결하는 문제

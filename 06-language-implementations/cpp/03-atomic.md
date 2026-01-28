@@ -717,6 +717,203 @@ struct Counters {
 };
 ```
 
+## Internal Mechanisms
+
+### Lock-Free Guarantee and Implementation
+
+```cpp
+// std::atomic<T>의 lock-free 여부 확인
+template<typename T>
+class atomic {
+    // lock-free가 아닐 경우 내부 뮤텍스 사용
+    alignas(T) char _M_storage[sizeof(T)];
+
+    // 큰 타입의 경우: 글로벌 뮤텍스 테이블에서 해시
+    static std::mutex& _get_lock(const void* addr) {
+        constexpr size_t TABLE_SIZE = 16;
+        static std::mutex table[TABLE_SIZE];
+        return table[reinterpret_cast<uintptr_t>(addr) % TABLE_SIZE];
+    }
+};
+
+// is_always_lock_free 컴파일 타임 체크 (C++17)
+static_assert(std::atomic<int>::is_always_lock_free);
+static_assert(std::atomic<long long>::is_always_lock_free);  // x86-64
+// static_assert(std::atomic<__int128>::is_always_lock_free);  // 실패할 수 있음
+```
+
+**Lock-Free 크기 제한**:
+| 아키텍처 | Lock-Free 보장 크기 |
+|---------|---------------------|
+| x86-64  | 1, 2, 4, 8 bytes (자연 정렬 시) |
+| x86-64 + CMPXCHG16B | 16 bytes 가능 |
+| ARM64   | 1, 2, 4, 8 bytes |
+| ARM64 + LSE | 16 bytes 가능 (ldp/stp atomic) |
+
+### Memory Order to CPU Instruction Mapping
+
+**x86-64 (TSO 모델)**:
+```cpp
+// x86은 기본적으로 강한 순서 보장
+atomic<int> x;
+
+x.store(1, memory_order_relaxed);
+// MOV [x], 1
+
+x.store(1, memory_order_release);
+// MOV [x], 1  (x86 store는 자동 release)
+
+x.store(1, memory_order_seq_cst);
+// MOV [x], 1
+// MFENCE  또는  XCHG [x], 1  (full barrier 필요)
+
+int v = x.load(memory_order_acquire);
+// MOV EAX, [x]  (x86 load는 자동 acquire)
+
+v = x.load(memory_order_seq_cst);
+// MOV EAX, [x]  (load는 추가 barrier 불필요)
+```
+
+**ARM64 (Weak 모델)**:
+```cpp
+x.store(1, memory_order_relaxed);
+// STR W0, [X1]
+
+x.store(1, memory_order_release);
+// STLR W0, [X1]  (Store-Release)
+
+x.store(1, memory_order_seq_cst);
+// STLR W0, [X1]
+// DMB ISH  (또는 STLR만으로 충분할 수 있음)
+
+int v = x.load(memory_order_acquire);
+// LDAR W0, [X1]  (Load-Acquire)
+```
+
+### Fetch-and-Add Assembly
+
+```cpp
+// x.fetch_add(1, memory_order_relaxed)
+// x86-64:
+//   LOCK XADD [x], EAX
+//   (LOCK prefix가 원자성 + 암시적 full barrier 제공)
+
+// x.fetch_add(1, memory_order_acquire)
+// x86-64: 동일 (LOCK은 이미 acquire 의미)
+//   LOCK XADD [x], EAX
+
+// ARM64 (LSE):
+//   LDADDAL W0, W0, [X1]  (Atomic Add, Acquire-Release)
+// ARM64 (non-LSE, LL/SC):
+//   LDAXR W0, [X1]
+//   ADD W2, W0, #1
+//   STLXR W3, W2, [X1]
+//   CBNZ W3, retry
+```
+
+### Compare-Exchange Implementation Details
+
+```cpp
+// compare_exchange_weak vs strong
+atomic<int> x;
+int expected = 0;
+
+// weak: spurious failure 가능 (ARM LL/SC에서)
+while (!x.compare_exchange_weak(expected, 1)) {
+    expected = 0;  // 재시도
+}
+
+// strong: 값이 같으면 반드시 성공
+// ARM에서는 내부적으로 루프 사용
+if (x.compare_exchange_strong(expected, 1)) {
+    // 성공
+}
+```
+
+**x86-64 CMPXCHG**:
+```asm
+; compare_exchange_strong(expected, desired)
+MOV EAX, expected      ; EAX = expected value
+MOV ECX, desired       ; ECX = desired value
+LOCK CMPXCHG [x], ECX  ; if (*x == EAX) *x = ECX; else EAX = *x;
+JE success             ; ZF=1 이면 성공
+; EAX에 실제 값이 저장됨 (expected 업데이트)
+```
+
+**ARM64 LL/SC (weak 구현)**:
+```asm
+; compare_exchange_weak
+LDXR W0, [X1]          ; Load-Exclusive
+CMP W0, expected
+BNE fail               ; 값 다르면 실패
+STXR W2, desired, [X1] ; Store-Exclusive (실패 가능!)
+CBNZ W2, spurious_fail ; Exclusive 실패 = spurious failure
+```
+
+### atomic_flag: The Only Guaranteed Lock-Free
+
+```cpp
+// atomic_flag는 항상 lock-free 보장
+// 내부적으로 단순 boolean (1바이트 또는 정렬을 위해 더 클 수 있음)
+
+struct atomic_flag {
+    // 가능한 구현
+    alignas(4) unsigned char _M_flag;  // 또는 int
+
+    bool test_and_set(memory_order order) noexcept {
+        // x86: LOCK BTS 또는 LOCK XCHG
+        // ARM: LDAXRB + STLXRB 루프
+    }
+
+    void clear(memory_order order) noexcept {
+        // x86: MOV [flag], 0  (+ MFENCE if seq_cst)
+        // ARM: STLRB
+    }
+};
+
+// C++20: test() 함수 추가
+bool test(memory_order order) const noexcept;
+```
+
+### Atomic Reference Wrapper (C++20)
+
+```cpp
+// atomic_ref: 기존 객체를 원자적으로 접근
+int regular_int = 0;
+std::atomic_ref<int> ref(regular_int);
+
+ref.fetch_add(1);  // regular_int를 원자적으로 증가
+
+// 제약 조건:
+// 1. 객체는 atomic_ref의 수명 동안 유효해야 함
+// 2. 다른 비원자적 접근과 동시에 사용하면 UB
+// 3. required_alignment 정렬 필요
+static_assert(alignof(int) >= std::atomic_ref<int>::required_alignment);
+```
+
+### Double-Width CAS (DWCAS)
+
+```cpp
+// 16바이트 원자적 연산 (x86-64 + CMPXCHG16B)
+struct alignas(16) DoubleWord {
+    uint64_t ptr;
+    uint64_t counter;
+};
+
+std::atomic<DoubleWord> dw;
+
+// CMPXCHG16B 요구사항:
+// 1. 16바이트 정렬 필수
+// 2. -mcx16 컴파일 옵션 필요
+// 3. CPU가 CMPXCHG16B 지원해야 함
+
+// 어셈블리:
+// LOCK CMPXCHG16B [addr]
+// RCX:RBX = new value
+// RDX:RAX = expected value
+// 성공 시 ZF=1, 실패 시 RDX:RAX = 실제 값
+```
+
 ## Performance Considerations
 
 ### Operation Costs

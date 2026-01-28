@@ -124,6 +124,131 @@ const b = await fetchB();
 const c = await fetchC();
 ```
 
+## Internal Mechanisms
+
+### Async/Await의 Generator 변환
+
+async/await는 내부적으로 Generator + Promise로 변환됩니다:
+
+```javascript
+// 원본 async 함수
+async function fetchUser(id) {
+    const response = await fetch(`/user/${id}`);
+    const user = await response.json();
+    return user;
+}
+
+// 컴파일러 변환 결과 (개념적)
+function fetchUser(id) {
+    return new Promise((resolve, reject) => {
+        const generator = function* () {
+            try {
+                const response = yield fetch(`/user/${id}`);
+                const user = yield response.json();
+                return user;
+            } catch (error) {
+                throw error;
+            }
+        }();
+
+        function step(nextFn) {
+            let result;
+            try {
+                result = nextFn();
+            } catch (error) {
+                return reject(error);
+            }
+
+            if (result.done) {
+                return resolve(result.value);
+            }
+
+            // result.value는 Promise
+            Promise.resolve(result.value).then(
+                value => step(() => generator.next(value)),
+                error => step(() => generator.throw(error))
+            );
+        }
+
+        step(() => generator.next());
+    });
+}
+```
+
+### V8 Engine의 Async 최적화
+
+```
+Zero-Cost Async Stack Traces (V8 7.3+):
+┌─────────────────────────────────────────────────────────────┐
+│ 기존 방식:                                                  │
+│ - 각 await에서 스택 트레이스 캡처                           │
+│ - 메모리 사용량 높음                                        │
+│                                                             │
+│ 최적화된 방식:                                              │
+│ - Promise에 async function 참조만 저장                      │
+│ - 에러 발생 시에만 스택 재구성                              │
+│ - 일반 실행 시 오버헤드 없음                                │
+└─────────────────────────────────────────────────────────────┘
+
+Async Function 상태 머신:
+┌─────────────────────────────────────────────────────────────┐
+│                                                             │
+│  [시작] ──▶ [await 1] ──▶ [await 2] ──▶ ... ──▶ [완료]     │
+│     │           │            │                   │         │
+│     │     suspend/resume  suspend/resume         │         │
+│     │           │            │                   │         │
+│     └───────────┴────────────┴───────────────────┘         │
+│                    Promise chain                            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Promise 내부 구조 (V8)
+
+```javascript
+// Promise 상태
+const PENDING = 0;
+const FULFILLED = 1;
+const REJECTED = 2;
+
+// Promise 내부 슬롯 (개념적)
+// [[PromiseState]]:      pending, fulfilled, rejected
+// [[PromiseResult]]:     결과값 또는 에러
+// [[PromiseFulfillReactions]]:  then 핸들러 목록
+// [[PromiseRejectReactions]]:   catch 핸들러 목록
+
+// then() 호출 시:
+// 1. 새 Promise 생성
+// 2. reaction 객체 생성 (handler + 새 Promise)
+// 3. 상태에 따라:
+//    - pending: reaction을 큐에 추가
+//    - fulfilled/rejected: microtask로 핸들러 스케줄
+```
+
+### await 표현식의 미세 동작
+
+```javascript
+async function example() {
+    console.log('A');
+    await null;  // 심지어 null도 Promise로 래핑됨
+    console.log('B');
+}
+
+example();
+console.log('C');
+
+// 실행 순서:
+// 1. example() 호출
+// 2. 'A' 출력
+// 3. await null → Promise.resolve(null).then(() => resume)
+//    - 현재 함수 suspend
+//    - microtask queue에 resume 등록
+// 4. 동기 코드 계속 → 'C' 출력
+// 5. Call Stack 비어짐 → microtask 실행
+// 6. resume → 'B' 출력
+
+// 출력: A, C, B
+```
+
 ## Complete Example
 
 ```javascript

@@ -718,6 +718,252 @@ std::future<int> good_promise() {
 }
 ```
 
+## Internal Mechanisms
+
+### Shared State Architecture
+
+`std::future`와 `std::promise`는 공유 상태(Shared State)를 통해 통신합니다:
+
+```cpp
+// 공유 상태 구조 (libstdc++ 단순화)
+struct __future_base::_Result<T> {
+    T _M_value;                    // 결과값 저장
+    exception_ptr _M_error;        // 예외 저장
+};
+
+struct __future_base::_State_baseV2 {
+    _Result_base* _M_result;       // 결과 (값 또는 예외)
+    atomic<bool> _M_retrieved;     // get() 호출 여부
+    atomic<int> _M_ready;          // 결과 준비 완료 플래그
+
+    mutex _M_mutex;
+    condition_variable _M_cond;    // 대기자 깨우기용
+
+    // 결과 설정 (promise.set_value)
+    void _M_set_result(...) {
+        lock_guard lk(_M_mutex);
+        _M_result = ...;
+        _M_ready = true;
+        _M_cond.notify_all();      // 대기자 깨움
+    }
+
+    // 결과 대기 (future.get)
+    _Result_base* _M_get_result() {
+        unique_lock lk(_M_mutex);
+        _M_cond.wait(lk, [this]{ return _M_ready; });
+        _M_retrieved = true;
+        return _M_result;
+    }
+};
+```
+
+**메모리 레이아웃**:
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Shared State                            │
+│  ┌─────────────────────────────────────────────────────┐  │
+│  │  atomic<bool> ready                                  │  │
+│  │  atomic<int> ref_count                              │  │
+│  │  mutex                                               │  │
+│  │  condition_variable                                  │  │
+│  │  ┌─────────────────────────────────────────────┐   │  │
+│  │  │  Result<T>                                   │   │  │
+│  │  │    T value  OR  exception_ptr error         │   │  │
+│  │  └─────────────────────────────────────────────┘   │  │
+│  └─────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+          ▲                                    ▲
+          │                                    │
+    ┌─────┴─────┐                       ┌─────┴─────┐
+    │  promise  │                       │   future  │
+    │  (writer) │                       │  (reader) │
+    └───────────┘                       └───────────┘
+```
+
+### Launch Policy 구현
+
+```cpp
+// std::launch 정책
+enum class launch {
+    async    = 1,   // 새 스레드에서 즉시 실행
+    deferred = 2    // get() 호출 시 현재 스레드에서 실행
+};
+
+// std::async 내부 구현
+template<typename F, typename... Args>
+future<result_type> async(launch policy, F&& f, Args&&... args) {
+    if (policy & launch::async) {
+        // 새 스레드 생성하여 실행
+        auto state = make_shared<__async_state<result_type>>();
+
+        thread t([state, f = forward<F>(f), args...]() mutable {
+            try {
+                if constexpr (is_void_v<result_type>) {
+                    invoke(f, args...);
+                    state->set_value();
+                } else {
+                    state->set_value(invoke(f, args...));
+                }
+            } catch (...) {
+                state->set_exception(current_exception());
+            }
+        });
+
+        // 중요: 스레드를 state에 저장하여 future 소멸 시 join
+        state->_M_thread = move(t);
+        return future<result_type>(state);
+    }
+    else if (policy & launch::deferred) {
+        // 함수와 인수를 저장만 함
+        auto state = make_shared<__deferred_state<result_type>>(
+            forward<F>(f), forward<Args>(args)...);
+        return future<result_type>(state);
+    }
+}
+```
+
+### Future Destructor Blocking Issue
+
+```cpp
+// async(launch::async)로 생성된 future의 소멸자는 블로킹!
+{
+    auto f = std::async(std::launch::async, []{ sleep(10s); });
+}  // <-- 여기서 10초 대기!
+
+// 이유: async가 반환한 future는 특별한 "async state"를 가짐
+// 소멸 시 스레드가 완료될 때까지 join()
+```
+
+**libstdc++ __async_state**:
+```cpp
+struct __async_state : __future_base::_State_baseV2 {
+    thread _M_thread;
+
+    ~__async_state() {
+        if (_M_thread.joinable()) {
+            _M_thread.join();  // 블로킹 소멸자
+        }
+    }
+};
+```
+
+**해결 방법**:
+```cpp
+// 1. future를 저장하고 나중에 처리
+auto future = std::async(std::launch::async, work);
+// ... 다른 작업 ...
+future.wait();
+
+// 2. deferred 사용 (블로킹 없음)
+auto future = std::async(std::launch::deferred, work);
+
+// 3. 명시적으로 분리 (fire-and-forget)
+std::thread([]{ long_running_work(); }).detach();
+// 주의: 예외 전파 없음, 결과 받을 수 없음
+```
+
+### Deferred Execution Mechanism
+
+```cpp
+// deferred 상태: 함수와 인수를 저장
+template<typename R>
+struct __deferred_state : __future_base::_State_baseV2 {
+    packaged_task<R()> _M_task;  // 지연 실행할 작업
+    bool _M_executed = false;
+
+    // get() 또는 wait() 호출 시 실행
+    void _M_run() {
+        if (!_M_executed) {
+            _M_executed = true;
+            _M_task();  // 현재 스레드에서 실행
+        }
+    }
+};
+
+// future::get() 에서:
+T get() {
+    if (_M_state->_M_is_deferred()) {
+        _M_state->_M_run();  // 지금 실행!
+    }
+    return _M_state->_M_get_result()->_M_value;
+}
+```
+
+### shared_future Copy Semantics
+
+```cpp
+// future는 이동만 가능, shared_future는 복사 가능
+class shared_future<T> {
+    shared_ptr<__state_type> _M_state;  // 공유 포인터
+
+public:
+    shared_future(const shared_future& other) noexcept
+        : _M_state(other._M_state) {}  // 참조 카운트 증가
+
+    // get()은 참조 반환 (복사 안 함)
+    const T& get() const {
+        return _M_state->_M_result->_M_value;
+    }
+};
+
+// future에서 변환
+future<int> f = async([] { return 42; });
+shared_future<int> sf = f.share();  // future 무효화
+// 이후 sf 복사 가능
+```
+
+### wait_for Status Detection
+
+```cpp
+// wait_for의 반환값으로 상태 확인
+enum class future_status {
+    ready,     // 결과 준비됨
+    timeout,   // 시간 초과
+    deferred   // deferred 정책으로 생성됨 (아직 실행 안 됨)
+};
+
+// deferred 감지
+auto f = async(launch::deferred, work);
+if (f.wait_for(0s) == future_status::deferred) {
+    // get()을 호출할 때까지 실행되지 않음
+}
+
+// 무한 대기 루프 주의
+// deferred future에 wait_for를 반복 호출하면 영원히 timeout
+while (f.wait_for(100ms) == future_status::timeout) {
+    // deferred면 여기서 무한 루프!
+}
+```
+
+### packaged_task Internal State
+
+```cpp
+// packaged_task = callable + shared_state
+template<typename R, typename... Args>
+class packaged_task<R(Args...)> {
+    function<R(Args...)> _M_fn;           // 저장된 callable
+    shared_ptr<__state_type> _M_state;    // 공유 상태
+
+public:
+    void operator()(Args... args) {
+        try {
+            _M_state->set_value(_M_fn(forward<Args>(args)...));
+        } catch (...) {
+            _M_state->set_exception(current_exception());
+        }
+    }
+
+    future<R> get_future() {
+        return future<R>(_M_state);
+    }
+
+    // reset(): 새 공유 상태 생성 (재사용 가능)
+    void reset() {
+        _M_state = make_shared<__state_type>();
+    }
+};
+```
+
 ## Performance Considerations
 
 ### Overhead of std::async

@@ -195,6 +195,66 @@ self.onmessage = (event) => {
 };
 ```
 
+## Internal Mechanisms
+
+### SharedArrayBuffer 메모리 모델
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    SharedArrayBuffer                                │
+│                                                                     │
+│  ┌───────────────────────────────────────────────────────────────┐ │
+│  │              공유 메모리 영역 (mmap)                          │ │
+│  │  ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐                   │ │
+│  │  │ 0 │ 1 │ 2 │ 3 │ 4 │ 5 │ 6 │ 7 │...│ n │  bytes            │ │
+│  │  └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘                   │ │
+│  └───────────────────────────────────────────────────────────────┘ │
+│         ▲                                         ▲                │
+│         │                                         │                │
+│  ┌──────┴──────┐                          ┌──────┴──────┐         │
+│  │ TypedArray  │                          │ TypedArray  │         │
+│  │ (Worker 1)  │                          │ (Worker 2)  │         │
+│  │ Int32Array  │                          │ Int32Array  │         │
+│  └─────────────┘                          └─────────────┘         │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Atomics.wait/notify (Futex 스타일)
+
+```javascript
+// Atomics.wait는 Linux futex와 유사하게 구현됨
+// 값이 expected와 같으면 sleep, 다르면 즉시 반환
+
+Atomics.wait(view, index, expectedValue, timeout);
+// 반환값: "ok" (깨어남), "timed-out", "not-equal"
+
+// Main thread에서는 wait 불가 (브라우저)
+// Node.js에서는 Atomics.wait.sync 없이 직접 사용
+
+// Atomics.notify는 대기 중인 worker 깨움
+Atomics.notify(view, index, count);
+// count: 깨울 worker 수 (Infinity = 모두)
+```
+
+### Spectre 취약점과 보안
+
+```
+Spectre 공격:
+- SharedArrayBuffer + 고해상도 타이머로 캐시 타이밍 공격 가능
+- 2018년 대부분 브라우저에서 비활성화
+
+해결책 (Cross-Origin Isolation):
+- COOP: Cross-Origin-Opener-Policy: same-origin
+  → 새 browsing context group 생성
+- COEP: Cross-Origin-Embedder-Policy: require-corp
+  → 모든 리소스가 CORP 헤더 필요
+
+// 격리 확인
+if (crossOriginIsolated) {
+    const sab = new SharedArrayBuffer(1024);  // OK
+}
+```
+
 ## Security Considerations
 
 SharedArrayBuffer requires specific headers:

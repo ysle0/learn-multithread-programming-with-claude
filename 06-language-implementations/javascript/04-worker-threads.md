@@ -133,6 +133,71 @@ Promise.all([
 });
 ```
 
+## Internal Mechanisms
+
+### Node.js Worker Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         Main Thread                                 │
+│  ┌───────────────────────────────────────────────────────────────┐ │
+│  │ V8 Isolate + libuv Event Loop                                 │ │
+│  │      │                                                        │ │
+│  │      │ MessagePort (내부적으로 libuv pipe)                    │ │
+│  └──────┼────────────────────────────────────────────────────────┘ │
+└─────────┼───────────────────────────────────────────────────────────┘
+          │
+          │ Structured Clone / Transfer
+          │
+┌─────────┼───────────────────────────────────────────────────────────┐
+│         ▼                                                           │
+│  ┌───────────────────────────────────────────────────────────────┐ │
+│  │ V8 Isolate (별도) + libuv Event Loop (별도)                   │ │
+│  │                                                               │ │
+│  │ - 같은 프로세스 내 별도 스레드                                 │ │
+│  │ - 메모리 격리 (SharedArrayBuffer 제외)                        │ │
+│  │ - require() 가능                                              │ │
+│  └───────────────────────────────────────────────────────────────┘ │
+│                         Worker Thread                               │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### workerData vs postMessage
+
+```javascript
+// workerData: 생성 시 한 번만 전달 (복사)
+const worker = new Worker('./worker.js', {
+    workerData: { config: 'initial' }  // 즉시 사용 가능
+});
+
+// postMessage: 언제든 전달 가능
+worker.postMessage({ dynamic: 'data' });
+
+// Worker 내부:
+const { workerData, parentPort } = require('worker_threads');
+console.log(workerData);  // { config: 'initial' } - 즉시 접근 가능
+
+parentPort.on('message', (msg) => {
+    console.log(msg);  // { dynamic: 'data' }
+});
+```
+
+### Worker Thread vs Child Process
+
+```
+Worker Thread:
+- 같은 프로세스, 다른 스레드
+- 메모리 공유 가능 (SharedArrayBuffer)
+- 더 빠른 생성/통신
+- Node.js 12+ 안정화
+
+Child Process (child_process):
+- 별도 프로세스
+- 메모리 완전 격리
+- IPC 통신 (JSON 직렬화)
+- 더 높은 안정성 (한 프로세스 크래시 무관)
+```
+
 ## Navigation
 
 - [Back to JavaScript Overview](./README.md)

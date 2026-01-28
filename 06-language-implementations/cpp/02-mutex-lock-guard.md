@@ -813,6 +813,225 @@ public:
 };
 ```
 
+## Internal Mechanisms
+
+### std::mutex Futex Implementation (Linux/glibc)
+
+```cpp
+// pthread_mutex 내부 구조 (glibc NPTL)
+struct __pthread_mutex_s {
+    int __lock;           // 0: unlocked, 1: locked, 2: contended
+    unsigned int __count; // recursive lock count
+    int __owner;          // owning thread ID (for recursive/errorcheck)
+    // ... additional fields for robustness, priority, etc.
+};
+```
+
+**Lock 동작 (Fast Path + Slow Path)**:
+```
+lock() 호출
+    │
+    ▼
+atomic_cmpxchg(&__lock, 0, 1)  ← Fast Path (user-space)
+    │
+    ├─ 성공 (0→1): 락 획득 완료, return
+    │
+    └─ 실패 (이미 locked)
+         │
+         ▼
+    __lock을 2로 설정 (contended 표시)
+         │
+         ▼
+    futex(&__lock, FUTEX_WAIT, 2)  ← Slow Path (커널 진입)
+         │
+         ▼
+    커널 wait queue에서 sleep
+         │
+    (unlock 시 FUTEX_WAKE로 깨어남)
+         │
+         ▼
+    재시도 루프
+```
+
+**Unlock 동작**:
+```cpp
+void unlock() {
+    int old = atomic_exchange(&__lock, 0);  // 락 해제
+
+    if (old == 2) {  // contended 상태였으면
+        futex(&__lock, FUTEX_WAKE, 1);  // 대기자 1명 깨움
+    }
+}
+```
+
+### Windows CRITICAL_SECTION 내부 구조
+
+```cpp
+typedef struct _RTL_CRITICAL_SECTION {
+    PRTL_CRITICAL_SECTION_DEBUG DebugInfo;  // 디버깅 정보
+    LONG LockCount;                          // -1: unlocked, 0+: locked
+    LONG RecursionCount;                     // 재귀 잠금 횟수
+    HANDLE OwningThread;                     // 소유 스레드 ID
+    HANDLE LockSemaphore;                    // 대기용 커널 세마포어
+    ULONG_PTR SpinCount;                     // 스핀 횟수 (기본 4000)
+} RTL_CRITICAL_SECTION;
+```
+
+**Spin 최적화**:
+```cpp
+void EnterCriticalSection(cs) {
+    // 1단계: SpinCount 동안 busy-wait
+    for (int i = 0; i < cs->SpinCount; i++) {
+        if (TryEnterCriticalSection(cs))
+            return;
+        YieldProcessor();  // PAUSE instruction
+    }
+
+    // 2단계: 커널 세마포어 대기
+    WaitForSingleObject(cs->LockSemaphore, INFINITE);
+}
+```
+
+### lock_guard vs unique_lock 구현
+
+```cpp
+// std::lock_guard - 최소한의 RAII 래퍼
+template<typename _Mutex>
+class lock_guard {
+    _Mutex& _M_device;
+
+public:
+    explicit lock_guard(_Mutex& __m) : _M_device(__m) {
+        _M_device.lock();  // 생성 시 락
+    }
+
+    ~lock_guard() {
+        _M_device.unlock();  // 소멸 시 언락
+    }
+
+    // 복사/이동 금지
+    lock_guard(const lock_guard&) = delete;
+    lock_guard& operator=(const lock_guard&) = delete;
+};
+
+// std::unique_lock - 더 유연한 RAII 래퍼
+template<typename _Mutex>
+class unique_lock {
+    _Mutex* _M_device;    // 포인터 (null 가능)
+    bool _M_owns;         // 락 소유 여부
+
+public:
+    // 지연 락
+    unique_lock(_Mutex& __m, defer_lock_t) noexcept
+        : _M_device(&__m), _M_owns(false) {}
+
+    // 조건변수 호환: lock/unlock 수동 호출 가능
+    void lock() {
+        _M_device->lock();
+        _M_owns = true;
+    }
+
+    void unlock() {
+        _M_device->unlock();
+        _M_owns = false;
+    }
+
+    ~unique_lock() {
+        if (_M_owns)
+            _M_device->unlock();
+    }
+};
+```
+
+### scoped_lock Deadlock Avoidance Algorithm
+
+`std::scoped_lock`은 여러 뮤텍스를 데드락 없이 잠급니다:
+
+```cpp
+// std::lock 알고리즘 (try-and-back-off)
+template<typename _L1, typename _L2, typename... _L3>
+void lock(_L1& __l1, _L2& __l2, _L3&... __l3) {
+    while (true) {
+        // 첫 번째 락 획득
+        unique_lock<_L1> __first(__l1);
+
+        // 나머지 락들 try_lock 시도
+        int __idx = __try_lock(__l2, __l3...);
+
+        if (__idx == -1) {  // 모두 성공
+            __first.release();  // RAII 해제 (락은 유지)
+            return;
+        }
+
+        // 실패: 첫 번째 락 해제 후 재시도
+        // (실패한 락이 다음 번 첫 번째가 되도록 순환)
+    }
+}
+```
+
+**Try-and-Back-Off 동작 예시**:
+```
+Thread 1: lock(A, B)          Thread 2: lock(B, A)
+    │                              │
+    ▼                              ▼
+lock(A) ✓                     lock(B) ✓
+try_lock(B) ✗ (T2 보유)      try_lock(A) ✗ (T1 보유)
+unlock(A)                     unlock(B)
+    │                              │
+    ▼                              ▼
+lock(B) 시도...               lock(A) 시도...
+(순환하며 재시도, 결국 한 쪽이 성공)
+```
+
+### shared_mutex Reader-Writer Implementation
+
+```cpp
+// libstdc++ shared_mutex 상태
+class shared_mutex {
+    // 단일 atomic 값으로 상태 관리
+    // 상위 비트: exclusive lock 여부
+    // 하위 비트: reader count
+    //
+    // 0x00000000: free
+    // 0x00000001: 1 reader
+    // 0x80000000: 1 writer
+    // 0x00000003: 3 readers
+
+    unsigned int _M_state;
+
+    void lock() {  // exclusive (writer)
+        // 1. 상위 비트 설정 (writer 대기 표시)
+        // 2. reader count가 0이 될 때까지 대기
+        // 3. exclusive 획득
+    }
+
+    void lock_shared() {  // shared (reader)
+        // writer가 없으면 reader count 증가
+        // writer가 있거나 대기 중이면 대기
+    }
+};
+```
+
+### Recursive Mutex Counter Overflow
+
+```cpp
+// recursive_mutex의 재귀 횟수 제한
+class recursive_mutex {
+    unsigned int _M_count;  // 보통 32비트
+
+    void lock() {
+        if (/* 이미 소유 */) {
+            if (_M_count == numeric_limits<unsigned int>::max())
+                throw system_error(...);  // overflow!
+            ++_M_count;
+        } else {
+            // 일반 락 획득
+            _M_count = 1;
+        }
+    }
+};
+```
+
 ## Performance Considerations
 
 ### Lock Overhead

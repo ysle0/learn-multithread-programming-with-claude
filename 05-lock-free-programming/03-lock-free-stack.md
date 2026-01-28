@@ -182,6 +182,204 @@ public:
 
 ---
 
+## Internal Mechanisms
+
+### CPU 캐시와 CAS 연산
+
+Treiber Stack의 성능은 CPU 캐시 일관성 프로토콜에 크게 영향 받습니다.
+
+#### MESI 상태 전이
+
+```
+Push 연산 시 top 포인터의 캐시 상태:
+
+CPU 0 (Push)                    CPU 1 (다른 Push)
+─────────────                   ─────────────────
+1. top 읽기                     1. top 읽기
+   캐시: Shared                    캐시: Shared
+        ▼                              ▼
+2. CAS 시도 (LOCK CMPXCHG)
+   캐시: Modified (배타적 획득)
+   → CPU 1의 캐시 라인 Invalidate
+        ▼                              ▼
+3. CAS 성공                     2. CAS 시도
+   top 업데이트됨                  → 캐시 미스! (Invalid 상태)
+                                  → CPU 0에서 캐시 라인 가져옴
+                                  → CAS 실패 (값이 변경됨)
+
+캐시 라인 ping-pong:
+  고경합 시 top 포인터의 캐시 라인이
+  CPU 간에 계속 이동 → 성능 저하
+```
+
+#### x86 LOCK CMPXCHG 동작
+
+```nasm
+; Treiber Stack push의 CAS 부분
+; old_top이 EAX에, new_node가 EBX에 있다고 가정
+
+retry:
+    mov eax, [top]           ; top 읽기 (캐시에서)
+    mov [new_node+next], eax ; new_node->next = old_top
+
+    ; LOCK prefix로 버스 락 또는 캐시 락 획득
+    lock cmpxchg [top], ebx  ; if (top == EAX) top = EBX
+
+    jne retry                ; ZF=0이면 실패, 재시도
+
+; LOCK 명령의 효과:
+; 1. 해당 캐시 라인을 Modified 상태로 전환
+; 2. 다른 CPU의 동일 캐시 라인 Invalidate
+; 3. Store Buffer flush (seq_cst보다 약함)
+```
+
+#### ARM LL/SC 동작
+
+```nasm
+; ARM64 Treiber Stack push
+; x0 = &top, x1 = new_node
+
+push_retry:
+    ldaxr   x2, [x0]         ; Load-Exclusive (top 읽기 + 예약)
+    str     x2, [x1, #next]  ; new_node->next = old_top
+
+    stlxr   w3, x1, [x0]     ; Store-Exclusive (조건부 저장)
+                             ; w3 = 0이면 성공, 1이면 실패
+
+    cbnz    w3, push_retry   ; 실패시 재시도
+
+; LL/SC의 장점:
+; 1. ABA 문제에 면역 (값이 아닌 접근을 감지)
+; 2. 하지만 spurious failure 가능 (같은 캐시 라인의 다른 위치 쓰기로도 실패)
+```
+
+### 메모리 회수의 내부 동작
+
+Pop에서 `delete old_top`이 위험한 이유를 하드웨어 관점에서 분석합니다.
+
+```
+Thread 1 (Pop)              Thread 2 (Pop 시도)
+──────────────              ─────────────────────
+1. old_top = top (= A)
+   next = old_top->next     1. old_top = top (= A)
+                               (같은 A를 읽음)
+        ▼
+2. CAS 성공, top = next
+        ▼
+3. delete old_top (A)
+   → A의 메모리가 해제됨
+                               ▼
+                            2. next = old_top->next
+                               → Use-After-Free!
+                               → A의 메모리가 이미 해제됨
+                               → old_top->next가 가비지 값
+
+하드웨어 수준에서:
+  - Thread 2의 old_top->next 읽기가 해제된 메모리 접근
+  - 해당 메모리가 재할당되었다면 다른 데이터 읽음
+  - 세그폴트 또는 데이터 손상 발생 가능
+```
+
+### Tagged Pointer 구현
+
+ABA 문제 해결을 위한 Tagged Pointer의 하드웨어 지원:
+
+```cpp
+// x86-64: CMPXCHG16B를 이용한 128비트 CAS
+// 포인터(64비트) + 태그(64비트)
+
+struct alignas(16) TaggedPtr {
+    Node* ptr;
+    uint64_t tag;
+};
+
+std::atomic<TaggedPtr> top;
+
+void push_tagged(Node* new_node) {
+    TaggedPtr old_top = top.load(std::memory_order_relaxed);
+    TaggedPtr new_top;
+
+    do {
+        new_node->next = old_top.ptr;
+        new_top.ptr = new_node;
+        new_top.tag = old_top.tag + 1;  // 태그 증가
+    } while (!top.compare_exchange_weak(old_top, new_top,
+                                        std::memory_order_release,
+                                        std::memory_order_relaxed));
+}
+
+Node* pop_tagged() {
+    TaggedPtr old_top = top.load(std::memory_order_acquire);
+    TaggedPtr new_top;
+
+    while (old_top.ptr != nullptr) {
+        new_top.ptr = old_top.ptr->next;
+        new_top.tag = old_top.tag + 1;
+
+        if (top.compare_exchange_weak(old_top, new_top,
+                                      std::memory_order_release,
+                                      std::memory_order_acquire)) {
+            return old_top.ptr;
+        }
+    }
+    return nullptr;
+}
+
+/*
+ * ABA 방지 원리:
+ *
+ * Thread 1:  old = {A, tag=5}
+ * Thread 2:  pop A, pop B, push A → top = {A, tag=8}
+ * Thread 1:  CAS({A,5}, {B,6}) → 실패! (tag 불일치)
+ *
+ * 64비트 태그는 오버플로우까지 수십억 년 필요
+ */
+```
+
+### CPU 파이프라인과 backoff
+
+경합 시 exponential backoff가 효과적인 이유:
+
+```cpp
+// _mm_pause()의 효과
+void push_with_smart_backoff(Node* new_node) {
+    Node* old_top = top.load(std::memory_order_relaxed);
+    int failures = 0;
+
+    do {
+        new_node->next = old_top;
+
+        if (top.compare_exchange_weak(old_top, new_node)) {
+            return;
+        }
+
+        // Backoff with CPU hints
+        if (failures < 4) {
+            // 매우 짧은 대기: CPU 파이프라인 flush
+            for (int i = 0; i < (1 << failures); i++) {
+                _mm_pause();  // ~10-20 사이클
+            }
+        } else {
+            // 긴 대기: OS 스케줄러에게 양보
+            std::this_thread::yield();
+        }
+
+        failures++;
+    } while (true);
+}
+
+/*
+ * _mm_pause() (x86 PAUSE 명령어)의 효과:
+ *
+ * 1. 파이프라인 지연 삽입 (~10 사이클)
+ * 2. 스핀 루프 인식 → 전력 소비 감소
+ * 3. Store Buffer flush 방지 → 다른 스레드 양보
+ * 4. 하이퍼스레딩 환경에서 동일 코어의 다른 스레드에게 리소스 양보
+ */
+```
+
+---
+
 ## 🔍 상세 분석
 
 ### Memory Ordering 선택

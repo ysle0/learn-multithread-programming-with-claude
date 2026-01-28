@@ -990,6 +990,123 @@ struct conn_entry *find_connection(const struct sk_buff *skb)
 }
 ```
 
+## 🔧 내부 메커니즘
+
+### rcu_read_lock()의 실제 비용
+
+```c
+// Classic RCU (non-preemptible kernel)
+static inline void rcu_read_lock(void)
+{
+    preempt_disable();  // 단 몇 사이클!
+    __rcu_read_lock();  // no-op 또는 debug 체크
+}
+
+// 어셈블리 (x86-64)
+// preempt_disable은 per-CPU 카운터 증가만:
+// incl %gs:__preempt_count   ; ~1-2 cycles
+```
+
+**rcu_dereference()의 Alpha 문제**:
+```c
+// 대부분 아키텍처:
+#define rcu_dereference(p) READ_ONCE(p)  // 컴파일러 배리어만
+
+// Alpha (약한 메모리 모델):
+#define rcu_dereference(p) ({ \
+    typeof(p) _p = READ_ONCE(p); \
+    smp_read_barrier_depends();  /* Alpha에서만 실제 배리어 */ \
+    _p; \
+})
+
+// Alpha의 특이점: dependent load도 재배치 가능
+// ptr = *global_ptr;
+// data = ptr->field;  // ptr 로드 전에 field 로드 가능!
+```
+
+### Grace Period 구현 (Tree RCU)
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Tree RCU Grace Period                             │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  64 CPU 시스템 (fanout=16):                                          │
+│                                                                     │
+│                     [Root Node]                                     │
+│                     GP state, lock                                  │
+│                    /           \                                    │
+│           [Node 0]              [Node 1]                            │
+│          /   |   \             /   |   \                            │
+│      [Leaf]  ...  [Leaf]   [Leaf]  ...  [Leaf]                      │
+│      0-15        48-63     64-79        ...                         │
+│                                                                     │
+│  Quiescent State 보고:                                               │
+│  1. CPU가 QS 보고 → Leaf 노드의 qsmask 비트 클리어                   │
+│  2. Leaf의 모든 CPU QS 완료 → Parent에 보고                          │
+│  3. Root까지 전파 → Grace Period 완료                               │
+│                                                                     │
+│  장점:                                                               │
+│  - O(log N) 전파 시간                                                │
+│  - 캐시 라인 경합 분산                                                │
+│  - NUMA 지역성 활용                                                  │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### call_rcu() 배치 처리
+
+```c
+// 콜백은 즉시 실행되지 않고 배치 처리됨
+struct rcu_data {
+    struct rcu_head *nxttail[RCU_NEXT_SIZE];
+    // [0]: 현재 GP 이전 콜백 (실행 대기)
+    // [1]: 현재 GP 콜백
+    // [2]: 다음 GP 콜백
+    // [3]: 다다음 GP 콜백
+
+    unsigned long qlen;  // 콜백 수
+};
+
+// call_rcu 호출 시:
+// 1. 현재 스레드의 rcu_data에 콜백 추가
+// 2. qlen 증가
+// 3. qlen이 임계값 초과 시 GP 시작 요청
+
+// 콜백 실행 (softirq):
+// 1. nxttail[0]의 콜백들 실행
+// 2. 리스트 회전 (0 ← 1 ← 2 ← 3)
+```
+
+### QSBR (Quiescent State Based Reclamation)
+
+```c
+// URCU QSBR - 가장 빠른 RCU 변형
+// Reader가 명시적으로 Quiescent State 보고
+
+void reader_loop(void)
+{
+    while (running) {
+        // 데이터 접근 (락 없음!)
+        process(rcu_dereference(data));
+
+        // 주기적으로 QS 보고 (필수!)
+        rcu_quiescent_state();  // "나 RCU 데이터 안 보고 있어"
+    }
+}
+
+// rcu_quiescent_state 구현:
+void rcu_quiescent_state(void)
+{
+    // 단순히 local counter를 global로 업데이트
+    uint64_t global = global_ctr.load(acquire);
+    local_ctr.store(global, release);
+    // ~5-10 cycles
+}
+```
+
+---
+
 ## 11. 요약
 
 ### RCU 선택 기준

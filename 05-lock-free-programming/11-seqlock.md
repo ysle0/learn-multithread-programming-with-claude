@@ -980,6 +980,192 @@ void bad_pointer_based(void)
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+## 🔧 내부 메커니즘
+
+### Memory Barrier의 정확한 위치
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Seqlock Memory Ordering                           │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Writer:                                                            │
+│  ─────────────────────────────────────────────────────────────      │
+│  seq.store(seq + 1, release);  // 홀수로 (쓰기 시작)                 │
+│         │                                                           │
+│         ▼ release barrier                                           │
+│  ════════════════════════════════════════                           │
+│         │                                                           │
+│  atomic_thread_fence(seq_cst);  // 전체 배리어                       │
+│         │                                                           │
+│         ▼ seq_cst barrier                                           │
+│  ════════════════════════════════════════                           │
+│         │                                                           │
+│  data = new_value;  // 실제 데이터 쓰기                              │
+│         │                                                           │
+│         ▼                                                           │
+│  ════════════════════════════════════════                           │
+│  atomic_thread_fence(seq_cst);  // 전체 배리어                       │
+│         │                                                           │
+│  seq.store(seq + 2, release);  // 짝수로 (쓰기 완료)                 │
+│                                                                     │
+│  Reader:                                                            │
+│  ─────────────────────────────────────────────────────────────      │
+│  seq0 = seq.load(acquire);  // 시퀀스 읽기                          │
+│         │                                                           │
+│         ▼ acquire barrier                                           │
+│  ════════════════════════════════════════                           │
+│         │                                                           │
+│  local_copy = data;  // 데이터 복사                                  │
+│         │                                                           │
+│         ▼                                                           │
+│  ════════════════════════════════════════                           │
+│  atomic_thread_fence(acquire);                                      │
+│         │                                                           │
+│  seq1 = seq.load(acquire);  // 시퀀스 재확인                        │
+│                                                                     │
+│  if (seq0 != seq1 || seq0 & 1) retry;                               │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### x86에서의 Seqlock 최적화
+
+```asm
+; Writer (x86-64)
+write_seqlock:
+    ; spinlock 획득 (생략)
+    lock incl [rdi]         ; seq++ (홀수로)
+    mfence                  ; Store-Load 배리어 (필수!)
+
+    ; 데이터 쓰기
+    mov [rsi], rax
+    mov [rsi+8], rbx
+
+    mfence                  ; 쓰기 완료 보장
+    lock incl [rdi]         ; seq++ (짝수로)
+    ; spinlock 해제 (생략)
+    ret
+
+; Reader (x86-64)
+read_seqbegin:
+.retry:
+    mov eax, [rdi]          ; seq 읽기
+    test eax, 1             ; 홀수인가?
+    jnz .retry              ; 홀수면 재시도
+    ; 여기서 lfence 불필요 (x86 TSO 덕분)
+    ret
+
+read_seqretry:
+    ; lfence 불필요 (x86 TSO)
+    mov ecx, [rdi]          ; seq 읽기
+    cmp eax, ecx            ; 변경되었나?
+    setne al
+    ret
+```
+
+**x86 TSO 덕분에 Reader에서 배리어 불필요**:
+- Store-Store 순서 보장 (Writer)
+- Load-Load 순서 보장 (Reader)
+- Store-Load만 mfence 필요 (Writer에서)
+
+### ARM에서의 Seqlock
+
+```asm
+; Writer (ARM64)
+write_seqlock:
+    ; spinlock 획득 (생략)
+    ldxr w0, [x1]           ; seq 로드
+    add  w0, w0, #1
+    stlr w0, [x1]           ; store-release (홀수로)
+
+    dmb sy                  ; 전체 배리어
+
+    ; 데이터 쓰기
+    str  x2, [x3]
+    str  x4, [x3, #8]
+
+    dmb sy                  ; 전체 배리어
+
+    ldxr w0, [x1]
+    add  w0, w0, #1
+    stlr w0, [x1]           ; store-release (짝수로)
+    ret
+
+; Reader (ARM64)
+read_seqbegin:
+.retry:
+    ldar w0, [x1]           ; load-acquire
+    tst  w0, #1
+    b.ne .retry
+    ret
+
+read_seqretry:
+    dmb ishld               ; load-load 배리어
+    ldar w1, [x0]           ; load-acquire
+    cmp  w1, w2             ; seq 비교
+    cset w0, ne
+    ret
+```
+
+### 연속 읽기 최적화
+
+```c
+// 여러 값을 일관성 있게 읽기
+struct multi_value {
+    uint64_t a, b, c, d;
+};
+
+struct multi_value read_multi(seqlock_t *sl, struct multi_value *src)
+{
+    struct multi_value result;
+    unsigned seq;
+
+    do {
+        seq = read_seqbegin(sl);
+
+        // 컴파일러가 이 읽기들을 합치지 않도록
+        // READ_ONCE 또는 volatile 사용
+        result.a = READ_ONCE(src->a);
+        result.b = READ_ONCE(src->b);
+        result.c = READ_ONCE(src->c);
+        result.d = READ_ONCE(src->d);
+
+        // 컴파일러 배리어 (재배치 방지)
+        barrier();
+
+    } while (read_seqretry(sl, seq));
+
+    return result;
+}
+```
+
+### Seqlock vs Spinlock 성능
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    성능 비교 (나노초)                                 │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  워크로드: 99% Read, 1% Write                                        │
+│                                                                     │
+│  Spinlock:                                                          │
+│  - Read: ~25ns (lock 획득 포함)                                      │
+│  - Write: ~25ns                                                     │
+│  - 경합 시: ~500ns+                                                  │
+│                                                                     │
+│  Seqlock:                                                           │
+│  - Read: ~5ns (락 없음!)                                             │
+│  - Write: ~30ns (spinlock + seq 업데이트)                            │
+│  - Read 재시도: ~10ns (드묾)                                         │
+│                                                                     │
+│  결론: 읽기 위주에서 Seqlock이 5배 빠름                               │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## 8. 요약
 
 ### Seqlock 적합성 체크리스트

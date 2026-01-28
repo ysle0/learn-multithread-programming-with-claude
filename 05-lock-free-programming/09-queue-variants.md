@@ -736,6 +736,235 @@ void* ms_pop(MSQueue* q) {
 
 ---
 
+## 🔧 내부 메커니즘
+
+### SPSC Ring Buffer의 캐시 동작
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    SPSC 메모리 접근 패턴                             │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Producer (CPU 0)                Consumer (CPU 1)                   │
+│  ───────────────                 ────────────────                   │
+│                                                                     │
+│  L1 Cache:                       L1 Cache:                          │
+│  ┌─────────────────┐             ┌─────────────────┐                │
+│  │ tail: Exclusive │             │ head: Exclusive │                │
+│  │ head: Shared    │             │ tail: Shared    │                │
+│  │ buffer[tail]:M  │             │ buffer[head]:S  │                │
+│  └─────────────────┘             └─────────────────┘                │
+│                                                                     │
+│  핵심 최적화:                                                        │
+│  1. head와 tail이 다른 캐시 라인 → False Sharing 없음                │
+│  2. Producer는 tail만 수정, Consumer는 head만 수정                   │
+│  3. buffer 접근은 순차적 → 프리페치 효과적                           │
+│                                                                     │
+│  메모리 대역폭:                                                      │
+│  - Producer: 2 cache line read (tail, head) + 1 write (buffer)      │
+│  - Consumer: 2 cache line read (head, tail) + 1 write (buffer)      │
+│  - 캐시된 인덱스로 대부분 L1 hit                                     │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Vyukov MPMC Queue Sequence 상세 분석
+
+```cpp
+// Sequence 번호가 왜 필요한가?
+
+// 시나리오: 2개 Producer (P1, P2), capacity=4
+// 초기: seq = [0, 1, 2, 3], enqueue_pos = 0
+
+// P1: pos=0 획득, CAS 성공
+// P2: pos=1 획득, CAS 성공
+
+// 만약 seq 없이 단순히 enqueue_pos만 사용한다면:
+// P1이 느려서 buffer[0]에 아직 저장 안 함
+// Consumer가 dequeue_pos=0 에서 읽으려 함
+// → 아직 데이터 없음! (race condition)
+
+// Sequence로 해결:
+// P1: seq[0]=0 → push 가능, 데이터 저장 후 seq[0]=1로 변경
+// Consumer: seq[0]=1 → pop 가능 (데이터 준비됨 확인)
+// 만약 seq[0]=0이면 아직 준비 안 됨 → 대기
+
+// Sequence 상태 머신:
+// ┌─────────────────────────────────────────────────────┐
+// │  seq = pos     : Producer가 이 슬롯에 push 가능      │
+// │  seq = pos + 1 : Consumer가 이 슬롯에서 pop 가능     │
+// │  seq > pos + 1 : 다른 Producer/Consumer가 진행 중    │
+// │  seq < pos     : 큐 가득 참 (wraparound)            │
+// │  seq < pos + 1 : 큐 비어있음                         │
+// └─────────────────────────────────────────────────────┘
+```
+
+**Wraparound 처리**:
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Sequence Wraparound                               │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  capacity = 4, mask = 3                                             │
+│                                                                     │
+│  라운드 0:                                                           │
+│  pos: 0, 1, 2, 3                                                    │
+│  seq: 0, 1, 2, 3 → push 가능                                        │
+│                                                                     │
+│  push 4회 후:                                                        │
+│  seq: 1, 2, 3, 4  (각 seq = pos + 1)                                │
+│  enqueue_pos = 4                                                    │
+│                                                                     │
+│  pop 4회 후:                                                         │
+│  seq: 4, 5, 6, 7  (각 seq = pos + mask + 1)                         │
+│  dequeue_pos = 4                                                    │
+│                                                                     │
+│  라운드 1 (pos 4~7이 슬롯 0~3 매핑):                                  │
+│  pos=4 → slot=0, seq[0]=4 == pos → push 가능                        │
+│  pos=5 → slot=1, seq[1]=5 == pos → push 가능                        │
+│  ...                                                                │
+│                                                                     │
+│  결론: seq가 pos와 동기화되어 ABA 문제 자연스럽게 해결                 │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### MPSC Queue의 두 단계 Push
+
+```cpp
+// Dmitry Vyukov's MPSC: 왜 두 단계가 필요한가?
+
+void mpsc_push(MPSCQueue* q, Node* node) {
+    node->next = NULL;
+
+    // 단계 1: head를 새 노드로 원자적 교환
+    Node* prev = atomic_exchange(&q->head, node);
+
+    // ⚠️ 여기서 선점되면?
+    // prev->next가 아직 NULL
+    // Consumer가 prev까지 왔는데 next가 NULL → 큐가 비어보임!
+
+    // 단계 2: 이전 노드의 next를 새 노드로 연결
+    atomic_store(&prev->next, node);
+}
+
+// 해결: Consumer가 이 "틈"을 감지하고 대기
+Node* mpsc_pop(MPSCQueue* q) {
+    Node* tail = q->tail;
+    Node* next = atomic_load(&tail->next);
+
+    if (next == NULL) {
+        // 두 가지 가능성:
+        // 1. 큐가 정말 비어있음
+        // 2. Producer가 exchange 후 store 전
+
+        // head와 비교로 구분
+        if (tail == atomic_load(&q->head)) {
+            return NULL;  // 정말 비어있음
+        }
+        // Producer가 진행 중 → 잠시 후 재시도
+        return NULL;  // 또는 spin wait
+    }
+    // ...
+}
+```
+
+### 캐시 라인 경합 측정
+
+```bash
+# perf로 캐시 경합 분석
+$ perf c2c record ./queue_benchmark
+$ perf c2c report
+
+# 결과 예시:
+# =================================================
+#            Shared Data Cache Line Table
+# =================================================
+# HITM  Tot Hitm  Lcl Hitm  Rmt Hitm   Samples  Symbol
+# 45.2%    1.2K     0.3K      0.9K      10.5K  enqueue_pos  ← 경합!
+# 32.1%    0.8K     0.2K      0.6K       8.2K  dequeue_pos  ← 경합!
+#  5.3%    0.1K       -        0.1K       1.5K  sequence[0]
+
+# HITM = Hit-In-Modified (다른 캐시의 Modified 라인 접근)
+# Rmt Hitm = 원격 소켓 캐시 접근 (NUMA에서 특히 비쌈)
+
+# 해결: alignas(64)로 각각 다른 캐시 라인에 배치
+```
+
+### 지연시간 분석
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Queue 연산별 지연시간 분해                         │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  SPSC Push (최적 경로):                                              │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │ 1. tail load (L1 hit)           ~1 cycle                    │    │
+│  │ 2. head load (L1/L2 hit)        ~3-10 cycles                │    │
+│  │ 3. buffer[tail] store           ~1 cycle                    │    │
+│  │ 4. tail store (release)         ~1 cycle                    │    │
+│  │ ─────────────────────────────────                           │    │
+│  │ 총: ~6-15 cycles (~2-5 ns @ 3GHz)                           │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                     │
+│  MPMC Push (경합 시):                                                │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │ 1. enqueue_pos load             ~1 cycle                    │    │
+│  │ 2. sequence load                ~3-10 cycles                │    │
+│  │ 3. CAS (enqueue_pos)            ~15-50 cycles               │    │
+│  │    - 성공 시: 계속                                           │    │
+│  │    - 실패 시: 1번으로 돌아감 (+ 캐시 무효화 비용)             │    │
+│  │ 4. data store                   ~1 cycle                    │    │
+│  │ 5. sequence store (release)     ~1 cycle                    │    │
+│  │ ─────────────────────────────────                           │    │
+│  │ 총 (성공 시): ~20-65 cycles (~7-20 ns)                       │    │
+│  │ 총 (1회 재시도): ~50-150 cycles (~15-50 ns)                  │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### NUMA 환경에서의 Queue 최적화
+
+```cpp
+// NUMA 인지 Queue 할당
+#include <numa.h>
+
+MPMCQueue* create_numa_queue(size_t capacity, int node) {
+    // 특정 NUMA 노드에 메모리 할당
+    void* mem = numa_alloc_onnode(sizeof(MPMCQueue), node);
+    MPMCQueue* q = (MPMCQueue*)mem;
+
+    // buffer도 같은 노드에 할당
+    q->buffer = numa_alloc_onnode(capacity * sizeof(Cell), node);
+
+    // ...
+    return q;
+}
+
+// Producer/Consumer를 Queue와 같은 NUMA 노드에 바인딩
+void bind_to_node(int node) {
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+
+    // 해당 노드의 CPU들만 포함
+    struct bitmask* cpus = numa_allocate_cpumask();
+    numa_node_to_cpus(node, cpus);
+
+    for (int i = 0; i < numa_num_configured_cpus(); i++) {
+        if (numa_bitmask_isbitset(cpus, i)) {
+            CPU_SET(i, &cpuset);
+        }
+    }
+
+    pthread_setaffinity_np(pthread_self(), sizeof(cpuset), &cpuset);
+    numa_free_cpumask(cpus);
+}
+```
+
+---
+
 ## 관련 문서
 
 - [CAS 연산](./01-cas-operation.md) - Queue 구현의 기반

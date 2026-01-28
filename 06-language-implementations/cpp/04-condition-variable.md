@@ -805,6 +805,173 @@ cv.wait(lock, [] { return ready; });
 }
 ```
 
+## Internal Mechanisms
+
+### Futex-Based Implementation (Linux)
+
+`std::condition_variable`은 내부적으로 pthread_cond_t를 사용하며, 이는 futex 기반입니다:
+
+```cpp
+// pthread_cond_t 내부 구조 (glibc 단순화)
+struct __pthread_cond_s {
+    __atomic_uint64_t __wseq;    // waiter sequence (다음 대기자 번호)
+    __atomic_uint64_t __g1_start; // group 1 시작 시퀀스
+    unsigned int __g_refs[2];     // 그룹별 참조 카운트
+    unsigned int __g_size[2];     // 그룹별 대기자 수
+    unsigned int __g1_orig_size;  // 원래 그룹 크기
+    unsigned int __wrefs;         // writer 참조
+    unsigned int __g_signals[2];  // 그룹별 시그널 카운트
+};
+```
+
+### wait() 내부 동작 흐름
+
+```
+cv.wait(lock, pred)
+    │
+    ▼
+while (!pred())  ← spurious wakeup 처리
+    │
+    ▼
+┌─ 1. lock.unlock()  ← 뮤텍스 해제
+│
+├─ 2. __wseq 증가 (대기 순번 획득)
+│
+├─ 3. futex(&__g_signals[g], FUTEX_WAIT, ...)
+│      │
+│      └─ 커널: wait queue에 추가, sleep
+│
+├─ (notify로 깨어남)
+│
+├─ 4. __g_refs 감소
+│
+└─ 5. lock.lock()  ← 뮤텍스 재획득
+```
+
+**Spurious Wakeup 발생 원인**:
+1. **Futex 구현**: 리눅스 커널이 프로세스를 임의로 깨울 수 있음
+2. **Broadcast 최적화**: notify_all 시 여러 스레드가 깨지만 조건은 하나만 충족
+3. **그룹 전환**: 내부 그룹 관리 시 추가 wakeup 발생 가능
+
+```cpp
+// 반드시 루프 또는 predicate 사용
+cv.wait(lock, []{ return ready; });
+
+// 내부적으로 다음과 같음:
+while (!ready) {
+    cv.wait(lock);  // spurious wakeup 가능
+}
+```
+
+### notify_one vs notify_all 커널 동작
+
+```cpp
+// notify_one: 하나의 대기자만 깨움
+void notify_one() {
+    // 1. __g_signals[g] 증가
+    // 2. futex(&__g_signals[g], FUTEX_WAKE, 1)
+    //    - 커널: wait queue에서 하나만 깨움
+}
+
+// notify_all: 모든 대기자 깨움
+void notify_all() {
+    // 1. 현재 그룹의 모든 대기자에게 시그널
+    // 2. futex(&__g_signals[g], FUTEX_WAKE, INT_MAX)
+    // 3. 그룹 전환 (새 대기자는 새 그룹으로)
+}
+```
+
+**Thundering Herd 문제**:
+```
+notify_all() 호출
+    │
+    ▼
+모든 대기자 깨어남 (N개)
+    │
+    ▼
+뮤텍스 획득 경쟁
+    │
+    ├─ 1개 스레드: 뮤텍스 획득, 작업 수행
+    │
+    └─ N-1개 스레드: 뮤텍스 대기 → 조건 확인 → 다시 sleep
+         (CPU 낭비!)
+
+해결책:
+- notify_one 사용 (적절한 경우)
+- 조건을 더 세분화 (여러 condition_variable)
+```
+
+### condition_variable_any 구현
+
+`std::condition_variable`은 `std::unique_lock<std::mutex>`만 지원하지만,
+`std::condition_variable_any`는 모든 Lockable 타입 지원:
+
+```cpp
+// condition_variable_any 내부 구조
+class condition_variable_any {
+    condition_variable _M_cond;
+    shared_ptr<mutex> _M_mutex;  // 내부 뮤텍스
+
+public:
+    template<typename _Lock>
+    void wait(_Lock& __lock) {
+        // 1. 내부 뮤텍스로 상태 보호
+        unique_lock<mutex> __my_lock(*_M_mutex);
+
+        // 2. 외부 락 해제
+        __lock.unlock();
+
+        // 3. 내부 조건변수 대기
+        _M_cond.wait(__my_lock);
+
+        // 4. 외부 락 재획득
+        __lock.lock();
+    }
+};
+
+// 추가 오버헤드: 내부 뮤텍스 잠금/해제
+// 가능하면 condition_variable + unique_lock<mutex> 사용
+```
+
+### Windows Condition Variable 구현
+
+```cpp
+// Windows CONDITION_VARIABLE
+typedef struct _RTL_CONDITION_VARIABLE {
+    PVOID Ptr;  // SRWLock 스타일의 내부 포인터
+} CONDITION_VARIABLE;
+
+// wait는 내부적으로 NtWaitForKeyedEvent 사용
+void SleepConditionVariableCS(cv, cs, timeout) {
+    // 1. Critical Section 해제
+    // 2. Keyed Event 대기
+    // 3. Critical Section 재획득
+}
+```
+
+### Wait Morphing 최적화
+
+일부 구현에서 notify_one이 대기자를 조건변수 큐에서 뮤텍스 큐로 직접 이동:
+
+```
+일반 구현:
+notify_one() → waiter 깨움 → waiter가 mutex lock 시도
+
+Wait Morphing:
+notify_one() → waiter를 mutex wait queue로 이동
+              (context switch 감소)
+```
+
+**Linux glibc의 FUTEX_REQUEUE**:
+```cpp
+// notify + 뮤텍스 전환을 원자적으로
+futex(&cond->__g_signals, FUTEX_REQUEUE,
+      1,                    // 깨울 개수
+      INT_MAX,              // requeue할 개수
+      &mutex->__lock,       // 목적지 futex
+      0);
+```
+
 ## Performance Considerations
 
 ### Cost of Operations

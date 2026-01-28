@@ -444,6 +444,266 @@ Wait-Free에서도 ABA 문제 발생 → Hazard Pointers 등 필요
 
 ---
 
+## 🔧 내부 메커니즘
+
+### Progress Guarantee의 형식적 정의
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Progress Guarantee 형식 정의                       │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Blocking:                                                          │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │ ∃ execution E, ∃ thread T:                                  │    │
+│  │   T가 무한히 대기하고 시스템 전체가 진전하지 않을 수 있음        │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                     │
+│  Lock-Free:                                                         │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │ ∀ execution E:                                              │    │
+│  │   무한 단계 내에 최소 하나의 스레드가 작업 완료               │    │
+│  │                                                             │    │
+│  │ 형식: lim(steps→∞) P(at least one completion) = 1           │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                     │
+│  Wait-Free:                                                         │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │ ∀ execution E, ∀ thread T:                                  │    │
+│  │   T는 O(f(n)) 단계 내에 작업 완료 (n = 스레드 수)            │    │
+│  │                                                             │    │
+│  │ Bounded Wait-Free: f(n) = O(n)                              │    │
+│  │ Population-Oblivious: f(n) = O(1)                           │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Starvation 분석: CAS vs Fetch-Add
+
+```cpp
+// CAS 기반 (Lock-Free, Starvation 가능)
+void increment_cas() {
+    int old = value.load();
+    while (!value.compare_exchange_weak(old, old + 1)) {
+        // 이 스레드가 무한히 실패할 수 있는 시나리오:
+        //
+        // Thread A: load() → old = 0
+        // Thread B: CAS 성공 (0→1)
+        // Thread A: CAS 실패 (old != 0)
+        // Thread A: reload → old = 1
+        // Thread C: CAS 성공 (1→2)
+        // Thread A: CAS 실패
+        // ... (무한 반복 가능)
+    }
+}
+```
+
+**수학적 분석**:
+```
+n개 스레드가 동시에 CAS 시도 시:
+- 성공 확률 = 1/n (한 스레드만 성공)
+- k번 연속 실패 확률 = ((n-1)/n)^k
+- 무한 실패 확률 = lim(k→∞) ((n-1)/n)^k = 0
+
+결론: 확률적으로 진전하지만, 최악의 경우 무한 대기 가능
+```
+
+```cpp
+// Fetch-Add 기반 (Wait-Free, Starvation 불가)
+void increment_fetch_add() {
+    value.fetch_add(1);
+    // 하드웨어가 원자적으로 처리
+    // 모든 요청이 순서대로 처리됨 (직렬화)
+}
+```
+
+### Fetch-Add의 하드웨어 직렬화
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    LOCK XADD 하드웨어 직렬화                          │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  CPU 0           CPU 1           CPU 2           Memory Controller  │
+│  ┌────┐          ┌────┐          ┌────┐          ┌──────────────┐   │
+│  │XADD│          │XADD│          │XADD│          │              │   │
+│  │ +1 │          │ +1 │          │ +1 │          │  Queue:      │   │
+│  └──┬─┘          └──┬─┘          └──┬─┘          │  [0][1][2]   │   │
+│     │               │               │            │              │   │
+│     └───────────────┼───────────────┘            │  현재 처리:   │   │
+│                     │                            │  [0] → CPU 0 │   │
+│                     ▼                            │              │   │
+│              ┌──────────────┐                    │  value: 0    │   │
+│              │ Bus Arbiter  │───────────────────▶│  → 1 → 2 → 3 │   │
+│              │ (순서 보장)   │                    │              │   │
+│              └──────────────┘                    └──────────────┘   │
+│                                                                     │
+│  결과: 모든 XADD가 순서대로 직렬화되어 처리                            │
+│        → 어떤 요청도 무한히 대기하지 않음 (Wait-Free)                  │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Universal Construction 내부 동작
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Herlihy's Universal Construction                  │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  구조:                                                               │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │  announce[N]  : 각 스레드의 의도된 연산                       │    │
+│  │  state        : 현재 자료구조 상태                            │    │
+│  │  log[]        : 적용된 연산들의 순서                          │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                     │
+│  동작:                                                               │
+│  1. Thread i가 operation op 실행 원함                               │
+│  2. announce[i] = op (Wait-Free store)                             │
+│  3. max_phase까지 도움 루프:                                         │
+│     - 모든 announce[j] 확인                                        │
+│     - 아직 처리 안 된 연산 있으면 log에 추가 시도 (CAS)               │
+│     - 자신의 op가 log에 있으면 결과 반환                             │
+│                                                                     │
+│  Wait-Free 보장:                                                    │
+│  - 최대 O(n²) 단계 후 모든 스레드의 연산이 log에 포함                  │
+│  - 도움 메커니즘: 다른 스레드가 announce 확인하고 대신 실행            │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**의사코드**:
+```cpp
+// Universal Construction (간략화)
+template<typename SeqObj>
+class WaitFreeUniversal {
+    struct OpRecord {
+        int thread_id;
+        Op operation;
+        bool applied;
+        Result result;
+    };
+
+    std::atomic<OpRecord*> announce[MAX_THREADS];
+    std::atomic<int> max_seq{0};
+    std::vector<OpRecord*> log;
+    SeqObj state;  // 순차 자료구조
+
+public:
+    Result apply(Op op, int tid) {
+        OpRecord* my_op = new OpRecord{tid, op, false, {}};
+        announce[tid].store(my_op, std::memory_order_release);
+
+        // O(n) 라운드, 각 라운드에서 O(n) 스레드 도움
+        for (int phase = 0; phase < MAX_THREADS * 2; phase++) {
+            // 모든 스레드의 announce 확인 및 도움
+            for (int i = 0; i < MAX_THREADS; i++) {
+                OpRecord* other = announce[i].load();
+                if (other && !other->applied) {
+                    help_apply(other);  // 다른 스레드 도움
+                }
+            }
+            if (my_op->applied) break;
+        }
+        return my_op->result;
+    }
+};
+```
+
+### SPSC Queue의 Wait-Free 보장 분석
+
+```cpp
+// SPSC Queue가 Wait-Free인 이유
+class SPSCQueue {
+    std::atomic<size_t> head;  // Consumer만 수정
+    std::atomic<size_t> tail;  // Producer만 수정
+
+    // Producer의 enqueue
+    bool enqueue(T value) {
+        size_t t = tail.load(relaxed);    // (1) 자신만 수정하는 변수 읽기
+        size_t h = head.load(acquire);    // (2) 상대방 변수 읽기 (wait-free)
+        if (next(t) == h) return false;   // (3) full 체크
+        buffer[t] = value;                // (4) 버퍼 쓰기
+        tail.store(next(t), release);     // (5) 자신만 수정하는 변수 쓰기
+        return true;
+        // 총 5단계, 모두 O(1) - Wait-Free!
+    }
+};
+```
+
+**분석**:
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Producer                         Consumer                          │
+│  ─────────                        ─────────                         │
+│  tail 읽기/쓰기 (exclusive)        head 읽기/쓰기 (exclusive)         │
+│  head 읽기만 (read-only)           tail 읽기만 (read-only)           │
+│                                                                     │
+│  충돌 없음 → CAS 불필요 → Wait-Free                                  │
+│                                                                     │
+│  Memory Ordering:                                                   │
+│  Producer: tail.store(release) ─┐                                   │
+│                                 │ synchronizes-with                 │
+│  Consumer: tail.load(acquire) ◀─┘                                   │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Population-Oblivious Wait-Free
+
+가장 강력한 형태의 Wait-Free:
+
+```
+Wait-Free Bounded:     O(n) steps (n = 스레드 수)
+Wait-Free Unbounded:   O(f(n)) steps (f는 임의 함수)
+Population-Oblivious:  O(1) steps (스레드 수와 무관!)
+```
+
+**Population-Oblivious 예시**:
+```cpp
+// fetch_add는 Population-Oblivious
+void increment() {
+    value.fetch_add(1);  // 항상 1단계, 스레드 수와 무관
+}
+
+// Universal Construction은 Population-Oblivious가 아님
+Result apply(Op op) {
+    // O(n²) 단계 - 스레드 수에 의존
+    for (int i = 0; i < n * n; i++) { ... }
+}
+```
+
+### Wait-Free 알고리즘의 성능 트레이드오프
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    성능 vs 보장 트레이드오프                          │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Throughput                                                         │
+│     ▲                                                               │
+│     │   ┌─────┐                                                     │
+│     │   │Lock │ ← 저경합 시 빠름                                     │
+│     │   │Free │   고경합 시 스타베이션                                │
+│     │   └──┬──┘                                                     │
+│     │      │                                                        │
+│     │   ┌──▼──┐                                                     │
+│     │   │Wait │ ← 균일한 성능                                        │
+│     │   │Free │   오버헤드로 약간 느림                                │
+│     │   └─────┘                                                     │
+│     │                                                               │
+│     └────────────────────────────────────────────▶ Contention       │
+│                                                                     │
+│  결론: Wait-Free는 최악의 경우를 보장하지만,                           │
+│        평균적으로는 Lock-Free가 더 빠를 수 있음                        │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## 📚 고급 주제
 
 ### Universal Construction
