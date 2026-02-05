@@ -1,10 +1,10 @@
-# SharedArrayBuffer and Atomics in JavaScript
+# JavaScript의 SharedArrayBuffer와 Atomics
 
-SharedArrayBuffer enables true shared memory between workers, with Atomics providing synchronization primitives.
+SharedArrayBuffer는 Worker 간 진정한 공유 메모리를 가능하게 하며, Atomics는 동기화 프리미티브를 제공합니다.
 
-## Basic Shared Memory
+## 기본 공유 메모리
 
-### Creating SharedArrayBuffer
+### SharedArrayBuffer 생성
 
 ```javascript
 // main.js
@@ -19,33 +19,33 @@ self.onmessage = (event) => {
     const sharedBuffer = event.data;
     const sharedArray = new Int32Array(sharedBuffer);
 
-    // Both can access same memory
+    // 양쪽 모두 같은 메모리에 접근 가능
     sharedArray[0] = 42;
 };
 ```
 
 ## Atomics
 
-### Atomic Operations
+### 원자적 연산
 
 ```javascript
 const sab = new SharedArrayBuffer(4);
 const view = new Int32Array(sab);
 
-// Atomic operations
-Atomics.add(view, 0, 5);        // Add 5 to index 0
-Atomics.sub(view, 0, 2);        // Subtract 2
-Atomics.load(view, 0);          // Read value
-Atomics.store(view, 0, 10);     // Write value
-Atomics.exchange(view, 0, 20);  // Swap value
+// 원자적 연산
+Atomics.add(view, 0, 5);        // 인덱스 0에 5 더하기
+Atomics.sub(view, 0, 2);        // 2 빼기
+Atomics.load(view, 0);          // 값 읽기
+Atomics.store(view, 0, 10);     // 값 쓰기
+Atomics.exchange(view, 0, 20);  // 값 교환
 
-// Compare and exchange
+// 비교 후 교환
 const oldValue = Atomics.compareExchange(view, 0, 20, 30);
-// If view[0] === 20, set to 30 and return 20
-// Else return current value
+// view[0] === 20이면, 30으로 설정하고 20 반환
+// 그렇지 않으면 현재 값 반환
 ```
 
-### Wait and Notify (Futex)
+### Wait와 Notify (Futex)
 
 ```javascript
 // main.js
@@ -57,20 +57,20 @@ worker.postMessage(sab);
 
 setTimeout(() => {
     Atomics.store(view, 0, 1);
-    Atomics.notify(view, 0, 1);  // Wake one waiter
+    Atomics.notify(view, 0, 1);  // 대기 중인 하나를 깨움
 }, 1000);
 
 // worker.js
 self.onmessage = (event) => {
     const view = new Int32Array(event.data);
 
-    console.log('Waiting...');
-    Atomics.wait(view, 0, 0);  // Wait until view[0] !== 0
-    console.log('Notified!');
+    console.log('대기 중...');
+    Atomics.wait(view, 0, 0);  // view[0] !== 0이 될 때까지 대기
+    console.log('깨어남!');
 };
 ```
 
-## Synchronization Patterns
+## 동기화 패턴
 
 ### Spinlock
 
@@ -83,7 +83,7 @@ class Spinlock {
 
     lock() {
         while (Atomics.compareExchange(this.view, this.index, 0, 1) !== 0) {
-            // Spin
+            // 스핀
         }
     }
 
@@ -92,19 +92,19 @@ class Spinlock {
     }
 }
 
-// Usage
+// 사용법
 const sab = new SharedArrayBuffer(4);
 const lock = new Spinlock(sab, 0);
 
 lock.lock();
 try {
-    // Critical section
+    // 임계 영역
 } finally {
     lock.unlock();
 }
 ```
 
-### Mutex with Wait/Notify
+### Wait/Notify를 이용한 Mutex
 
 ```javascript
 class Mutex {
@@ -117,7 +117,7 @@ class Mutex {
         while (true) {
             const old = Atomics.compareExchange(this.view, this.index, 0, 1);
             if (old === 0) {
-                return;  // Acquired lock
+                return;  // 잠금 획득
             }
             Atomics.wait(this.view, this.index, 1);
         }
@@ -130,10 +130,10 @@ class Mutex {
 }
 ```
 
-## Complete Example: Producer-Consumer
+## 완전한 예제: 생산자-소비자
 
 ```javascript
-// Shared state
+// 공유 상태
 const BUFFER_SIZE = 10;
 const STATE_SIZE = 3; // [lock, count, closed]
 const TOTAL_SIZE = STATE_SIZE + BUFFER_SIZE;
@@ -141,11 +141,11 @@ const TOTAL_SIZE = STATE_SIZE + BUFFER_SIZE;
 const sab = new SharedArrayBuffer(TOTAL_SIZE * 4);
 const state = new Int32Array(sab);
 
-// Producer
+// 생산자
 const producer = new Worker('producer.js');
 producer.postMessage(sab);
 
-// Consumer
+// 소비자
 const consumer = new Worker('consumer.js');
 consumer.postMessage(sab);
 
@@ -154,19 +154,19 @@ self.onmessage = (event) => {
     const state = new Int32Array(event.data);
 
     for (let i = 0; i < 20; i++) {
-        // Wait for space
+        // 공간이 생길 때까지 대기
         while (Atomics.load(state, 1) >= 10) {
             Atomics.wait(state, 1, 10);
         }
 
-        // Add item
+        // 항목 추가
         const count = Atomics.load(state, 1);
         Atomics.store(state, 3 + count, i);
         Atomics.add(state, 1, 1);
         Atomics.notify(state, 1, 1);
     }
 
-    // Signal done
+    // 완료 신호
     Atomics.store(state, 2, 1);
     Atomics.notify(state, 1, Infinity);
 };
@@ -176,26 +176,26 @@ self.onmessage = (event) => {
     const state = new Int32Array(event.data);
 
     while (true) {
-        // Wait for items
+        // 항목이 생길 때까지 대기
         while (Atomics.load(state, 1) === 0 && Atomics.load(state, 2) === 0) {
             Atomics.wait(state, 1, 0);
         }
 
         if (Atomics.load(state, 1) === 0 && Atomics.load(state, 2) === 1) {
-            break;  // Done
+            break;  // 완료
         }
 
-        // Get item
+        // 항목 가져오기
         const count = Atomics.load(state, 1);
         const item = Atomics.load(state, 3 + count - 1);
-        console.log('Consumed:', item);
+        console.log('소비:', item);
         Atomics.sub(state, 1, 1);
         Atomics.notify(state, 1, 1);
     }
 };
 ```
 
-## Internal Mechanisms
+## 내부 메커니즘
 
 ### SharedArrayBuffer 메모리 모델
 
@@ -255,16 +255,16 @@ if (crossOriginIsolated) {
 }
 ```
 
-## Security Considerations
+## 보안 고려사항
 
-SharedArrayBuffer requires specific headers:
+SharedArrayBuffer를 사용하려면 특정 헤더가 필요합니다:
 ```
 Cross-Origin-Opener-Policy: same-origin
 Cross-Origin-Embedder-Policy: require-corp
 ```
 
-## Navigation
+## 내비게이션
 
-- [Back to JavaScript Overview](./README.md)
-- Previous: [Worker Threads](./04-worker-threads.md)
-- [Back to Language Implementations](../)
+- [JavaScript 개요로 돌아가기](./README.md)
+- 이전: [Worker Threads](./04-worker-threads.md)
+- [언어 구현으로 돌아가기](../)

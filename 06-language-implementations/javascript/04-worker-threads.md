@@ -1,8 +1,8 @@
-# Worker Threads in Node.js
+# Node.js의 Worker Threads
 
-Worker threads provide multi-threading capabilities in Node.js, similar to Web Workers but with some Node-specific features.
+Worker threads는 Node.js에서 멀티스레딩 기능을 제공하며, Web Workers와 유사하지만 일부 Node.js 전용 기능이 있습니다.
 
-## Basic Usage
+## 기본 사용법
 
 ```javascript
 // main.js
@@ -13,15 +13,15 @@ const worker = new Worker('./worker.js', {
 });
 
 worker.on('message', (result) => {
-    console.log('Result:', result);
+    console.log('결과:', result);
 });
 
 worker.on('error', (error) => {
-    console.error('Error:', error);
+    console.error('에러:', error);
 });
 
 worker.on('exit', (code) => {
-    console.log(`Worker exited with code ${code}`);
+    console.log(`Worker가 코드 ${code}로 종료됨`);
 });
 
 // worker.js
@@ -31,7 +31,7 @@ const result = workerData.value * 2;
 parentPort.postMessage(result);
 ```
 
-## Sharing Data
+## 데이터 공유
 
 ### MessageChannel
 
@@ -44,13 +44,13 @@ const worker = new Worker('./worker.js');
 worker.postMessage({ port: port2 }, [port2]);
 
 port1.on('message', (msg) => {
-    console.log('Received:', msg);
+    console.log('수신:', msg);
 });
 
-port1.postMessage('Hello from main');
+port1.postMessage('메인에서 보냄');
 ```
 
-## Complete Example: Worker Pool
+## 완전한 예제: Worker Pool
 
 ```javascript
 const { Worker } = require('worker_threads');
@@ -83,10 +83,10 @@ class WorkerPool {
     handleResult(worker, result) {
         const { resolve, reject } = worker.currentTask;
         delete worker.currentTask;
-        
+
         this.freeWorkers.push(worker);
         resolve(result);
-        
+
         this.processQueue();
     }
 
@@ -120,7 +120,7 @@ class WorkerPool {
     }
 }
 
-// Usage
+// 사용법
 const pool = new WorkerPool('./compute-worker.js', 4);
 
 Promise.all([
@@ -128,14 +128,14 @@ Promise.all([
     pool.exec({ n: 20 }),
     pool.exec({ n: 30 })
 ]).then(results => {
-    console.log('Results:', results);
+    console.log('결과:', results);
     pool.destroy();
 });
 ```
 
-## Internal Mechanisms
+## 내부 메커니즘
 
-### Node.js Worker Architecture
+### Node.js Worker 아키텍처
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -198,8 +198,8 @@ Child Process (child_process):
 - 더 높은 안정성 (한 프로세스 크래시 무관)
 ```
 
-## Navigation
+## 내비게이션
 
-- [Back to JavaScript Overview](./README.md)
-- Previous: [Web Workers](./03-web-workers.md)
-- Next: [SharedArrayBuffer](./05-shared-array-buffer.md)
+- [JavaScript 개요로 돌아가기](./README.md)
+- 이전: [Web Workers](./03-web-workers.md)
+- 다음: [SharedArrayBuffer](./05-shared-array-buffer.md)

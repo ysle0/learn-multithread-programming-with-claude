@@ -1,18 +1,18 @@
-# Event Loop in JavaScript
+# JavaScript의 Event Loop
 
-The event loop is the heart of JavaScript's concurrency model, enabling non-blocking I/O despite being single-threaded.
+Event loop는 JavaScript 동시성 모델의 핵심으로, 단일 스레드임에도 불구하고 논블로킹 I/O를 가능하게 합니다.
 
-## Table of Contents
-- [How It Works](#how-it-works)
+## 목차
+- [동작 원리](#동작-원리)
 - [Call Stack](#call-stack)
 - [Task Queue](#task-queue)
-- [Microtasks vs Macrotasks](#microtasks-vs-macrotasks)
-- [Best Practices](#best-practices)
-- [Common Pitfalls](#common-pitfalls)
+- [Microtask vs Macrotask](#microtask-vs-macrotask)
+- [모범 사례](#모범-사례)
+- [흔한 실수](#흔한-실수)
 
-## How It Works
+## 동작 원리
 
-### Basic Model
+### 기본 모델
 
 ```javascript
 console.log('1');
@@ -27,15 +27,15 @@ Promise.resolve().then(() => {
 
 console.log('4');
 
-// Output: 1, 4, 3, 2
+// 출력: 1, 4, 3, 2
 ```
 
-### Event Loop Phases
+### Event Loop 단계
 
-1. **Execute synchronous code**
-2. **Process microtask queue** (Promises, queueMicrotask)
-3. **Process macrotask queue** (setTimeout, setInterval, I/O)
-4. **Repeat**
+1. **동기 코드 실행**
+2. **Microtask queue 처리** (Promises, queueMicrotask)
+3. **Macrotask queue 처리** (setTimeout, setInterval, I/O)
+4. **반복**
 
 ## Call Stack
 
@@ -60,10 +60,10 @@ first();
 
 ## Task Queue
 
-### Macrotasks
+### Macrotask
 
 ```javascript
-// setTimeout creates macrotask
+// setTimeout은 macrotask를 생성
 setTimeout(() => {
     console.log('macrotask 1');
 }, 0);
@@ -72,15 +72,15 @@ setTimeout(() => {
     console.log('macrotask 2');
 }, 0);
 
-// Prints: macrotask 1, macrotask 2
+// 출력: macrotask 1, macrotask 2
 ```
 
-## Microtasks vs Macrotasks
+## Microtask vs Macrotask
 
-### Microtasks (Priority)
+### Microtask (우선순위)
 
 ```javascript
-// Microtasks run BEFORE next macrotask
+// Microtask는 다음 macrotask 이전에 실행됨
 console.log('script start');
 
 setTimeout(() => {
@@ -97,7 +97,7 @@ Promise.resolve()
 
 console.log('script end');
 
-// Output:
+// 출력:
 // script start
 // script end
 // promise1
@@ -105,7 +105,7 @@ console.log('script end');
 // setTimeout
 ```
 
-### Execution Order
+### 실행 순서
 
 ```javascript
 console.log('1');
@@ -118,23 +118,23 @@ queueMicrotask(() => console.log('4'));
 
 console.log('5');
 
-// Output: 1, 5, 3, 4, 2
+// 출력: 1, 5, 3, 4, 2
 ```
 
-## Best Practices
+## 모범 사례
 
-### 1. Don't Block the Event Loop
+### 1. Event Loop를 블로킹하지 말 것
 
 ```javascript
-// BAD: Blocks for seconds
+// 나쁜 예: 수 초간 블로킹
 function blockingOperation() {
     const start = Date.now();
     while (Date.now() - start < 5000) {
-        // Blocks!
+        // 블로킹!
     }
 }
 
-// GOOD: Break into chunks
+// 좋은 예: 청크로 분할
 async function nonBlockingOperation() {
     for (let i = 0; i < 100; i++) {
         doWork();
@@ -143,26 +143,26 @@ async function nonBlockingOperation() {
 }
 ```
 
-### 2. Use Microtasks for High Priority
+### 2. 높은 우선순위에는 Microtask 사용
 
 ```javascript
-// High priority
+// 높은 우선순위
 queueMicrotask(() => {
-    console.log('High priority');
+    console.log('높은 우선순위');
 });
 
-// Lower priority
+// 낮은 우선순위
 setTimeout(() => {
-    console.log('Lower priority');
+    console.log('낮은 우선순위');
 }, 0);
 ```
 
-## Common Pitfalls
+## 흔한 실수
 
-### Infinite Microtask Loop
+### 무한 Microtask 루프
 
 ```javascript
-// BAD: Never gives macrotasks a chance
+// 나쁜 예: macrotask에 기회를 주지 않음
 function infiniteMicrotasks() {
     Promise.resolve().then(() => {
         infiniteMicrotasks();
@@ -170,12 +170,12 @@ function infiniteMicrotasks() {
 }
 
 infiniteMicrotasks();
-// setTimeout never runs!
+// setTimeout은 절대 실행되지 않음!
 ```
 
-## Internal Mechanisms
+## 내부 메커니즘
 
-### V8 Event Loop Architecture
+### V8 Event Loop 아키텍처
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -204,11 +204,11 @@ infiniteMicrotasks();
 │  └────────┬────────┘      │  [setImmediate] [I/O]               │ │
 │           ▼               └─────────────────────────────────────┘ │
 │  ┌─────────────────┐                                              │
-│  │    Poll Phase   │ ← I/O events (network, file, etc.)          │
+│  │    Poll Phase   │ ← I/O 이벤트 (네트워크, 파일 등)            │
 │  └────────┬────────┘                                              │
 │           ▼                                                        │
 │  ┌─────────────────┐                                              │
-│  │  Check Phase    │ ← setImmediate callbacks                     │
+│  │  Check Phase    │ ← setImmediate 콜백                          │
 │  │ (setImmediate)  │                                              │
 │  └────────┬────────┘                                              │
 │           ▼                                                        │
@@ -333,7 +333,7 @@ requestIdleCallback은 Idle 시간에 실행:
 - 프레임에 여유 시간 있을 때만
 ```
 
-## Complete Example
+## 완전한 예제
 
 ```javascript
 console.log('Start');
@@ -357,7 +357,7 @@ Promise.resolve()
 
 console.log('End');
 
-// Output:
+// 출력:
 // Start
 // End
 // Promise 1
@@ -367,7 +367,7 @@ console.log('End');
 // Timeout 2
 ```
 
-## Navigation
+## 내비게이션
 
-- [Back to JavaScript Overview](./README.md)
-- Next: [Async/Await](./02-async-await.md)
+- [JavaScript 개요로 돌아가기](./README.md)
+- 다음: [Async/Await](./02-async-await.md)

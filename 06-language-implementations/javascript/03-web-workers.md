@@ -1,10 +1,10 @@
-# Web Workers in JavaScript
+# JavaScript의 Web Workers
 
-Web Workers enable true multi-threading in browsers by running scripts in background threads.
+Web Workers는 백그라운드 스레드에서 스크립트를 실행하여 브라우저에서 진정한 멀티스레딩을 가능하게 합니다.
 
-## Basic Usage
+## 기본 사용법
 
-### Creating a Worker
+### Worker 생성
 
 ```javascript
 // main.js
@@ -13,11 +13,11 @@ const worker = new Worker('worker.js');
 worker.postMessage({ type: 'start', data: [1, 2, 3] });
 
 worker.onmessage = (event) => {
-    console.log('Result:', event.data);
+    console.log('결과:', event.data);
 };
 
 worker.onerror = (error) => {
-    console.error('Worker error:', error);
+    console.error('Worker 에러:', error);
 };
 
 // worker.js
@@ -37,38 +37,38 @@ function processData(data) {
 
 ## Transferable Objects
 
-### Zero-Copy Transfer
+### 제로 카피 전송
 
 ```javascript
 // main.js
 const buffer = new ArrayBuffer(1024);
 const view = new Uint8Array(buffer);
 
-// Transfer ownership (zero-copy)
+// 소유권 이전 (제로 카피)
 worker.postMessage(buffer, [buffer]);
-// buffer is now neutered, can't use it
+// buffer는 이제 무효화됨, 사용 불가
 
 // worker.js
 self.onmessage = (event) => {
     const buffer = event.data;
     const view = new Uint8Array(buffer);
-    // Process buffer
+    // buffer 처리
 };
 ```
 
-## Worker Types
+## Worker 유형
 
 ### Dedicated Worker
 
 ```javascript
-// Single page uses worker
+// 단일 페이지가 worker 사용
 const worker = new Worker('worker.js');
 ```
 
 ### Shared Worker
 
 ```javascript
-// Multiple pages can share
+// 여러 페이지가 공유 가능
 const worker = new SharedWorker('shared-worker.js');
 
 worker.port.onmessage = (event) => {
@@ -78,7 +78,7 @@ worker.port.onmessage = (event) => {
 worker.port.postMessage('hello');
 ```
 
-## Complete Example: Image Processing
+## 완전한 예제: 이미지 처리
 
 ```javascript
 // main.js
@@ -106,9 +106,9 @@ self.onmessage = (event) => {
     if (effect === 'grayscale') {
         for (let i = 0; i < data.length; i += 4) {
             const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
-            data[i] = avg;      // Red
-            data[i + 1] = avg;  // Green
-            data[i + 2] = avg;  // Blue
+            data[i] = avg;      // 빨강
+            data[i + 1] = avg;  // 초록
+            data[i + 2] = avg;  // 파랑
         }
     }
 
@@ -116,7 +116,7 @@ self.onmessage = (event) => {
 };
 ```
 
-## Internal Mechanisms
+## 내부 메커니즘
 
 ### Worker 아키텍처
 
@@ -145,7 +145,7 @@ self.onmessage = (event) => {
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Transferable Objects (Zero-Copy)
+### Transferable Objects (제로 카피)
 
 ```javascript
 // 소유권 이전 - 복사 없이 전달
@@ -177,8 +177,8 @@ Worker 생성 과정:
 → 자주 생성/소멸하지 말고 Worker Pool 사용 권장
 ```
 
-## Navigation
+## 내비게이션
 
-- [Back to JavaScript Overview](./README.md)
-- Previous: [Async/Await](./02-async-await.md)
-- Next: [Worker Threads](./04-worker-threads.md)
+- [JavaScript 개요로 돌아가기](./README.md)
+- 이전: [Async/Await](./02-async-await.md)
+- 다음: [Worker Threads](./04-worker-threads.md)

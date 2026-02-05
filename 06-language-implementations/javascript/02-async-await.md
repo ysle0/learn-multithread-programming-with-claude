@@ -1,26 +1,26 @@
-# Async/Await in JavaScript
+# JavaScript의 Async/Await
 
-Async/await provides a clean, synchronous-looking syntax for asynchronous operations built on top of Promises.
+Async/await는 Promise 위에 구축된, 동기 코드처럼 보이는 깔끔한 비동기 연산 문법을 제공합니다.
 
-## Basic Concepts
+## 기본 개념
 
-### Async Functions
+### Async 함수
 
 ```javascript
-// Async function always returns a Promise
+// Async 함수는 항상 Promise를 반환
 async function fetchData() {
     return 'data';
 }
 
 fetchData().then(data => console.log(data));  // 'data'
 
-// Equivalent to:
+// 다음과 동일:
 function fetchDataOld() {
     return Promise.resolve('data');
 }
 ```
 
-### Await Expression
+### Await 표현식
 
 ```javascript
 async function getData() {
@@ -29,14 +29,14 @@ async function getData() {
     return data;
 }
 
-// Equivalent to:
+// 다음과 동일:
 function getDataOld() {
     return fetch('https://api.example.com/data')
         .then(response => response.json());
 }
 ```
 
-## Error Handling
+## 에러 처리
 
 ### Try-Catch
 
@@ -45,29 +45,29 @@ async function fetchWithErrorHandling() {
     try {
         const response = await fetch('/api/data');
         if (!response.ok) {
-            throw new Error('HTTP error');
+            throw new Error('HTTP 에러');
         }
         const data = await response.json();
         return data;
     } catch (error) {
-        console.error('Error:', error);
+        console.error('에러:', error);
         return null;
     }
 }
 ```
 
-## Parallel Operations
+## 병렬 연산
 
 ### Promise.all
 
 ```javascript
 async function fetchMultiple() {
-    // Sequential (slow) - 6 seconds total
+    // 순차적 (느림) - 총 6초
     const user = await fetch('/api/user');
     const posts = await fetch('/api/posts');
     const comments = await fetch('/api/comments');
 
-    // Parallel (fast) - 2 seconds total
+    // 병렬 (빠름) - 총 2초
     const [userRes, postsRes, commentsRes] = await Promise.all([
         fetch('/api/user'),
         fetch('/api/posts'),
@@ -90,19 +90,19 @@ async function fetchMultiple() {
 async function fetchWithTimeout(url, timeout) {
     const fetchPromise = fetch(url);
     const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Timeout')), timeout)
+        setTimeout(() => reject(new Error('시간 초과')), timeout)
     );
 
     return await Promise.race([fetchPromise, timeoutPromise]);
 }
 ```
 
-## Best Practices
+## 모범 사례
 
-### 1. Always Handle Errors
+### 1. 항상 에러를 처리할 것
 
 ```javascript
-// GOOD: Handle errors
+// 좋은 예: 에러 처리
 async function safeOperation() {
     try {
         await riskyOperation();
@@ -112,19 +112,19 @@ async function safeOperation() {
 }
 ```
 
-### 2. Use Promise.all for Parallel
+### 2. 병렬 작업에는 Promise.all 사용
 
 ```javascript
-// GOOD: Parallel
+// 좋은 예: 병렬
 const [a, b, c] = await Promise.all([fetchA(), fetchB(), fetchC()]);
 
-// BAD: Sequential
+// 나쁜 예: 순차적
 const a = await fetchA();
 const b = await fetchB();
 const c = await fetchC();
 ```
 
-## Internal Mechanisms
+## 내부 메커니즘
 
 ### Async/Await의 Generator 변환
 
@@ -249,7 +249,7 @@ console.log('C');
 // 출력: A, C, B
 ```
 
-## Complete Example
+## 완전한 예제
 
 ```javascript
 class DataFetcher {
@@ -267,7 +267,7 @@ class DataFetcher {
 
             return await response.json();
         } catch (error) {
-            console.error(`Fetch error: ${error}`);
+            console.error(`Fetch 에러: ${error}`);
             throw error;
         }
     }
@@ -278,22 +278,22 @@ class DataFetcher {
     }
 }
 
-// Usage
+// 사용법
 const fetcher = new DataFetcher('https://api.example.com');
 
 (async () => {
     try {
         const [users, posts] = await fetcher.fetchAll(['/users', '/posts']);
-        console.log('Users:', users);
-        console.log('Posts:', posts);
+        console.log('사용자:', users);
+        console.log('게시물:', posts);
     } catch (error) {
-        console.error('Error fetching data:', error);
+        console.error('데이터 가져오기 에러:', error);
     }
 })();
 ```
 
-## Navigation
+## 내비게이션
 
-- [Back to JavaScript Overview](./README.md)
-- Previous: [Event Loop](./01-event-loop.md)
-- Next: [Web Workers](./03-web-workers.md)
+- [JavaScript 개요로 돌아가기](./README.md)
+- 이전: [Event Loop](./01-event-loop.md)
+- 다음: [Web Workers](./03-web-workers.md)
