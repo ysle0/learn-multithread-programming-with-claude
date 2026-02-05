@@ -1,20 +1,20 @@
-# Fan-Out/Fan-In Pattern
+# Fan-Out/Fan-In 패턴
 
-## Overview
+## 개요
 
-The Fan-Out/Fan-In pattern distributes work across multiple parallel workers (fan-out) and then aggregates the results (fan-in). This pattern exploits data parallelism to process independent chunks of work concurrently, then combines the results into a final output. It's one of the most effective patterns for achieving scalability.
+Fan-Out/Fan-In 패턴은 작업을 여러 병렬 worker에 분배하고(fan-out), 그 결과를 집계합니다(fan-in). 이 패턴은 데이터 병렬성을 활용하여 독립적인 작업 청크를 동시에 처리한 후, 결과를 최종 출력으로 결합합니다. 확장성을 달성하기 위한 가장 효과적인 패턴 중 하나입니다.
 
-## Problem Statement
+## 문제 정의
 
-Many computational problems can be divided into independent subtasks:
-- Processing large datasets (map-reduce)
-- Parallel search across multiple sources
-- Distributed computation
-- Batch processing of independent items
+많은 계산 문제는 독립적인 하위 작업으로 나눌 수 있습니다:
+- 대규모 데이터셋 처리 (map-reduce)
+- 여러 소스에 대한 병렬 검색
+- 분산 계산
+- 독립적인 항목의 배치 처리
 
-Processing sequentially wastes available parallelism and takes too long.
+순차적으로 처리하면 사용 가능한 병렬성을 낭비하게 되고 시간이 너무 오래 걸립니다.
 
-## Solution Architecture
+## 솔루션 아키텍처
 
 ```
                     ┌──────────────────┐
@@ -44,16 +44,16 @@ Processing sequentially wastes available parallelism and takes too long.
                  │  Combined Result │
                  └──────────────────┘
 
-Characteristics:
-- Workers process data in parallel (fan-out)
-- No dependencies between workers
-- Results combined by aggregator (fan-in)
-- Scalability: add more workers
+특징:
+- Worker가 데이터를 병렬로 처리 (fan-out)
+- Worker 간 의존성 없음
+- 집계기가 결과를 결합 (fan-in)
+- 확장성: worker 추가 가능
 ```
 
-## Basic Implementation
+## 기본 구현
 
-### Simple Fan-Out/Fan-In
+### 간단한 Fan-Out/Fan-In
 
 ```cpp
 #include <vector>
@@ -62,7 +62,7 @@ Characteristics:
 #include <numeric>
 #include <algorithm>
 
-// Fan-out/Fan-in using futures
+// future를 사용한 Fan-out/Fan-in
 template<typename InputIterator, typename Function>
 auto parallel_transform(InputIterator begin, InputIterator end,
                        Function func, size_t num_workers)
@@ -75,7 +75,7 @@ auto parallel_transform(InputIterator begin, InputIterator end,
 
     std::vector<std::future<std::vector<ResultType>>> futures;
 
-    // Fan-out: Launch workers
+    // Fan-out: worker 실행
     auto chunk_begin = begin;
     for (size_t i = 0; i < num_workers && chunk_begin != end; ++i) {
         auto chunk_end = chunk_begin;
@@ -95,7 +95,7 @@ auto parallel_transform(InputIterator begin, InputIterator end,
         chunk_begin = chunk_end;
     }
 
-    // Fan-in: Collect results
+    // Fan-in: 결과 수집
     std::vector<ResultType> combined_results;
     for (auto& future : futures) {
         auto partial_results = future.get();
@@ -107,12 +107,12 @@ auto parallel_transform(InputIterator begin, InputIterator end,
     return combined_results;
 }
 
-// Example usage
+// 사용 예제
 int main() {
     std::vector<int> data(1000);
     std::iota(data.begin(), data.end(), 1);  // 1, 2, 3, ..., 1000
 
-    // Square each number in parallel
+    // 각 숫자를 병렬로 제곱
     auto results = parallel_transform(data.begin(), data.end(),
         [](int x) { return x * x; },
         std::thread::hardware_concurrency()
@@ -123,7 +123,7 @@ int main() {
 }
 ```
 
-## Map-Reduce Pattern
+## Map-Reduce 패턴
 
 ```cpp
 template<typename InputIterator, typename MapFunc, typename ReduceFunc>
@@ -138,7 +138,7 @@ auto map_reduce(InputIterator begin, InputIterator end,
 
     std::vector<std::future<std::vector<MappedType>>> futures;
 
-    // Map phase (fan-out)
+    // Map 단계 (fan-out)
     auto chunk_begin = begin;
     for (size_t i = 0; i < num_workers && chunk_begin != end; ++i) {
         auto chunk_end = chunk_begin;
@@ -158,14 +158,14 @@ auto map_reduce(InputIterator begin, InputIterator end,
         chunk_begin = chunk_end;
     }
 
-    // Reduce phase (fan-in)
+    // Reduce 단계 (fan-in)
     std::vector<MappedType> all_mapped;
     for (auto& future : futures) {
         auto partial = future.get();
         all_mapped.insert(all_mapped.end(), partial.begin(), partial.end());
     }
 
-    // Final reduction
+    // 최종 리듀스
     if (all_mapped.empty()) {
         throw std::runtime_error("No data to reduce");
     }
@@ -178,15 +178,15 @@ auto map_reduce(InputIterator begin, InputIterator end,
     return result;
 }
 
-// Example: Parallel sum
+// 예제: 병렬 합산
 int main() {
     std::vector<int> data(10000);
     std::iota(data.begin(), data.end(), 1);
 
     auto sum = map_reduce(
         data.begin(), data.end(),
-        [](int x) { return x; },           // Map: identity
-        [](int a, int b) { return a + b; }, // Reduce: sum
+        [](int x) { return x; },           // Map: 항등 함수
+        [](int a, int b) { return a + b; }, // Reduce: 합산
         std::thread::hardware_concurrency()
     );
 
@@ -195,7 +195,7 @@ int main() {
 }
 ```
 
-## Worker Pool with Fan-Out/Fan-In
+## Fan-Out/Fan-In을 사용한 Worker Pool
 
 ```cpp
 #include <queue>
@@ -252,7 +252,7 @@ public:
     }
 
     std::vector<Output> wait_all() {
-        // Wait until all tasks are completed
+        // 모든 작업이 완료될 때까지 대기
         while (completed_tasks_.load() < results_.size()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
@@ -302,7 +302,7 @@ private:
 
                     completed_tasks_.fetch_add(1);
                 } catch (const std::exception& e) {
-                    std::cerr << "Worker error: " << e.what() << "\n";
+                    std::cerr << "Worker 오류: " << e.what() << "\n";
                 }
 
                 active_workers_.fetch_sub(1);
@@ -311,7 +311,7 @@ private:
     }
 };
 
-// Usage
+// 사용법
 int main() {
     WorkerPool<int, int> pool(4, [](int x) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -331,10 +331,10 @@ int main() {
 }
 ```
 
-## Advanced: Hierarchical Fan-Out/Fan-In
+## 고급: 계층적 Fan-Out/Fan-In
 
 ```cpp
-// Tree-based reduction for better scalability
+// 더 나은 확장성을 위한 트리 기반 리듀스
 template<typename T, typename ReduceFunc>
 T hierarchical_reduce(const std::vector<T>& data, ReduceFunc reducer,
                       size_t num_workers) {
@@ -346,7 +346,7 @@ T hierarchical_reduce(const std::vector<T>& data, ReduceFunc reducer,
         return data[0];
     }
 
-    // Level 1: Fan-out to workers for partial reductions
+    // 레벨 1: 부분 리듀스를 위해 worker에 fan-out
     size_t chunk_size = (data.size() + num_workers - 1) / num_workers;
     std::vector<std::future<T>> level1_futures;
 
@@ -364,13 +364,13 @@ T hierarchical_reduce(const std::vector<T>& data, ReduceFunc reducer,
         ));
     }
 
-    // Level 2: Collect partial results
+    // 레벨 2: 부분 결과 수집
     std::vector<T> partial_results;
     for (auto& future : level1_futures) {
         partial_results.push_back(future.get());
     }
 
-    // Level 3: Final reduction (could be recursive for more levels)
+    // 레벨 3: 최종 리듀스 (더 많은 레벨을 위해 재귀 가능)
     T final_result = partial_results[0];
     for (size_t i = 1; i < partial_results.size(); ++i) {
         final_result = reducer(final_result, partial_results[i]);
@@ -379,7 +379,7 @@ T hierarchical_reduce(const std::vector<T>& data, ReduceFunc reducer,
     return final_result;
 }
 
-// Example: Find maximum in parallel
+// 예제: 병렬로 최댓값 찾기
 int main() {
     std::vector<int> data(10000);
     std::iota(data.begin(), data.end(), 1);
@@ -395,7 +395,7 @@ int main() {
 }
 ```
 
-## Scatter-Gather Pattern
+## Scatter-Gather 패턴
 
 ```cpp
 #include <map>
@@ -408,24 +408,24 @@ public:
     ScatterGather(const std::vector<DataSource>& sources)
         : sources_(sources) {}
 
-    // Scatter request to all sources, gather results
+    // 모든 소스에 요청을 분산하고 결과를 수집
     std::map<size_t, Value> query(const Key& key) {
         std::vector<std::future<Value>> futures;
 
-        // Scatter: Query all sources in parallel
+        // Scatter: 모든 소스에 병렬로 쿼리
         for (size_t i = 0; i < sources_.size(); ++i) {
             futures.push_back(std::async(std::launch::async,
                 sources_[i], key
             ));
         }
 
-        // Gather: Collect all results
+        // Gather: 모든 결과 수집
         std::map<size_t, Value> results;
         for (size_t i = 0; i < futures.size(); ++i) {
             try {
                 results[i] = futures[i].get();
             } catch (const std::exception& e) {
-                std::cerr << "Source " << i << " failed: "
+                std::cerr << "소스 " << i << " 실패: "
                           << e.what() << "\n";
             }
         }
@@ -433,7 +433,7 @@ public:
         return results;
     }
 
-    // Query with timeout: return partial results
+    // 타임아웃이 있는 쿼리: 부분 결과 반환
     template<typename Rep, typename Period>
     std::map<size_t, Value> query_with_timeout(
         const Key& key,
@@ -454,14 +454,14 @@ public:
             auto remaining = deadline - std::chrono::steady_clock::now();
 
             if (remaining <= std::chrono::seconds(0)) {
-                break;  // Timeout
+                break;  // 타임아웃
             }
 
             if (futures[i].wait_for(remaining) == std::future_status::ready) {
                 try {
                     results[i] = futures[i].get();
                 } catch (const std::exception& e) {
-                    std::cerr << "Source " << i << " error: "
+                    std::cerr << "소스 " << i << " 오류: "
                               << e.what() << "\n";
                 }
             }
@@ -474,13 +474,13 @@ private:
     std::vector<DataSource> sources_;
 };
 
-// Example: Distributed search
+// 예제: 분산 검색
 struct SearchResult {
     std::vector<std::string> items;
 };
 
 int main() {
-    // Simulated data sources
+    // 시뮬레이션된 데이터 소스
     std::vector<ScatterGather<std::string, SearchResult>::DataSource> sources = {
         [](const std::string& query) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -498,7 +498,7 @@ int main() {
 
     ScatterGather<std::string, SearchResult> sg(sources);
 
-    // Query all sources with 250ms timeout
+    // 250ms 타임아웃으로 모든 소스에 쿼리
     auto results = sg.query_with_timeout("search term",
                                          std::chrono::milliseconds(250));
 
@@ -512,9 +512,9 @@ int main() {
 }
 ```
 
-## Load Balancing Strategies
+## 부하 분산 전략
 
-### Round-Robin Distribution
+### Round-Robin 분배
 
 ```cpp
 template<typename Task>
@@ -538,7 +538,7 @@ public:
 };
 ```
 
-### Work-Stealing Distribution
+### Work-Stealing 분배
 
 ```cpp
 template<typename Task>
@@ -551,15 +551,15 @@ public:
     explicit WorkStealingDistributor(size_t num_workers)
         : worker_queues_(num_workers), mutexes_(num_workers) {}
 
-    // Worker pushes to own queue
+    // Worker가 자신의 큐에 추가
     void push_local(size_t worker_id, Task task) {
         std::lock_guard<std::mutex> lock(mutexes_[worker_id]);
         worker_queues_[worker_id].push_front(std::move(task));
     }
 
-    // Worker steals from other queues when idle
+    // Worker가 유휴 상태일 때 다른 큐에서 작업을 훔침
     std::optional<Task> steal(size_t worker_id) {
-        // Try stealing from other workers
+        // 다른 worker에서 훔치기 시도
         for (size_t i = 1; i < worker_queues_.size(); ++i) {
             size_t victim = (worker_id + i) % worker_queues_.size();
 
@@ -571,14 +571,14 @@ public:
             }
         }
 
-        return std::nullopt;  // No work to steal
+        return std::nullopt;  // 훔칠 작업 없음
     }
 };
 ```
 
-## Aggregation Strategies
+## 집계 전략
 
-### Sum Aggregation
+### 합산 집계
 
 ```cpp
 template<typename T>
@@ -587,7 +587,7 @@ T sum_aggregator(const std::vector<T>& results) {
 }
 ```
 
-### Min/Max Aggregation
+### 최솟값/최댓값 집계
 
 ```cpp
 template<typename T>
@@ -596,7 +596,7 @@ T max_aggregator(const std::vector<T>& results) {
 }
 ```
 
-### Custom Aggregation
+### 사용자 정의 집계
 
 ```cpp
 template<typename T>
@@ -625,13 +625,13 @@ AggregatedResult<T> stats_aggregator(const std::vector<T>& results) {
 }
 ```
 
-## Real-World Applications
+## 실제 응용 사례
 
-### 1. Parallel Image Processing
+### 1. 병렬 이미지 처리
 
 ```cpp
-// Fan-out: Process image tiles in parallel
-// Fan-in: Stitch tiles back together
+// Fan-out: 이미지 타일을 병렬로 처리
+// Fan-in: 타일을 다시 결합
 std::vector<ImageTile> tiles = split_image(large_image);
 
 auto processed_tiles = parallel_transform(tiles.begin(), tiles.end(),
@@ -644,7 +644,7 @@ auto processed_tiles = parallel_transform(tiles.begin(), tiles.end(),
 Image result = stitch_tiles(processed_tiles);
 ```
 
-### 2. Distributed Search
+### 2. 분산 검색
 
 ```
 Query ───┬──▶ Database 1 ──┐
@@ -653,27 +653,27 @@ Query ───┬──▶ Database 1 ──┐
          └──▶ Database N ──┘
 ```
 
-### 3. Web Crawling
+### 3. 웹 크롤링
 
 ```cpp
-// Fan-out: Fetch multiple URLs in parallel
-// Fan-in: Aggregate extracted data
+// Fan-out: 여러 URL을 병렬로 가져오기
+// Fan-in: 추출된 데이터 집계
 std::vector<std::string> urls = get_urls_to_crawl();
 
 auto pages = parallel_transform(urls.begin(), urls.end(),
     [](const std::string& url) {
         return fetch_and_parse(url);
     },
-    100  // 100 concurrent fetches
+    100  // 100개 동시 가져오기
 );
 
 auto all_links = merge_links(pages);
 ```
 
-### 4. Batch Data Processing
+### 4. 배치 데이터 처리
 
 ```cpp
-// Process large dataset in parallel chunks
+// 대규모 데이터셋을 병렬 청크로 처리
 std::vector<DataChunk> chunks = partition_data(huge_dataset, num_workers);
 
 auto results = parallel_transform(chunks.begin(), chunks.end(),
@@ -686,10 +686,10 @@ auto results = parallel_transform(chunks.begin(), chunks.end(),
 auto final_result = reduce_results(results);
 ```
 
-### 5. Financial Portfolio Analysis
+### 5. 금융 포트폴리오 분석
 
 ```cpp
-// Analyze multiple stocks in parallel
+// 여러 주식을 병렬로 분석
 std::vector<Stock> portfolio = get_portfolio();
 
 auto analyses = parallel_transform(portfolio.begin(), portfolio.end(),
@@ -702,37 +702,37 @@ auto analyses = parallel_transform(portfolio.begin(), portfolio.end(),
 PortfolioRisk total_risk = aggregate_risk(analyses);
 ```
 
-## Performance Considerations
+## 성능 고려 사항
 
-### Amdahl's Law
+### 암달의 법칙 (Amdahl's Law)
 
 ```
 Speedup = 1 / ((1 - P) + P/N)
 
-Where:
-  P = Parallel portion (0 to 1)
-  N = Number of workers
+여기서:
+  P = 병렬화 가능 비율 (0에서 1)
+  N = Worker 수
 
-Example:
-  90% parallelizable (P=0.9), 10 workers:
-  Speedup = 1 / (0.1 + 0.9/10) = 5.26x
+예제:
+  90% 병렬화 가능 (P=0.9), worker 10개:
+  Speedup = 1 / (0.1 + 0.9/10) = 5.26배
 
-  Perfect parallelization (P=1.0), 10 workers:
-  Speedup = 10x
+  완전 병렬화 (P=1.0), worker 10개:
+  Speedup = 10배
 ```
 
-### Overhead Analysis
+### 오버헤드 분석
 
 ```cpp
-// Measure overhead
+// 오버헤드 측정
 auto start = std::chrono::high_resolution_clock::now();
 
-// Sequential
+// 순차 처리
 int sum_seq = std::accumulate(data.begin(), data.end(), 0);
 
 auto seq_time = std::chrono::high_resolution_clock::now() - start;
 
-// Parallel
+// 병렬 처리
 start = std::chrono::high_resolution_clock::now();
 
 auto sum_par = map_reduce(data.begin(), data.end(),
@@ -748,32 +748,32 @@ std::cout << "Parallel: " << par_time.count() << "ns\n";
 std::cout << "Speedup: " << (seq_time / par_time) << "x\n";
 ```
 
-### Optimal Worker Count
+### 최적 Worker 수
 
 ```cpp
-// For CPU-bound tasks
+// CPU 바운드 작업의 경우
 size_t optimal_workers = std::thread::hardware_concurrency();
 
-// For I/O-bound tasks (can be much higher)
+// I/O 바운드 작업의 경우 (훨씬 더 높을 수 있음)
 size_t optimal_workers = std::thread::hardware_concurrency() * 10;
 
-// For mixed workloads (benchmark to find optimal)
+// 혼합 워크로드의 경우 (벤치마크로 최적값 탐색)
 for (size_t workers = 1; workers <= 32; workers *= 2) {
     auto time = benchmark_with_workers(workers);
     std::cout << "Workers: " << workers << ", Time: " << time << "\n";
 }
 ```
 
-## Common Pitfalls
+## 흔한 실수
 
-### 1. Overhead Dominates for Small Tasks
+### 1. 작은 작업에서 오버헤드가 지배적
 
 ```cpp
-// BAD: Parallel overhead > work
+// 나쁜 예: 병렬 오버헤드 > 작업량
 std::vector<int> small_data = {1, 2, 3};
-auto result = parallel_sum(small_data);  // Slower than sequential!
+auto result = parallel_sum(small_data);  // 순차보다 느림!
 
-// GOOD: Only parallelize large enough workloads
+// 좋은 예: 충분히 큰 워크로드만 병렬화
 if (data.size() > 1000) {
     result = parallel_sum(data);
 } else {
@@ -781,47 +781,47 @@ if (data.size() > 1000) {
 }
 ```
 
-### 2. Load Imbalance
+### 2. 부하 불균형
 
 ```cpp
-// BAD: Uneven work distribution
-// Worker 1: 1000 items
-// Worker 2: 10 items
-// Worker 2 finishes early, sits idle
+// 나쁜 예: 불균등한 작업 분배
+// Worker 1: 1000개 항목
+// Worker 2: 10개 항목
+// Worker 2가 일찍 끝나고 유휴 상태
 
-// GOOD: Balance workload or use work stealing
+// 좋은 예: 워크로드 균형 맞추기 또는 work stealing 사용
 ```
 
-### 3. Memory Contention
+### 3. 메모리 경합
 
 ```cpp
-// BAD: All workers writing to same location
+// 나쁜 예: 모든 worker가 같은 위치에 쓰기
 std::atomic<int> counter{0};
 parallel_for_each([&](int x) {
-    counter++;  // Contention!
+    counter++;  // 경합!
 });
 
-// GOOD: Per-worker accumulation, then aggregate
+// 좋은 예: worker별 누적 후 집계
 std::vector<int> per_worker_counts(num_workers, 0);
-// Each worker updates its own counter
-// Final fan-in sums all counters
+// 각 worker가 자신의 카운터를 업데이트
+// 최종 fan-in에서 모든 카운터를 합산
 ```
 
-## Testing Strategies
+## 테스트 전략
 
-### Correctness
+### 정확성
 
 ```cpp
-// Verify parallel result matches sequential
+// 병렬 결과가 순차 결과와 일치하는지 확인
 auto seq_result = sequential_process(data);
 auto par_result = parallel_process(data);
 assert(seq_result == par_result);
 ```
 
-### Scalability
+### 확장성
 
 ```cpp
-// Measure speedup with increasing workers
+// Worker 수를 늘려가며 속도 향상 측정
 for (size_t workers = 1; workers <= 16; workers *= 2) {
     auto time = benchmark(data, workers);
     double speedup = baseline_time / time;
@@ -830,38 +830,38 @@ for (size_t workers = 1; workers <= 16; workers *= 2) {
 }
 ```
 
-## Pros and Cons
+## 장단점
 
-### Pros
-- Excellent scalability for data-parallel problems
-- Simple mental model
-- Easy to implement with futures/async
-- Near-linear speedup for embarrassingly parallel problems
-- Good CPU utilization
+### 장점
+- 데이터 병렬 문제에 대한 뛰어난 확장성
+- 간단한 멘탈 모델
+- future/async로 쉽게 구현 가능
+- 당혹적 병렬(embarrassingly parallel) 문제에서 거의 선형적인 속도 향상
+- 우수한 CPU 활용률
 
-### Cons
-- Overhead for small tasks
-- Potential load imbalance
-- Memory overhead for duplicating data
-- Not suitable for dependencies between tasks
-- Aggregation can become bottleneck
+### 단점
+- 작은 작업에 대한 오버헤드
+- 잠재적 부하 불균형
+- 데이터 복제를 위한 메모리 오버헤드
+- 작업 간 의존성이 있는 경우 부적합
+- 집계가 병목이 될 수 있음
 
-## Best Practices
+## 모범 사례
 
-1. **Ensure tasks are independent** (no shared state)
-2. **Size tasks appropriately** (balance overhead vs parallelism)
-3. **Balance workload** across workers
-4. **Use appropriate number of workers** (profile to find optimal)
-5. **Handle errors in workers** (don't let one failure kill all)
-6. **Consider hierarchical fan-in** for large result sets
-7. **Monitor worker utilization** to detect load imbalance
+1. **작업이 독립적인지 확인** (공유 상태 없음)
+2. **작업 크기를 적절하게 설정** (오버헤드와 병렬성의 균형)
+3. **worker 간 워크로드 균형 유지**
+4. **적절한 수의 worker 사용** (프로파일링으로 최적값 찾기)
+5. **worker에서의 오류 처리** (하나의 실패가 전체를 중단시키지 않도록)
+6. **대규모 결과 집합에는 계층적 fan-in 고려**
+7. **worker 활용률 모니터링**으로 부하 불균형 감지
 
-## Summary
+## 요약
 
-Fan-Out/Fan-In is ideal for:
-- Data-parallel problems
-- Embarrassingly parallel workloads
-- Batch processing
-- Distributed computation
+Fan-Out/Fan-In은 다음에 이상적입니다:
+- 데이터 병렬 문제
+- 당혹적 병렬(embarrassingly parallel) 워크로드
+- 배치 처리
+- 분산 계산
 
-It's one of the most straightforward and effective patterns for achieving parallelism, providing near-linear speedup when applied to suitable problems.
+적합한 문제에 적용할 때 거의 선형적인 속도 향상을 제공하는, 병렬성을 달성하기 위한 가장 간단하고 효과적인 패턴 중 하나입니다.

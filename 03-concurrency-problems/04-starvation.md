@@ -1,18 +1,18 @@
 # Starvation
 
-## What is Starvation?
+## Starvation이란?
 
-**Starvation** occurs when a thread is perpetually denied access to resources it needs to make progress. Unlike deadlock where all threads are stuck, in starvation some threads make progress while others are indefinitely delayed. The starved thread may eventually get the resource, but the wait time is unbounded and unpredictable.
+**Starvation**은 thread가 진행에 필요한 리소스에 대한 접근을 영구적으로 거부당할 때 발생합니다. 모든 thread가 멈추는 deadlock과 달리, starvation에서는 일부 thread는 진행되는 반면 다른 thread는 무기한으로 지연됩니다. Starvation에 빠진 thread는 결국 리소스를 얻을 수도 있지만, 대기 시간은 제한이 없고 예측할 수 없습니다.
 
-### Formal Definition
+### 정의
 
-A thread suffers from starvation when:
-1. It is ready to execute and needs resources
-2. Other threads continuously acquire those resources
-3. The thread waits indefinitely without making progress
-4. The system as a whole makes progress (unlike deadlock)
+thread가 starvation을 겪는 조건:
+1. 실행 준비가 되어 있고 리소스가 필요한 상태
+2. 다른 thread들이 지속적으로 해당 리소스를 획득
+3. thread가 진행 없이 무기한 대기
+4. 시스템 전체는 진행됨 (deadlock과 다른 점)
 
-## Visual Representation
+## 시각적 표현
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -29,7 +29,7 @@ A thread suffers from starvation when:
 └──────────────────────────────────────────────────────┘
 ```
 
-### Starvation vs Other Problems
+### Starvation과 다른 문제의 비교
 
 ```
 ┌───────────────┬──────────┬──────────┬────────────┬──────────┐
@@ -41,11 +41,11 @@ A thread suffers from starvation when:
 └───────────────┴──────────┴──────────┴────────────┴──────────┘
 ```
 
-## Common Causes of Starvation
+## Starvation의 일반적인 원인
 
-### 1. Priority-Based Scheduling
+### 1. 우선순위 기반 스케줄링
 
-High-priority threads always preempt low-priority threads.
+높은 우선순위의 thread가 항상 낮은 우선순위의 thread를 선점합니다.
 
 ```c
 #include <pthread.h>
@@ -55,7 +55,7 @@ High-priority threads always preempt low-priority threads.
 pthread_mutex_t resource = PTHREAD_MUTEX_INITIALIZER;
 
 void* high_priority_thread(void* arg) {
-    // Set high priority
+    // 높은 우선순위 설정
     struct sched_param param;
     param.sched_priority = 99;
     pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
@@ -63,60 +63,60 @@ void* high_priority_thread(void* arg) {
     while (1) {
         pthread_mutex_lock(&resource);
         printf("High priority: Working\n");
-        // Do work...
+        // 작업 수행...
         pthread_mutex_unlock(&resource);
     }
     return NULL;
 }
 
 void* low_priority_thread(void* arg) {
-    // Set low priority
+    // 낮은 우선순위 설정
     struct sched_param param;
     param.sched_priority = 1;
     pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
 
     while (1) {
         pthread_mutex_lock(&resource);
-        printf("Low priority: Working\n");  // MAY NEVER PRINT
-        // Do work...
+        printf("Low priority: Working\n");  // 출력되지 않을 수 있음
+        // 작업 수행...
         pthread_mutex_unlock(&resource);
     }
     return NULL;
 }
 
-// Low priority thread can STARVE if high priority runs continuously
+// 높은 우선순위 thread가 지속적으로 실행되면 낮은 우선순위 thread가 STARVATION에 빠질 수 있음
 ```
 
-### 2. Unfair Lock Implementation
+### 2. 불공정한 Lock 구현
 
-Some lock implementations don't guarantee fairness.
+일부 lock 구현은 공정성을 보장하지 않습니다.
 
 ```c
-// Unfair mutex implementation (simplified)
+// 불공정한 mutex 구현 (간략화)
 typedef struct {
     atomic_int locked;
-    // No queue - threads race to acquire
+    // 큐 없음 - thread들이 경쟁적으로 획득 시도
 } UnfairMutex;
 
 void unfair_lock(UnfairMutex* m) {
-    // Spin until successful
+    // 성공할 때까지 spin
     while (1) {
         int expected = 0;
         if (atomic_compare_exchange_weak(&m->locked, &expected, 1)) {
-            return;  // Acquired
+            return;  // 획득 성공
         }
-        // Some threads might retry faster than others!
-        // Fast threads can starve slow ones
+        // 일부 thread가 다른 thread보다 더 빨리 재시도할 수 있음!
+        // 빠른 thread가 느린 thread를 starvation에 빠뜨릴 수 있음
     }
 }
 
-// Thread with faster CPU core might always win
-// Thread with slower core might STARVE
+// 더 빠른 CPU 코어를 가진 thread가 항상 이길 수 있음
+// 느린 코어를 가진 thread는 STARVATION에 빠질 수 있음
 ```
 
-### 3. Reader-Writer Problem
+### 3. Reader-Writer 문제
 
-Writers can starve if readers keep arriving.
+Reader가 계속 도착하면 writer가 starvation에 빠질 수 있습니다.
 
 ```c
 #include <pthread.h>
@@ -144,20 +144,20 @@ void read_unlock(RWLock* lock) {
 void write_lock(RWLock* lock) {
     pthread_mutex_lock(&lock->mutex);
 
-    // Wait for all readers to finish
+    // 모든 reader가 완료될 때까지 대기
     while (lock->readers > 0) {
         pthread_mutex_unlock(&lock->mutex);
         sched_yield();
         pthread_mutex_lock(&lock->mutex);
     }
 
-    // Now have write access
+    // 이제 쓰기 접근 권한 획득
 }
 
-// PROBLEM: If readers keep arriving, writer STARVES
+// 문제: Reader가 계속 도착하면 writer가 STARVATION에 빠짐
 ```
 
-**Timeline:**
+**타임라인:**
 ```
 Time  Readers  Writer State
 ----  -------  ------------
@@ -169,7 +169,7 @@ Time  Readers  Writer State
   ...   ...    STARVING
 ```
 
-### 4. Producer-Consumer with Unfair Semaphore
+### 4. 불공정한 Semaphore를 사용한 Producer-Consumer
 
 ```c
 #include <semaphore.h>
@@ -177,40 +177,40 @@ Time  Readers  Writer State
 
 #define BUFFER_SIZE 10
 
-sem_t empty;  // Count of empty slots
-sem_t full;   // Count of full slots
+sem_t empty;  // 빈 슬롯 수
+sem_t full;   // 찬 슬롯 수
 
 void* producer(void* arg) {
     while (1) {
-        sem_wait(&empty);  // Wait for empty slot
+        sem_wait(&empty);  // 빈 슬롯 대기
 
-        // Produce item
+        // 아이템 생산
         produce_item();
 
-        sem_post(&full);   // Signal item available
+        sem_post(&full);   // 아이템 사용 가능 신호
     }
     return NULL;
 }
 
 void* consumer(void* arg) {
     while (1) {
-        sem_wait(&full);   // Wait for item
+        sem_wait(&full);   // 아이템 대기
 
-        // Consume item
+        // 아이템 소비
         consume_item();
 
-        sem_post(&empty);  // Signal slot empty
+        sem_post(&empty);  // 슬롯 비어있음 신호
     }
     return NULL;
 }
 
-// If many fast producers and one slow consumer,
-// slow consumer might STARVE
+// 빠른 producer가 많고 느린 consumer가 하나이면,
+// 느린 consumer가 STARVATION에 빠질 수 있음
 ```
 
-## Examples by Category
+## 카테고리별 예제
 
-### Example 1: Thread Pool Starvation
+### 예제 1: Thread Pool Starvation
 
 ```c
 #include <pthread.h>
@@ -223,7 +223,7 @@ void* consumer(void* arg) {
 typedef struct {
     void (*function)(void*);
     void* arg;
-    int priority;  // Higher = more important
+    int priority;  // 높을수록 더 중요
 } Task;
 
 typedef struct {
@@ -238,7 +238,7 @@ ThreadPool pool = {{}, 0, PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER};
 void enqueue_task(void (*func)(void*), void* arg, int priority) {
     pthread_mutex_lock(&pool.mutex);
 
-    // Insert by priority (higher priority first)
+    // 우선순위별 삽입 (높은 우선순위 먼저)
     int i = pool.size;
     while (i > 0 && pool.queue[i-1].priority < priority) {
         pool.queue[i] = pool.queue[i-1];
@@ -262,53 +262,53 @@ void* worker(void* arg) {
             pthread_cond_wait(&pool.cond, &pool.mutex);
         }
 
-        // Take highest priority task
+        // 가장 높은 우선순위 작업 가져오기
         Task task = pool.queue[0];
         pool.size--;
 
-        // Shift queue
+        // 큐 이동
         for (int i = 0; i < pool.size; i++) {
             pool.queue[i] = pool.queue[i+1];
         }
 
         pthread_mutex_unlock(&pool.mutex);
 
-        // Execute task
+        // 작업 실행
         task.function(task.arg);
     }
     return NULL;
 }
 
-// PROBLEM: Low priority tasks can STARVE if high priority
-// tasks keep arriving
+// 문제: 높은 우선순위 작업이 계속 도착하면
+// 낮은 우선순위 작업이 STARVATION에 빠질 수 있음
 ```
 
-**Visualization:**
+**시각화:**
 ```
 Queue State (priority-ordered):
 [9][9][9][8][8][7][7][7][6][5] ← High priority kept arriving
                                [2] ← Low priority task STARVING
 ```
 
-### Example 2: Disk I/O Scheduler Starvation
+### 예제 2: 디스크 I/O Scheduler Starvation
 
 ```c
 #include <stdio.h>
 #include <stdlib.h>
 
 typedef struct {
-    int track;      // Disk track number
-    int timestamp;  // When request arrived
+    int track;      // 디스크 트랙 번호
+    int timestamp;  // 요청 도착 시각
 } IORequest;
 
-// SCAN (Elevator) algorithm - can cause starvation
+// SCAN (엘리베이터) 알고리즘 - starvation을 유발할 수 있음
 void scan_schedule(IORequest* requests, int count, int current_track) {
-    int direction = 1;  // 1 = up, -1 = down
+    int direction = 1;  // 1 = 위, -1 = 아래
 
     while (1) {
         int served = 0;
 
-        // Serve requests in current direction
+        // 현재 방향의 요청 처리
         for (int i = 0; i < count; i++) {
             if (requests[i].track >= current_track && direction == 1) {
                 printf("Serving track %d (age: %d)\n",
@@ -320,16 +320,16 @@ void scan_schedule(IORequest* requests, int count, int current_track) {
         }
 
         if (served == 0) {
-            direction = -direction;  // Reverse direction
+            direction = -direction;  // 방향 반전
         }
 
-        // PROBLEM: Requests at far end can STARVE
-        // if new requests keep arriving on current side
+        // 문제: 현재 쪽에 새 요청이 계속 도착하면
+        // 반대쪽 끝의 요청이 STARVATION에 빠질 수 있음
     }
 }
 ```
 
-### Example 3: Network Packet Processing
+### 예제 3: 네트워크 패킷 처리
 
 ```c
 #include <stdio.h>
@@ -349,7 +349,7 @@ void process_packets() {
     while (1) {
         if (queue_size == 0) continue;
 
-        // Always process highest priority first
+        // 항상 가장 높은 우선순위 먼저 처리
         int highest_idx = 0;
         for (int i = 1; i < queue_size; i++) {
             if (queue[i].priority > queue[highest_idx].priority) {
@@ -359,25 +359,25 @@ void process_packets() {
 
         Packet p = queue[highest_idx];
 
-        // Check for starvation
+        // Starvation 확인
         uint64_t wait_time = current_time() - p.arrival_time;
-        if (wait_time > 10000) {  // 10 seconds
+        if (wait_time > 10000) {  // 10초
             printf("WARNING: Packet starved for %llu ms\n", wait_time);
         }
 
         process_packet(&p);
 
-        // Remove from queue
+        // 큐에서 제거
         queue[highest_idx] = queue[--queue_size];
     }
 }
 
-// Low priority packets STARVE if high priority keep arriving
+// 높은 우선순위 패킷이 계속 도착하면 낮은 우선순위 패킷이 STARVATION에 빠짐
 ```
 
-## Solutions and Prevention
+## 해결 방법 및 예방
 
-### Solution 1: Fair Mutex (FIFO Order)
+### 해결 방법 1: 공정한 Mutex (FIFO 순서)
 
 ```c
 #include <pthread.h>
@@ -413,10 +413,10 @@ void fair_mutex_lock(FairMutex* fm) {
     if (!fm->locked) {
         fm->locked = true;
         pthread_mutex_unlock(&fm->mutex);
-        return;  // Got lock immediately
+        return;  // 즉시 lock 획득
     }
 
-    // Add to wait queue
+    // 대기 큐에 추가
     if (fm->tail) {
         fm->tail->next = &node;
     } else {
@@ -424,7 +424,7 @@ void fair_mutex_lock(FairMutex* fm) {
     }
     fm->tail = &node;
 
-    // Wait for our turn
+    // 차례 대기
     while (!node.ready) {
         pthread_cond_wait(&node.cond, &fm->mutex);
     }
@@ -437,7 +437,7 @@ void fair_mutex_unlock(FairMutex* fm) {
     pthread_mutex_lock(&fm->mutex);
 
     if (fm->head) {
-        // Wake next waiter
+        // 다음 대기자 깨우기
         fm->head->ready = true;
         pthread_cond_signal(&fm->head->cond);
         fm->head = fm->head->next;
@@ -451,10 +451,10 @@ void fair_mutex_unlock(FairMutex* fm) {
     pthread_mutex_unlock(&fm->mutex);
 }
 
-// FIFO ordering prevents starvation
+// FIFO 순서가 starvation을 방지함
 ```
 
-### Solution 2: Fair Reader-Writer Lock
+### 해결 방법 2: 공정한 Reader-Writer Lock
 
 ```c
 #include <pthread.h>
@@ -481,7 +481,7 @@ void fair_rwlock_init(FairRWLock* lock) {
 void fair_read_lock(FairRWLock* lock) {
     pthread_mutex_lock(&lock->mutex);
 
-    // Wait if there's a writer or waiting writers
+    // Writer가 있거나 대기 중인 writer가 있으면 대기
     while (lock->writers > 0 || lock->waiting_writers > 0) {
         pthread_cond_wait(&lock->readers_cond, &lock->mutex);
     }
@@ -495,7 +495,7 @@ void fair_read_unlock(FairRWLock* lock) {
     lock->readers--;
 
     if (lock->readers == 0 && lock->waiting_writers > 0) {
-        // Wake a waiting writer
+        // 대기 중인 writer 깨우기
         pthread_cond_signal(&lock->writers_cond);
     }
 
@@ -506,7 +506,7 @@ void fair_write_lock(FairRWLock* lock) {
     pthread_mutex_lock(&lock->mutex);
     lock->waiting_writers++;
 
-    // Wait for readers and writers to finish
+    // Reader와 writer가 끝날 때까지 대기
     while (lock->readers > 0 || lock->writers > 0) {
         pthread_cond_wait(&lock->writers_cond, &lock->mutex);
     }
@@ -521,22 +521,22 @@ void fair_write_unlock(FairRWLock* lock) {
     lock->writers--;
 
     if (lock->waiting_writers > 0) {
-        // Prefer waiting writers
+        // 대기 중인 writer 우선
         pthread_cond_signal(&lock->writers_cond);
     } else {
-        // Wake all waiting readers
+        // 모든 대기 중인 reader 깨우기
         pthread_cond_broadcast(&lock->readers_cond);
     }
 
     pthread_mutex_unlock(&lock->mutex);
 }
 
-// Writers won't starve - they're preferred after current readers
+// Writer가 starvation에 빠지지 않음 - 현재 reader 이후에 우선 처리됨
 ```
 
-### Solution 3: Aging Priority
+### 해결 방법 3: Aging 우선순위
 
-Increase priority of waiting threads over time.
+대기 중인 thread의 우선순위를 시간이 지남에 따라 증가시킵니다.
 
 ```c
 #include <time.h>
@@ -551,7 +551,7 @@ typedef struct {
 
 int effective_priority(AgingTask* task) {
     time_t age = time(NULL) - task->enqueue_time;
-    // Increase priority by 1 every 10 seconds
+    // 10초마다 우선순위 1 증가
     int age_bonus = age / 10;
     return task->base_priority + age_bonus;
 }
@@ -571,13 +571,13 @@ AgingTask* get_next_task(AgingTask* queue, int size) {
     return &queue[best_idx];
 }
 
-// Old low-priority tasks eventually become high priority
-// Prevents indefinite starvation
+// 오래된 낮은 우선순위 작업이 결국 높은 우선순위가 됨
+// 무기한 starvation 방지
 ```
 
-### Solution 4: Round-Robin Scheduling
+### 해결 방법 4: Round-Robin 스케줄링
 
-Give each thread a time slice.
+각 thread에 시간 할당량을 부여합니다.
 
 ```c
 #include <pthread.h>
@@ -591,13 +591,13 @@ pthread_t threads[NUM_THREADS];
 int current_thread = 0;
 
 void switch_thread(int sig) {
-    // Pause current thread
+    // 현재 thread 일시정지
     pthread_kill(threads[current_thread], SIGSTOP);
 
-    // Switch to next thread
+    // 다음 thread로 전환
     current_thread = (current_thread + 1) % NUM_THREADS;
 
-    // Resume next thread
+    // 다음 thread 재개
     pthread_kill(threads[current_thread], SIGCONT);
 }
 
@@ -615,10 +615,10 @@ void setup_round_robin() {
     setitimer(ITIMER_REAL, &timer, NULL);
 }
 
-// All threads get equal CPU time - no starvation
+// 모든 thread가 동일한 CPU 시간을 받음 - starvation 없음
 ```
 
-### Solution 5: Two-Level Feedback Queue
+### 해결 방법 5: 2단계 피드백 큐
 
 ```c
 #define NUM_QUEUES 3
@@ -626,30 +626,30 @@ void setup_round_robin() {
 typedef struct {
     Task queues[NUM_QUEUES][100];
     int sizes[NUM_QUEUES];
-    int execution_counts[1000];  // Track per-thread
+    int execution_counts[1000];  // thread별 추적
 } FeedbackQueue;
 
 FeedbackQueue fbq = {{{0}}, {0}, {0}};
 
 void enqueue_with_feedback(int thread_id, Task task) {
-    // New tasks start at highest priority queue
+    // 새 작업은 가장 높은 우선순위 큐에서 시작
     int queue_level = 0;
 
-    // Demote if executed too many times
+    // 너무 많이 실행되면 강등
     int exec_count = fbq.execution_counts[thread_id];
-    if (exec_count > 10) queue_level = 2;      // Low priority
-    else if (exec_count > 3) queue_level = 1;  // Medium priority
+    if (exec_count > 10) queue_level = 2;      // 낮은 우선순위
+    else if (exec_count > 3) queue_level = 1;  // 중간 우선순위
 
     fbq.queues[queue_level][fbq.sizes[queue_level]++] = task;
 }
 
 Task* get_next_with_feedback() {
-    // Service higher priority queues first
+    // 높은 우선순위 큐부터 처리
     for (int level = 0; level < NUM_QUEUES; level++) {
         if (fbq.sizes[level] > 0) {
             Task* task = &fbq.queues[level][0];
 
-            // Remove from queue
+            // 큐에서 제거
             for (int i = 0; i < fbq.sizes[level] - 1; i++) {
                 fbq.queues[level][i] = fbq.queues[level][i + 1];
             }
@@ -661,10 +661,10 @@ Task* get_next_with_feedback() {
     return NULL;
 }
 
-// Even low-priority tasks get served when high queue is empty
+// 높은 우선순위 큐가 비어있으면 낮은 우선순위 작업도 처리됨
 ```
 
-## Internal Mechanisms
+## 내부 메커니즘
 
 ### Linux CFS 스케줄러의 공정성 보장
 
@@ -982,9 +982,9 @@ int acquire_with_deadline(struct fair_resource *res,
 }
 ```
 
-## Detection Strategies
+## 탐지 전략
 
-### 1. Wait Time Monitoring
+### 1. 대기 시간 모니터링
 
 ```c
 #include <time.h>
@@ -1017,7 +1017,7 @@ void monitor_wait_times() {
 }
 ```
 
-### 2. Fairness Metrics
+### 2. 공정성 지표
 
 ```c
 typedef struct {
@@ -1051,7 +1051,7 @@ void calculate_fairness(ThreadStats* stats, int num_threads) {
 }
 ```
 
-### 3. Queue Length Tracking
+### 3. 큐 길이 추적
 
 ```c
 void track_queue_length(int queue_length, int thread_id) {
@@ -1068,38 +1068,38 @@ void track_queue_length(int queue_length, int thread_id) {
 }
 ```
 
-## Fairness Concepts
+## 공정성 개념
 
-### Strong Fairness
+### 강한 공정성 (Strong Fairness)
 
-Every thread that wants access will eventually get it.
+접근을 원하는 모든 thread는 결국 접근 권한을 얻습니다.
 
 ```c
-// Example: FIFO mutex (shown earlier)
-// Guarantees: If thread requests lock, it WILL get it
+// 예시: FIFO mutex (앞에서 설명)
+// 보장: thread가 lock을 요청하면, 반드시 획득함
 ```
 
-### Weak Fairness
+### 약한 공정성 (Weak Fairness)
 
-If a thread keeps wanting access, it will eventually get it.
+thread가 계속 접근을 원하면, 결국 접근 권한을 얻습니다.
 
 ```c
-// Example: Simple mutex with no guarantees
-// Only ensures: continuous requests eventually succeed
+// 예시: 보장이 없는 단순 mutex
+// 보장: 지속적인 요청은 결국 성공함
 ```
 
-### No Fairness
+### 공정성 없음 (No Fairness)
 
-No guarantees about who gets access when.
+누가 언제 접근 권한을 얻는지에 대한 보장이 없습니다.
 
 ```c
-// Example: Spinlock without queue
+// 예시: 큐 없는 spinlock
 while (!atomic_compare_exchange(&lock, &expected, 1)) {
-    // Any thread might win - no fairness
+    // 어떤 thread든 이길 수 있음 - 공정성 없음
 }
 ```
 
-### Fairness Comparison
+### 공정성 비교
 
 ```
 ┌─────────────────┬──────────────┬───────────────┬──────────┐
@@ -1113,63 +1113,63 @@ while (!atomic_compare_exchange(&lock, &expected, 1)) {
 └─────────────────┴──────────────┴───────────────┴──────────┘
 ```
 
-## Best Practices
+## 모범 사례
 
-### DO:
-- ✓ Use fair synchronization primitives
-- ✓ Monitor wait times and detect starvation
-- ✓ Implement aging for priority systems
-- ✓ Bound priority ranges
-- ✓ Use FIFO queues where possible
-- ✓ Set timeout limits
-- ✓ Test under high load conditions
+### 권장 사항:
+- ✓ 공정한 동기화 프리미티브 사용
+- ✓ 대기 시간 모니터링 및 starvation 탐지
+- ✓ 우선순위 시스템에 aging 구현
+- ✓ 우선순위 범위 제한
+- ✓ 가능한 곳에 FIFO 큐 사용
+- ✓ 타임아웃 제한 설정
+- ✓ 높은 부하 조건에서 테스트
 
-### DON'T:
-- ✗ Use unbounded priorities
-- ✗ Always prefer one class of threads
-- ✗ Ignore wait time metrics
-- ✗ Assume fairness without verification
-- ✗ Use pure priority scheduling for long-running tasks
+### 금지 사항:
+- ✗ 제한 없는 우선순위 사용
+- ✗ 한 종류의 thread를 항상 우선시
+- ✗ 대기 시간 지표 무시
+- ✗ 검증 없이 공정성 가정
+- ✗ 장시간 실행되는 작업에 순수 우선순위 스케줄링 사용
 
-## Summary
+## 요약
 
-**Starvation** occurs when threads are perpetually denied resources due to:
-- Unfair scheduling
-- Priority schemes
-- Reader-writer imbalance
-- Lack of fairness guarantees
+**Starvation**은 다음과 같은 이유로 thread가 영구적으로 리소스를 거부당할 때 발생합니다:
+- 불공정한 스케줄링
+- 우선순위 체계
+- Reader-writer 불균형
+- 공정성 보장 부재
 
-**Key Differences:**
+**주요 차이점:**
 ```
-Deadlock:    No progress by anyone
-Livelock:    Activity but no progress
-Starvation:  Some progress, but not by everyone
+Deadlock:    아무도 진행하지 못함
+Livelock:    활동은 있지만 진행 없음
+Starvation:  일부는 진행되지만 모두가 진행되지는 않음
 ```
 
-**Prevention Strategies:**
-1. Fair locks (FIFO ordering)
-2. Aging algorithms
-3. Bounded waiting
-4. Round-robin scheduling
-5. Fairness monitoring
+**예방 전략:**
+1. 공정한 lock (FIFO 순서)
+2. Aging 알고리즘
+3. 제한된 대기
+4. Round-robin 스케줄링
+5. 공정성 모니터링
 
-## Exercises
+## 연습 문제
 
-### Exercise 1: Detect Starvation
-Add monitoring to detect when a thread has waited more than 5 seconds.
+### 연습 문제 1: Starvation 탐지
+thread가 5초 이상 대기했을 때 이를 탐지하는 모니터링을 추가하세요.
 
-### Exercise 2: Implement Fair Queue
-Create a fair priority queue where old low-priority items eventually get served.
+### 연습 문제 2: 공정한 큐 구현
+오래된 낮은 우선순위 항목이 결국 처리되는 공정한 우선순위 큐를 만드세요.
 
-### Exercise 3: Fix Reader Starvation
-Modify the reader-writer lock to prevent writer starvation.
+### 연습 문제 3: Reader Starvation 수정
+Writer starvation을 방지하도록 reader-writer lock을 수정하세요.
 
-## Further Reading
+## 추가 참고 자료
 
 - "Operating Systems: Three Easy Pieces" - Remzi Arpaci-Dusseau
 - "The Art of Multiprocessor Programming" - Herlihy & Shavit
 - "Modern Operating Systems" - Andrew Tanenbaum
 
-## Next Topic
+## 다음 주제
 
-Continue to [05-priority-inversion.md](./05-priority-inversion.md) to learn about priority inversion.
+[05-priority-inversion.md](./05-priority-inversion.md)에서 priority inversion에 대해 알아보세요.

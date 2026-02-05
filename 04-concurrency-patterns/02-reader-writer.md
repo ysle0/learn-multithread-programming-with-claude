@@ -1,18 +1,18 @@
-# Reader-Writer Pattern
+# Reader-Writer 패턴
 
-## Overview
+## 개요
 
-The Reader-Writer pattern (also known as Shared-Exclusive Lock pattern) optimizes concurrent access to shared data when reads vastly outnumber writes. It allows multiple readers to access data simultaneously while ensuring writers get exclusive access. This pattern is fundamental for building high-performance concurrent data structures.
+Reader-Writer 패턴(Shared-Exclusive Lock 패턴이라고도 함)은 읽기가 쓰기보다 압도적으로 많은 경우 공유 데이터에 대한 동시 접근을 최적화합니다. 여러 reader가 동시에 데이터에 접근할 수 있도록 허용하면서 writer에게는 독점적인 접근을 보장합니다. 이 패턴은 고성능 동시성 데이터 구조를 구축하는 데 핵심적입니다.
 
-## Problem Statement
+## 문제 정의
 
-In many systems:
-- Read operations far outnumber write operations (90%+ reads)
-- Multiple readers can safely access data concurrently
-- Writers need exclusive access to maintain consistency
-- Simple mutual exclusion (mutex) serializes all access, wasting concurrency potential
+많은 시스템에서:
+- 읽기 연산이 쓰기 연산보다 훨씬 많음 (90% 이상이 읽기)
+- 여러 reader가 안전하게 동시에 데이터에 접근 가능
+- Writer는 일관성을 유지하기 위해 독점적 접근이 필요
+- 단순한 상호 배제(mutex)는 모든 접근을 직렬화하여 동시성 잠재력을 낭비
 
-## Solution Architecture
+## 솔루션 아키텍처
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -37,9 +37,9 @@ States:
 3. One writer (no readers, no other writers)
 ```
 
-## Basic Implementation (C++17)
+## 기본 구현 (C++17)
 
-### Using std::shared_mutex
+### std::shared_mutex 사용
 
 ```cpp
 #include <shared_mutex>
@@ -54,7 +54,7 @@ private:
     mutable std::shared_mutex mutex_;
 
 public:
-    // Reader: Acquires shared lock
+    // Reader: shared lock 획득
     std::optional<Value> get(const Key& key) const {
         std::shared_lock<std::shared_mutex> lock(mutex_);
 
@@ -65,48 +65,48 @@ public:
         return std::nullopt;
     }
 
-    // Reader: Check if key exists
+    // Reader: 키 존재 여부 확인
     bool contains(const Key& key) const {
         std::shared_lock<std::shared_mutex> lock(mutex_);
         return data_.find(key) != data_.end();
     }
 
-    // Reader: Get size
+    // Reader: 크기 조회
     size_t size() const {
         std::shared_lock<std::shared_mutex> lock(mutex_);
         return data_.size();
     }
 
-    // Writer: Acquires exclusive lock
+    // Writer: exclusive lock 획득
     void put(const Key& key, const Value& value) {
         std::unique_lock<std::shared_mutex> lock(mutex_);
         data_[key] = value;
     }
 
-    // Writer: Remove entry
+    // Writer: 항목 제거
     bool remove(const Key& key) {
         std::unique_lock<std::shared_mutex> lock(mutex_);
         return data_.erase(key) > 0;
     }
 
-    // Writer: Clear all entries
+    // Writer: 모든 항목 제거
     void clear() {
         std::unique_lock<std::shared_mutex> lock(mutex_);
         data_.clear();
     }
 
-    // Read-Modify-Write: Upgrade from shared to exclusive
+    // Read-Modify-Write: shared에서 exclusive로 업그레이드
     void update_if_exists(const Key& key,
                          std::function<Value(const Value&)> updater) {
-        // Two-phase locking: read then write
+        // 2단계 잠금: 먼저 읽기 후 쓰기
         {
             std::shared_lock<std::shared_mutex> read_lock(mutex_);
             if (data_.find(key) == data_.end()) {
-                return;  // Key doesn't exist
+                return;  // 키가 존재하지 않음
             }
         }
 
-        // Upgrade to exclusive lock
+        // exclusive lock으로 업그레이드
         std::unique_lock<std::shared_mutex> write_lock(mutex_);
         auto it = data_.find(key);
         if (it != data_.end()) {
@@ -116,7 +116,7 @@ public:
 };
 ```
 
-### Complete Example: Cache System
+### 완전한 예제: 캐시 시스템
 
 ```cpp
 #include <iostream>
@@ -125,19 +125,19 @@ public:
 #include <chrono>
 #include <random>
 
-// Thread-safe cache with Reader-Writer pattern
+// Reader-Writer 패턴을 사용한 thread 안전 캐시
 template<typename K, typename V>
 class Cache {
 private:
     std::map<K, V> data_;
     mutable std::shared_mutex mutex_;
 
-    // Statistics
+    // 통계
     mutable std::atomic<size_t> hits_{0};
     mutable std::atomic<size_t> misses_{0};
 
 public:
-    // Read operation (shared lock)
+    // 읽기 연산 (shared lock)
     std::optional<V> lookup(const K& key) const {
         std::shared_lock<std::shared_mutex> lock(mutex_);
 
@@ -151,18 +151,18 @@ public:
         return std::nullopt;
     }
 
-    // Write operation (exclusive lock)
+    // 쓰기 연산 (exclusive lock)
     void insert(const K& key, const V& value) {
         std::unique_lock<std::shared_mutex> lock(mutex_);
         data_[key] = value;
     }
 
-    // Write operation: evict if cache is too large
+    // 쓰기 연산: 캐시가 너무 클 경우 제거
     void evict_if_needed(size_t max_size) {
         std::unique_lock<std::shared_mutex> lock(mutex_);
 
         if (data_.size() > max_size) {
-            // Simple eviction: remove first element
+            // 단순 제거: 첫 번째 요소 제거
             data_.erase(data_.begin());
         }
     }
@@ -180,7 +180,7 @@ public:
     }
 };
 
-// Simulate cache workload
+// 캐시 워크로드 시뮬레이션
 void reader_thread(const Cache<int, std::string>& cache, int id, int iterations) {
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -190,7 +190,7 @@ void reader_thread(const Cache<int, std::string>& cache, int id, int iterations)
         int key = dis(gen);
         auto value = cache.lookup(key);
 
-        // Simulate some work
+        // 작업 시뮬레이션
         std::this_thread::sleep_for(std::chrono::microseconds(10));
     }
 
@@ -206,7 +206,7 @@ void writer_thread(Cache<int, std::string>& cache, int id, int iterations) {
         int key = dis(gen);
         cache.insert(key, "value_" + std::to_string(key));
 
-        // Simulate some work
+        // 작업 시뮬레이션
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
@@ -216,7 +216,7 @@ void writer_thread(Cache<int, std::string>& cache, int id, int iterations) {
 int main() {
     Cache<int, std::string> cache;
 
-    // Pre-populate cache
+    // 캐시 사전 채우기
     for (int i = 0; i < 50; ++i) {
         cache.insert(i, "value_" + std::to_string(i));
     }
@@ -227,17 +227,17 @@ int main() {
 
     std::vector<std::thread> threads;
 
-    // Start readers (90% of workload)
+    // Reader 시작 (워크로드의 90%)
     for (int i = 0; i < NUM_READERS; ++i) {
         threads.emplace_back(reader_thread, std::cref(cache), i, ITERATIONS);
     }
 
-    // Start writers (10% of workload)
+    // Writer 시작 (워크로드의 10%)
     for (int i = 0; i < NUM_WRITERS; ++i) {
         threads.emplace_back(writer_thread, std::ref(cache), i, ITERATIONS / 10);
     }
 
-    // Wait for all threads
+    // 모든 thread 대기
     for (auto& t : threads) {
         t.join();
     }
@@ -248,7 +248,7 @@ int main() {
 }
 ```
 
-## Internal Mechanisms
+## 내부 메커니즘
 
 ### std::shared_mutex의 구현
 
@@ -448,9 +448,9 @@ public:
 };
 ```
 
-## Advanced Implementation: Custom Reader-Writer Lock
+## 고급 구현: 커스텀 Reader-Writer Lock
 
-### Reader-Preferred Lock
+### Reader 우선 Lock
 
 ```cpp
 #include <atomic>
@@ -462,15 +462,15 @@ private:
     std::mutex mutex_;
     std::condition_variable reader_cv_;
     std::condition_variable writer_cv_;
-    int readers_ = 0;        // Active readers
-    bool writer_ = false;     // Active writer
-    int waiting_writers_ = 0; // Waiting writers
+    int readers_ = 0;        // 활성 reader
+    bool writer_ = false;     // 활성 writer
+    int waiting_writers_ = 0; // 대기 중인 writer
 
 public:
     void lock_shared() {  // Reader lock
         std::unique_lock<std::mutex> lock(mutex_);
 
-        // Wait if there's an active writer
+        // 활성 writer가 있으면 대기
         reader_cv_.wait(lock, [this] { return !writer_; });
 
         ++readers_;
@@ -481,7 +481,7 @@ public:
 
         --readers_;
 
-        // If last reader, wake up a waiting writer
+        // 마지막 reader이면 대기 중인 writer 깨우기
         if (readers_ == 0 && waiting_writers_ > 0) {
             writer_cv_.notify_one();
         }
@@ -492,7 +492,7 @@ public:
 
         ++waiting_writers_;
 
-        // Wait for no readers and no active writer
+        // reader 없고 활성 writer 없을 때까지 대기
         writer_cv_.wait(lock, [this] {
             return readers_ == 0 && !writer_;
         });
@@ -506,10 +506,10 @@ public:
 
         writer_ = false;
 
-        // Wake up all waiting readers first (reader-preferred)
+        // 대기 중인 모든 reader를 먼저 깨움 (reader 우선)
         reader_cv_.notify_all();
 
-        // Then wake up one writer
+        // 그 다음 writer 하나 깨움
         if (waiting_writers_ > 0) {
             writer_cv_.notify_one();
         }
@@ -517,7 +517,7 @@ public:
 };
 ```
 
-### Writer-Preferred Lock
+### Writer 우선 Lock
 
 ```cpp
 class WriterPreferredLock {
@@ -532,7 +532,7 @@ public:
     void lock_shared() {
         std::unique_lock<std::mutex> lock(mutex_);
 
-        // Wait if there are writers or waiting writers (writer-preferred)
+        // writer 또는 대기 중인 writer가 있으면 대기 (writer 우선)
         cv_.wait(lock, [this] {
             return writers_ == 0 && waiting_writers_ == 0;
         });
@@ -569,7 +569,7 @@ public:
 };
 ```
 
-### Fair (FIFO) Reader-Writer Lock
+### 공정한 (FIFO) Reader-Writer Lock
 
 ```cpp
 #include <queue>
@@ -645,16 +645,16 @@ private:
                     waiter->cv.notify_one();
                     break;
                 } else {
-                    break;  // Can't wake writer yet
+                    break;  // 아직 writer를 깨울 수 없음
                 }
             } else {  // READER
                 if (!active_writer_) {
                     queue_.pop();
                     waiter->notified = true;
                     waiter->cv.notify_one();
-                    // Continue to wake more readers
+                    // 더 많은 reader를 계속 깨움
                 } else {
-                    break;  // Can't wake readers while writer active
+                    break;  // writer가 활성 상태인 동안 reader를 깨울 수 없음
                 }
             }
         }
@@ -662,10 +662,10 @@ private:
 };
 ```
 
-## RAII Guards
+## RAII 가드
 
 ```cpp
-// RAII shared lock guard
+// RAII shared lock 가드
 template<typename RWLock>
 class SharedLockGuard {
 private:
@@ -684,7 +684,7 @@ public:
     SharedLockGuard& operator=(const SharedLockGuard&) = delete;
 };
 
-// RAII exclusive lock guard
+// RAII exclusive lock 가드
 template<typename RWLock>
 class ExclusiveLockGuard {
 private:
@@ -703,16 +703,16 @@ public:
     ExclusiveLockGuard& operator=(const ExclusiveLockGuard&) = delete;
 };
 
-// Usage
+// 사용 예시
 void example(ReaderPreferredLock& rwlock, std::map<int, int>& data) {
-    // Read operation
+    // 읽기 연산
     {
         SharedLockGuard guard(rwlock);
         auto it = data.find(42);
         // ...
     }
 
-    // Write operation
+    // 쓰기 연산
     {
         ExclusiveLockGuard guard(rwlock);
         data[42] = 100;
@@ -720,7 +720,7 @@ void example(ReaderPreferredLock& rwlock, std::map<int, int>& data) {
 }
 ```
 
-## Performance Comparison
+## 성능 비교
 
 ```cpp
 #include <chrono>
@@ -731,7 +731,7 @@ void benchmark_rwlock(const std::string& name, int num_threads,
     Lock rwlock;
     Map data;
 
-    // Pre-populate
+    // 사전 채우기
     for (int i = 0; i < 1000; ++i) {
         data[i] = i;
     }
@@ -747,11 +747,11 @@ void benchmark_rwlock(const std::string& name, int num_threads,
 
             for (int j = 0; j < 10000; ++j) {
                 if (dis(gen) < read_ratio) {
-                    // Read operation
+                    // 읽기 연산
                     SharedLockGuard guard(rwlock);
                     volatile auto val = data[dis(gen)];
                 } else {
-                    // Write operation
+                    // 쓰기 연산
                     ExclusiveLockGuard guard(rwlock);
                     data[dis(gen)] = j;
                 }
@@ -772,151 +772,151 @@ void benchmark_rwlock(const std::string& name, int num_threads,
 }
 ```
 
-## Common Pitfalls
+## 흔한 함정
 
-### 1. Writer Starvation
+### 1. Writer 기아 현상
 
 ```cpp
-// BAD: Reader-preferred lock with continuous readers
-// Writers may never get access
+// 나쁜 예: 지속적인 reader가 있는 Reader 우선 lock
+// Writer가 영원히 접근하지 못할 수 있음
 
-// GOOD: Use fair or writer-preferred lock
-// Or implement write priority
+// 좋은 예: 공정한 lock 또는 Writer 우선 lock 사용
+// 또는 쓰기 우선 순위 구현
 ```
 
-### 2. Deadlock with Lock Upgrade
+### 2. Lock 업그레이드 시 교착 상태
 
 ```cpp
-// BAD: Try to upgrade from shared to exclusive
+// 나쁜 예: shared에서 exclusive로 업그레이드 시도
 {
     std::shared_lock lock(mutex);
-    // Read data
+    // 데이터 읽기
 
-    // DEADLOCK: Can't upgrade!
+    // 교착 상태: 업그레이드 불가!
     lock.unlock();
-    std::unique_lock ulock(mutex);  // Other readers block this
+    std::unique_lock ulock(mutex);  // 다른 reader가 이것을 차단
 }
 
-// GOOD: Release shared lock first
+// 좋은 예: shared lock을 먼저 해제
 {
     std::shared_lock lock(mutex);
-    // Read data
-}  // Release shared lock
+    // 데이터 읽기
+}  // shared lock 해제
 
 {
     std::unique_lock lock(mutex);
-    // Write data
+    // 데이터 쓰기
 }
 ```
 
-### 3. Excessive Write Locking
+### 3. 과도한 쓰기 잠금
 
 ```cpp
-// BAD: Using write lock for read-modify-write
+// 나쁜 예: read-modify-write에 쓰기 lock 사용
 void increment(int key) {
     std::unique_lock lock(mutex_);
-    data_[key]++;  // Could use atomic or optimistic locking
+    data_[key]++;  // atomic 또는 낙관적 잠금을 사용할 수 있음
 }
 
-// BETTER: Consider lock-free or optimistic approaches
+// 더 나은 예: lock-free 또는 낙관적 접근 방식 고려
 ```
 
-## Real-World Applications
+## 실제 응용 사례
 
-### 1. Configuration Management
+### 1. 설정 관리
 ```cpp
-// Many threads read config, rare updates
+// 많은 thread가 설정을 읽고, 드물게 업데이트
 ConfigManager config;
 auto value = config.get("database.host");  // Shared lock
 config.set("database.host", "new_host");   // Exclusive lock
 ```
 
-### 2. DNS Cache
+### 2. DNS 캐시
 ```cpp
-// Frequent lookups, infrequent updates
+// 빈번한 조회, 드문 업데이트
 DNSCache cache;
 auto ip = cache.resolve("example.com");  // Shared
 cache.update("example.com", "1.2.3.4");  // Exclusive
 ```
 
-### 3. Route Tables (Networking)
+### 3. 라우팅 테이블 (네트워킹)
 ```cpp
-// Packet forwarding reads routes constantly
-// Rare route updates
+// 패킷 포워딩이 라우팅을 지속적으로 읽음
+// 드문 라우팅 업데이트
 RouteTable routes;
 auto next_hop = routes.lookup(dest_ip);  // Shared
 routes.add_route(network, gateway);      // Exclusive
 ```
 
-### 4. In-Memory Databases
+### 4. 인메모리 데이터베이스
 ```cpp
-// Read-heavy OLAP queries
-// Occasional batch updates
+// 읽기 집중 OLAP 쿼리
+// 간헐적인 배치 업데이트
 Database db;
 auto results = db.query("SELECT ...");  // Shared
 db.bulk_insert(data);                   // Exclusive
 ```
 
-## Variants
+## 변형
 
-### 1. Upgradeable Reader-Writer Lock
-Allows upgrading from read to write lock.
+### 1. 업그레이드 가능한 Reader-Writer Lock
+읽기 lock에서 쓰기 lock으로 업그레이드 가능합니다.
 
 ### 2. Sequence Lock (SeqLock)
-Optimistic read lock for small data structures.
+작은 데이터 구조를 위한 낙관적 읽기 lock입니다.
 
 ### 3. RCU (Read-Copy-Update)
-Writers create copies, readers never block.
+Writer가 복사본을 생성하고, reader는 절대 차단되지 않습니다.
 
-## Pros and Cons
+## 장단점
 
-### Pros
-- Excellent read scalability (reads don't block each other)
-- Maintains consistency for writers
-- Better than mutex for read-heavy workloads
-- Standard library support (std::shared_mutex)
+### 장점
+- 뛰어난 읽기 확장성 (읽기가 서로를 차단하지 않음)
+- Writer에 대한 일관성 유지
+- 읽기 집중 워크로드에서 mutex보다 우수
+- 표준 라이브러리 지원 (std::shared_mutex)
 
-### Cons
-- More complex than simple mutex
-- Write operations can be slower than mutex
-- Risk of writer starvation (reader-preferred)
-- Risk of reader starvation (writer-preferred)
-- Overhead not worth it if reads and writes are balanced
+### 단점
+- 단순 mutex보다 복잡
+- 쓰기 연산이 mutex보다 느릴 수 있음
+- Writer 기아 위험 (reader 우선)
+- Reader 기아 위험 (writer 우선)
+- 읽기와 쓰기가 균형을 이루면 오버헤드가 가치 없음
 
-## Best Practices
+## 모범 사례
 
-1. **Use when reads >> writes** (typically >90% reads)
+1. **읽기가 쓰기보다 훨씬 많을 때 사용** (일반적으로 90% 이상 읽기)
 
-2. **Choose fairness policy based on requirements**:
-   - Reader-preferred: Maximum read throughput
-   - Writer-preferred: Prevent writer starvation
-   - Fair: Balanced, but more overhead
+2. **요구 사항에 따라 공정성 정책 선택**:
+   - Reader 우선: 최대 읽기 처리량
+   - Writer 우선: Writer 기아 방지
+   - 공정: 균형적이지만 오버헤드가 더 큼
 
-3. **Keep critical sections small**:
+3. **임계 구역을 작게 유지**:
    ```cpp
-   // Copy data out while holding lock
+   // lock을 보유한 상태에서 데이터를 복사하여 꺼냄
    auto copy = [&] {
        std::shared_lock lock(mutex);
-       return data;  // Copy
+       return data;  // 복사
    }();
 
-   // Process without holding lock
+   // lock을 보유하지 않은 상태에서 처리
    process(copy);
    ```
 
-4. **Consider alternatives for frequent writes**:
-   - Lock-free structures
-   - Partitioned data (reduce contention)
-   - Optimistic concurrency control
+4. **빈번한 쓰기 시 대안 고려**:
+   - Lock-free 구조
+   - 분할된 데이터 (경합 감소)
+   - 낙관적 동시성 제어
 
-5. **Measure performance**: RW locks aren't always faster than mutex
+5. **성능 측정**: RW lock이 항상 mutex보다 빠른 것은 아님
 
-## Summary
+## 요약
 
-Reader-Writer locks are essential for:
-- Read-heavy workloads
-- Shared configuration and caches
-- Maximizing read concurrency
-- Maintaining write consistency
+Reader-Writer lock은 다음에 필수적입니다:
+- 읽기 집중 워크로드
+- 공유 설정 및 캐시
+- 읽기 동시성 극대화
+- 쓰기 일관성 유지
 
-Choose the right variant (reader-preferred, writer-preferred, fair) based on your workload characteristics and fairness requirements.
+워크로드 특성과 공정성 요구 사항에 따라 적절한 변형(reader 우선, writer 우선, 공정)을 선택하십시오.

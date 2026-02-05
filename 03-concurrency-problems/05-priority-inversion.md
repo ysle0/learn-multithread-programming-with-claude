@@ -1,10 +1,10 @@
 # Priority Inversion
 
-## What is Priority Inversion?
+## Priority Inversion이란?
 
-**Priority Inversion** is a situation where a high-priority thread is indirectly blocked by a low-priority thread, violating the priority-based scheduling guarantees. This occurs when a low-priority thread holds a resource that a high-priority thread needs, while a medium-priority thread preempts the low-priority thread, preventing it from releasing the resource.
+**Priority Inversion**은 높은 우선순위의 thread가 낮은 우선순위의 thread에 의해 간접적으로 차단되어, 우선순위 기반 스케줄링 보장을 위반하는 상황입니다. 이는 낮은 우선순위의 thread가 높은 우선순위의 thread가 필요로 하는 자원을 보유하고 있는 상태에서, 중간 우선순위의 thread가 낮은 우선순위의 thread를 선점하여 자원 해제를 방해할 때 발생합니다.
 
-### The Problem in Simple Terms
+### 간단하게 설명하는 문제
 
 ```
 High Priority Thread:    "I need that resource NOW!"
@@ -17,9 +17,9 @@ Medium Priority Thread:  "I'm running instead!"
 Result: High priority waits for medium priority (WRONG!)
 ```
 
-## Visual Representation
+## 시각적 표현
 
-### Priority Inversion Scenario
+### Priority Inversion 시나리오
 
 ```
 Timeline:
@@ -37,7 +37,7 @@ Priority Levels:
            High priority effectively has LOWER priority than medium!
 ```
 
-### Resource Dependency Graph
+### 자원 의존성 그래프
 
 ```
 ┌──────────────┐
@@ -65,13 +65,13 @@ Priority Levels:
 H waits for L, but L can't run → PRIORITY INVERSION
 ```
 
-## The Mars Pathfinder Incident (1997)
+## 화성 패스파인더 사건 (1997)
 
-### Background
+### 배경
 
-The Mars Pathfinder landed on Mars on July 4, 1997. Shortly after landing, the spacecraft began experiencing system resets, causing data loss and mission delays.
+화성 패스파인더는 1997년 7월 4일 화성에 착륙했습니다. 착륙 직후, 우주선은 시스템 리셋이 반복적으로 발생하여 데이터 손실과 임무 지연을 초래했습니다.
 
-### The Problem
+### 문제
 
 ```
 Thread Priorities:
@@ -82,7 +82,7 @@ Thread Priorities:
 Shared Resource: Information Bus (protected by mutex)
 ```
 
-### What Happened
+### 무슨 일이 일어났는가
 
 ```
 Timeline of the Bug:
@@ -105,19 +105,19 @@ Timeline of the Bug:
 Result: Mars Pathfinder kept resetting!
 ```
 
-### The Fix
+### 해결 방법
 
-NASA engineers (with help from VxWorks experts) enabled **priority inheritance** in the VxWorks mutex implementation.
+NASA 엔지니어들은 VxWorks 전문가의 도움을 받아 VxWorks mutex 구현에서 **priority inheritance**를 활성화했습니다.
 
 ```c
-// Before: Normal mutex (no priority inheritance)
+// 수정 전: 일반 mutex (priority inheritance 없음)
 semaphore = semMCreate(SEM_Q_PRIORITY);
 
-// After: Mutex with priority inheritance
+// 수정 후: priority inheritance가 있는 mutex
 semaphore = semMCreate(SEM_Q_PRIORITY | SEM_INVERSION_SAFE);
 ```
 
-**How it helped:**
+**어떻게 도움이 되었는가:**
 ```
 With Priority Inheritance:
 
@@ -138,11 +138,11 @@ With Priority Inheritance:
 Result: NO system resets!
 ```
 
-## Types of Priority Inversion
+## Priority Inversion의 유형
 
-### 1. Bounded Priority Inversion
+### 1. 제한된 Priority Inversion (Bounded)
 
-Duration is limited by the critical section of the low-priority thread.
+지속 시간이 낮은 우선순위 thread의 임계 영역에 의해 제한됩니다.
 
 ```
 Max delay = Length of L's critical section
@@ -152,9 +152,9 @@ Timeline:
   L: ──[CRITICAL]──── (finishes quickly)
 ```
 
-### 2. Unbounded Priority Inversion
+### 2. 비제한 Priority Inversion (Unbounded)
 
-Duration is extended by medium-priority threads.
+지속 시간이 중간 우선순위 thread에 의해 연장됩니다.
 
 ```
 Max delay = Unknown (depends on M's execution time)
@@ -165,9 +165,9 @@ Timeline:
   L: ──[CRITICAL]──[PREEMPTED]────────
 ```
 
-## Code Examples
+## 코드 예제
 
-### Example 1: Demonstrating Priority Inversion
+### 예제 1: Priority Inversion 시연
 
 ```c
 #include <pthread.h>
@@ -184,13 +184,13 @@ void set_thread_priority(int priority) {
 }
 
 void* low_priority_thread(void* arg) {
-    set_thread_priority(1);  // Lowest priority
+    set_thread_priority(1);  // 가장 낮은 우선순위
     printf("[L] Starting\n");
 
     pthread_mutex_lock(&resource);
     printf("[L] Acquired resource\n");
 
-    // Simulate work with resource
+    // 자원을 사용한 작업 시뮬레이션
     printf("[L] Working with resource (5 seconds)...\n");
     sleep(5);
 
@@ -201,12 +201,12 @@ void* low_priority_thread(void* arg) {
 }
 
 void* medium_priority_thread(void* arg) {
-    set_thread_priority(50);  // Medium priority
-    sleep(1);  // Let low priority thread acquire lock first
+    set_thread_priority(50);  // 중간 우선순위
+    sleep(1);  // 낮은 우선순위 thread가 먼저 lock을 획득하도록 대기
 
     printf("[M] Starting - will preempt low priority!\n");
 
-    // Compute-intensive work (no shared resources)
+    // 연산 집약적 작업 (공유 자원 사용 안 함)
     printf("[M] Doing work (prevents low priority from finishing)...\n");
     for (volatile long i = 0; i < 1000000000L; i++);
 
@@ -215,15 +215,15 @@ void* medium_priority_thread(void* arg) {
 }
 
 void* high_priority_thread(void* arg) {
-    set_thread_priority(99);  // Highest priority
-    sleep(2);  // Let low priority acquire lock, medium preempt
+    set_thread_priority(99);  // 가장 높은 우선순위
+    sleep(2);  // 낮은 우선순위가 lock을 획득하고, 중간 우선순위가 선점하도록 대기
 
     printf("[H] Starting - NEED RESOURCE!\n");
 
     pthread_mutex_lock(&resource);
     printf("[H] Finally acquired resource (DELAYED by medium!)\n");
 
-    // Critical work
+    // 중요 작업
     printf("[H] Working\n");
 
     pthread_mutex_unlock(&resource);
@@ -248,11 +248,11 @@ int main() {
     return 0;
 }
 
-// Expected output shows H waiting for M to finish,
-// even though M doesn't use the resource!
+// 예상 출력은 H가 M이 끝나기를 기다리는 것을 보여줍니다.
+// M이 자원을 사용하지 않음에도 불구하고!
 ```
 
-### Example 2: Priority Inheritance Solution
+### 예제 2: Priority Inheritance 해결책
 
 ```c
 #include <pthread.h>
@@ -269,7 +269,7 @@ void pi_mutex_init(PriorityInheritanceMutex* pim) {
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);
 
-    // Enable priority inheritance protocol
+    // Priority inheritance 프로토콜 활성화
     pthread_mutexattr_setprotocol(&attr, PTHREAD_PRIO_INHERIT);
 
     pthread_mutex_init(&pim->mutex, &attr);
@@ -286,22 +286,22 @@ void pi_mutex_lock(PriorityInheritanceMutex* pim) {
     int my_policy;
     pthread_getschedparam(self, &my_policy, &my_param);
 
-    // Try to acquire
+    // 획득 시도
     if (pthread_mutex_trylock(&pim->mutex) == 0) {
-        // Got it immediately
+        // 즉시 획득 성공
         pim->owner = self;
         pim->owner_original_priority = my_param.sched_priority;
         return;
     }
 
-    // Someone else owns it - boost their priority
+    // 다른 thread가 소유 중 - 소유자의 우선순위 상승
     if (pim->owner) {
         struct sched_param owner_param;
         int owner_policy;
         pthread_getschedparam(pim->owner, &owner_policy, &owner_param);
 
         if (my_param.sched_priority > owner_param.sched_priority) {
-            // Boost owner's priority to our level
+            // 소유자의 우선순위를 현재 thread 수준으로 상승
             owner_param.sched_priority = my_param.sched_priority;
             pthread_setschedparam(pim->owner, owner_policy, &owner_param);
 
@@ -310,7 +310,7 @@ void pi_mutex_lock(PriorityInheritanceMutex* pim) {
         }
     }
 
-    // Now wait for lock
+    // lock 대기
     pthread_mutex_lock(&pim->mutex);
     pim->owner = self;
     pim->owner_original_priority = my_param.sched_priority;
@@ -320,7 +320,7 @@ void pi_mutex_unlock(PriorityInheritanceMutex* pim) {
     pthread_t self = pthread_self();
 
     if (pim->owner == self) {
-        // Restore original priority if it was boosted
+        // 우선순위가 상승되었다면 원래 우선순위 복원
         struct sched_param param;
         int policy;
         pthread_getschedparam(self, &policy, &param);
@@ -338,13 +338,13 @@ void pi_mutex_unlock(PriorityInheritanceMutex* pim) {
     pthread_mutex_unlock(&pim->mutex);
 }
 
-// This implementation automatically boosts the priority
-// of the lock holder when a higher priority thread waits
+// 이 구현은 더 높은 우선순위의 thread가 대기할 때
+// lock 보유자의 우선순위를 자동으로 상승시킵니다
 ```
 
-### Example 3: Priority Ceiling Protocol
+### 예제 3: Priority Ceiling 프로토콜
 
-An alternative to priority inheritance.
+Priority inheritance의 대안입니다.
 
 ```c
 #include <pthread.h>
@@ -359,7 +359,7 @@ void pc_mutex_init(PriorityCeilingMutex* pcm, int ceiling) {
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);
 
-    // Set priority ceiling protocol
+    // Priority ceiling 프로토콜 설정
     pthread_mutexattr_setprotocol(&attr, PTHREAD_PRIO_PROTECT);
     pthread_mutexattr_setprioceiling(&attr, ceiling);
 
@@ -370,7 +370,7 @@ void pc_mutex_init(PriorityCeilingMutex* pcm, int ceiling) {
 }
 
 void pc_mutex_lock(PriorityCeilingMutex* pcm) {
-    // Thread automatically runs at ceiling priority while holding lock
+    // lock을 보유하는 동안 thread는 자동으로 ceiling 우선순위로 실행
     pthread_mutex_lock(&pcm->mutex);
 
     printf("Lock acquired - running at ceiling priority %d\n",
@@ -382,13 +382,13 @@ void pc_mutex_unlock(PriorityCeilingMutex* pcm) {
     pthread_mutex_unlock(&pcm->mutex);
 }
 
-// With priority ceiling:
-// - Lock holder always runs at ceiling priority
-// - No medium-priority thread can preempt
-// - Prevents priority inversion entirely!
+// Priority ceiling 사용 시:
+// - Lock 보유자는 항상 ceiling 우선순위로 실행
+// - 중간 우선순위 thread가 선점 불가
+// - Priority inversion을 완전히 방지!
 ```
 
-## Comparison of Solutions
+## 해결책 비교
 
 ### Priority Inheritance
 
@@ -418,7 +418,7 @@ Disadvantages:
   - Less flexible
 ```
 
-### Comparison Table
+### 비교 표
 
 ```
 ┌──────────────────┬──────────────────┬───────────────────┐
@@ -432,16 +432,16 @@ Disadvantages:
 └──────────────────┴──────────────────┴───────────────────┘
 ```
 
-## Real-World Examples
+## 실제 사례
 
-### Example 1: Real-Time Control System
+### 예제 1: 실시간 제어 시스템
 
 ```c
-// Aircraft flight control system
-#define PRIORITY_CRITICAL   99  // Flight controls
-#define PRIORITY_HIGH       80  // Navigation
-#define PRIORITY_MEDIUM     50  // Communications
-#define PRIORITY_LOW        20  // Logging
+// 항공기 비행 제어 시스템
+#define PRIORITY_CRITICAL   99  // 비행 제어
+#define PRIORITY_HIGH       80  // 항법
+#define PRIORITY_MEDIUM     50  // 통신
+#define PRIORITY_LOW        20  // 로깅
 
 pthread_mutex_t sensor_data_mutex;
 
@@ -449,13 +449,13 @@ void* critical_flight_control(void* arg) {
     set_priority(PRIORITY_CRITICAL);
 
     while (1) {
-        // MUST run every 10ms
+        // 반드시 10ms마다 실행되어야 함
         pthread_mutex_lock(&sensor_data_mutex);
         read_sensors();
         update_flight_controls();
         pthread_mutex_unlock(&sensor_data_mutex);
 
-        usleep(10000);  // 10ms period
+        usleep(10000);  // 10ms 주기
     }
 }
 
@@ -463,7 +463,7 @@ void* medium_comms_task(void* arg) {
     set_priority(PRIORITY_MEDIUM);
 
     while (1) {
-        // Shouldn't delay critical tasks!
+        // 중요 태스크를 지연시키면 안 됨!
         send_telemetry();
         sleep(1);
     }
@@ -474,30 +474,30 @@ void* low_logging_task(void* arg) {
 
     while (1) {
         pthread_mutex_lock(&sensor_data_mutex);
-        log_sensor_data();  // If this is preempted...
+        log_sensor_data();  // 이것이 선점되면...
         pthread_mutex_unlock(&sensor_data_mutex);
 
         sleep(1);
     }
 }
 
-// Without priority inheritance:
-// - Logging locks sensor_data_mutex
-// - Comms task preempts logging
-// - Flight control MISSES DEADLINE!
-// Result: CATASTROPHIC
+// Priority inheritance 없이:
+// - 로깅이 sensor_data_mutex를 lock
+// - 통신 태스크가 로깅을 선점
+// - 비행 제어가 데드라인을 놓침!
+// 결과: 치명적
 
-// With priority inheritance:
-// - Logging boosted to CRITICAL while holding lock
-// - Comms cannot preempt
-// - Flight control meets deadline
-// Result: SAFE
+// Priority inheritance 사용 시:
+// - lock을 보유하는 동안 로깅이 CRITICAL로 상승
+// - 통신이 선점 불가
+// - 비행 제어가 데드라인 충족
+// 결과: 안전
 ```
 
-### Example 2: Industrial Robot Control
+### 예제 2: 산업용 로봇 제어
 
 ```c
-// Robot with multiple control loops
+// 다중 제어 루프를 가진 로봇
 typedef struct {
     PriorityInheritanceMutex position_mutex;
     double x, y, z;
@@ -506,61 +506,61 @@ typedef struct {
 RobotPosition robot_pos;
 
 void* servo_control(void* arg) {
-    // Runs at 1kHz - MUST be fast
+    // 1kHz로 실행 - 반드시 빨라야 함
     set_priority(PRIORITY_REALTIME);
 
     while (1) {
         pi_mutex_lock(&robot_pos.position_mutex);
 
-        // Update servo positions
+        // 서보 위치 업데이트
         update_servos(robot_pos.x, robot_pos.y, robot_pos.z);
 
         pi_mutex_unlock(&robot_pos.position_mutex);
 
-        usleep(1000);  // 1ms period
+        usleep(1000);  // 1ms 주기
     }
 }
 
 void* path_planning(void* arg) {
-    // Medium priority
+    // 중간 우선순위
     set_priority(PRIORITY_NORMAL);
 
     while (1) {
-        // Compute next position
+        // 다음 위치 계산
         calculate_path();
-        usleep(10000);  // 10ms period
+        usleep(10000);  // 10ms 주기
     }
 }
 
 void* ui_update(void* arg) {
-    // Low priority
+    // 낮은 우선순위
     set_priority(PRIORITY_LOW);
 
     while (1) {
         pi_mutex_lock(&robot_pos.position_mutex);
 
-        // Update display
+        // 디스플레이 업데이트
         display_position(robot_pos.x, robot_pos.y, robot_pos.z);
 
         pi_mutex_unlock(&robot_pos.position_mutex);
 
-        usleep(100000);  // 100ms period
+        usleep(100000);  // 100ms 주기
     }
 }
 
-// Priority inheritance ensures:
-// - UI never delays servo control
-// - System remains responsive
-// - Real-time deadlines are met
+// Priority inheritance가 보장하는 것:
+// - UI가 서보 제어를 절대 지연시키지 않음
+// - 시스템이 응답성을 유지
+// - 실시간 데드라인 충족
 ```
 
-### Example 3: Medical Device
+### 예제 3: 의료 기기
 
 ```c
-// Insulin pump controller
-#define PRIORITY_SAFETY      99  // Safety monitoring
-#define PRIORITY_DELIVERY    80  // Insulin delivery
-#define PRIORITY_UI          20  // User interface
+// 인슐린 펌프 컨트롤러
+#define PRIORITY_SAFETY      99  // 안전 모니터링
+#define PRIORITY_DELIVERY    80  // 인슐린 전달
+#define PRIORITY_UI          20  // 사용자 인터페이스
 
 pthread_mutex_t dose_calculation_mutex;
 
@@ -570,14 +570,14 @@ void* safety_monitor(void* arg) {
     while (1) {
         pthread_mutex_lock(&dose_calculation_mutex);
 
-        // Check for unsafe conditions
+        // 안전하지 않은 조건 확인
         if (blood_glucose_too_low() || pump_malfunction()) {
             emergency_stop();
         }
 
         pthread_mutex_unlock(&dose_calculation_mutex);
 
-        usleep(100000);  // Check every 100ms
+        usleep(100000);  // 100ms마다 확인
     }
 }
 
@@ -589,7 +589,7 @@ void* insulin_delivery(void* arg) {
         calculate_and_deliver_dose();
         pthread_mutex_unlock(&dose_calculation_mutex);
 
-        sleep(5);  // Every 5 minutes
+        sleep(5);  // 5분마다
     }
 }
 
@@ -601,12 +601,12 @@ void* user_interface(void* arg) {
         update_display();
         pthread_mutex_unlock(&dose_calculation_mutex);
 
-        usleep(500000);  // Update every 500ms
+        usleep(500000);  // 500ms마다 업데이트
     }
 }
 
-// CRITICAL: UI must not delay safety monitoring
-// Priority inheritance is ESSENTIAL for patient safety
+// 중요: UI가 안전 모니터링을 지연시키면 안 됨
+// Priority inheritance는 환자 안전에 필수적
 ```
 
 ## Internal Mechanisms
@@ -970,9 +970,9 @@ SEM_ID dataSem = semMCreate(SEM_Q_PRIORITY | SEM_INVERSION_SAFE);
 // - Watchdog timeout 발생 안 함
 ```
 
-## Detection and Analysis
+## 탐지 및 분석
 
-### 1. Timeline Analysis
+### 1. 타임라인 분석
 
 ```c
 #include <time.h>
@@ -991,11 +991,11 @@ int num_events = 0;
 
 void analyze_priority_inversion() {
     for (int i = 0; i < num_events - 1; i++) {
-        // Find cases where high priority blocks on low priority
+        // 높은 우선순위가 낮은 우선순위에 의해 차단되는 경우 탐색
         if (events[i].priority > events[i+1].priority &&
             events[i].block_time.tv_sec > 0) {
 
-            // Calculate blocking time
+            // 차단 시간 계산
             long block_duration =
                 (events[i+1].lock_time.tv_sec - events[i].block_time.tv_sec);
 
@@ -1009,22 +1009,22 @@ void analyze_priority_inversion() {
 }
 ```
 
-### 2. Runtime Monitoring
+### 2. 런타임 모니터링
 
 ```c
 void monitor_mutex_operations() {
-    // Hook into mutex lock/unlock
-    // Track:
-    // - Who holds lock
-    // - Who is waiting
-    // - Priorities of all involved threads
+    // mutex lock/unlock에 대한 hook
+    // 추적 항목:
+    // - lock을 보유하고 있는 thread
+    // - 대기 중인 thread
+    // - 관련된 모든 thread의 우선순위
 
     if (waiting_priority > holder_priority) {
         printf("WARNING: Priority inversion detected!\n");
         printf("  Holder: priority %d\n", holder_priority);
         printf("  Waiter: priority %d\n", waiting_priority);
 
-        // Check if holder can run
+        // 보유자가 실행 가능한지 확인
         for (each runnable thread) {
             if (thread_priority > holder_priority &&
                 thread_priority < waiting_priority) {
@@ -1036,67 +1036,67 @@ void monitor_mutex_operations() {
 }
 ```
 
-## Prevention Strategies
+## 예방 전략
 
-### Strategy 1: Avoid Shared Resources in RT Code
+### 전략 1: 실시간 코드에서 공유 자원 회피
 
 ```c
-// GOOD: High-priority threads don't share resources
+// 좋은 예: 높은 우선순위 thread가 자원을 공유하지 않음
 void* realtime_thread(void* arg) {
-    // Use lock-free algorithms
+    // Lock-free 알고리즘 사용
     atomic_int* shared_data = get_shared_data();
     atomic_store(shared_data, new_value);
 
-    // No locks → No priority inversion!
+    // Lock 없음 → Priority inversion 없음!
 }
 ```
 
-### Strategy 2: Use Priority Inheritance
+### 전략 2: Priority Inheritance 사용
 
 ```c
-// Enable for all real-time mutexes
+// 모든 실시간 mutex에 대해 활성화
 pthread_mutexattr_t attr;
 pthread_mutexattr_init(&attr);
 pthread_mutexattr_setprotocol(&attr, PTHREAD_PRIO_INHERIT);
 pthread_mutex_init(&mutex, &attr);
 ```
 
-### Strategy 3: Minimize Critical Sections
+### 전략 3: 임계 영역 최소화
 
 ```c
-// BAD: Long critical section
+// 나쁜 예: 긴 임계 영역
 pthread_mutex_lock(&mutex);
-complex_computation();      // Can be preempted!
+complex_computation();      // 선점될 수 있음!
 access_shared_data();
 more_computation();
 pthread_mutex_unlock(&mutex);
 
-// GOOD: Minimal critical section
-complex_computation();      // Do outside lock
+// 좋은 예: 최소한의 임계 영역
+complex_computation();      // lock 외부에서 수행
 pthread_mutex_lock(&mutex);
-access_shared_data();       // Only shared access in lock
+access_shared_data();       // 공유 접근만 lock 내부에서
 pthread_mutex_unlock(&mutex);
 more_computation();
 ```
 
-### Strategy 4: Use Disabling Interrupts (Embedded Systems)
+### 전략 4: 인터럽트 비활성화 사용 (임베디드 시스템)
 
 ```c
-// For very short critical sections in embedded systems
+// 임베디드 시스템의 매우 짧은 임계 영역에 사용
 void critical_operation() {
     disable_interrupts();
-    // Very short operation
+    // 매우 짧은 작업
     access_hardware_register();
     enable_interrupts();
 }
 
-// Note: Only for very short sections!
-// Can't be preempted → No priority inversion
+// 주의: 매우 짧은 구간에만 사용!
+// 선점 불가 → Priority inversion 없음
 ```
 
-## Testing for Priority Inversion
+## Priority Inversion 테스트
 
-### Test Case Template
+### 테스트 케이스 템플릿
 
 ```c
 #include <pthread.h>
@@ -1107,18 +1107,18 @@ void test_priority_inversion() {
     pthread_t low, medium, high;
     struct timespec start, end;
 
-    // Create threads with priorities: L=1, M=50, H=99
-    // Low locks resource
-    // Medium does work (no resource)
-    // High waits for resource
+    // 우선순위가 L=1, M=50, H=99인 thread 생성
+    // Low가 자원을 lock
+    // Medium이 작업 수행 (자원 미사용)
+    // High가 자원 대기
 
     clock_gettime(CLOCK_MONOTONIC, &start);
 
     pthread_create(&low, NULL, low_priority, NULL);
-    usleep(100000);  // Let low acquire lock
+    usleep(100000);  // Low가 lock을 획득하도록 대기
 
     pthread_create(&medium, NULL, medium_priority, NULL);
-    usleep(100000);  // Let medium preempt
+    usleep(100000);  // Medium이 선점하도록 대기
 
     pthread_create(&high, NULL, high_priority, NULL);
 
@@ -1128,8 +1128,8 @@ void test_priority_inversion() {
     long duration = (end.tv_sec - start.tv_sec) * 1000000000L +
                    (end.tv_nsec - start.tv_nsec);
 
-    // Without priority inheritance: duration >> expected
-    // With priority inheritance: duration ~= expected
+    // Priority inheritance 없이: duration >> 예상값
+    // Priority inheritance 사용 시: duration ~= 예상값
 
     printf("High-priority thread completed in %ld ns\n", duration);
 
@@ -1138,63 +1138,63 @@ void test_priority_inversion() {
 }
 ```
 
-## Best Practices
+## 모범 사례
 
-### For Real-Time Systems:
+### 실시간 시스템의 경우:
 
-1. **Always use priority inheritance** for mutexes in RT code
-2. **Minimize critical sections** as much as possible
-3. **Avoid blocking** in high-priority threads if possible
-4. **Use lock-free algorithms** when appropriate
-5. **Test thoroughly** under worst-case scenarios
-6. **Monitor for inversions** in production systems
+1. **실시간 코드의 mutex에는 항상 priority inheritance를 사용**하세요
+2. **임계 영역을 가능한 한 최소화**하세요
+3. 가능하면 **높은 우선순위 thread에서 blocking을 회피**하세요
+4. 적절한 경우 **lock-free 알고리즘을 사용**하세요
+5. 최악의 시나리오에서 **철저히 테스트**하세요
+6. 운영 시스템에서 **inversion을 모니터링**하세요
 
-### For General Systems:
+### 일반 시스템의 경우:
 
-1. **Document priority assumptions** clearly
-2. **Use appropriate protocols** (inheritance or ceiling)
-3. **Review critical paths** in code
-4. **Profile and measure** actual behavior
-5. **Consider alternatives** to priority-based scheduling
+1. **우선순위 가정을 명확히 문서화**하세요
+2. **적절한 프로토콜** (inheritance 또는 ceiling)을 사용하세요
+3. 코드의 **중요 경로를 검토**하세요
+4. 실제 동작을 **프로파일링하고 측정**하세요
+5. 우선순위 기반 스케줄링의 **대안을 고려**하세요
 
-## Summary
+## 요약
 
-**Priority Inversion** occurs when:
-- High-priority thread waits for low-priority thread
-- Medium-priority thread prevents low-priority from running
-- High-priority effectively has lower priority than medium
+**Priority Inversion**은 다음과 같은 경우에 발생합니다:
+- 높은 우선순위 thread가 낮은 우선순위 thread를 기다림
+- 중간 우선순위 thread가 낮은 우선순위 thread의 실행을 방해
+- 높은 우선순위가 사실상 중간 우선순위보다 낮은 우선순위를 가짐
 
-**Famous Example**: Mars Pathfinder (1997)
+**유명한 사례**: 화성 패스파인더 (1997)
 
-**Solutions**:
-1. **Priority Inheritance**: Boost low-priority when high-priority waits
-2. **Priority Ceiling**: Always run at highest possible priority
-3. **Avoid Sharing**: Use lock-free data structures
-4. **Minimize Locks**: Reduce critical section duration
+**해결책**:
+1. **Priority Inheritance**: 높은 우선순위가 대기할 때 낮은 우선순위를 상승
+2. **Priority Ceiling**: 항상 가능한 가장 높은 우선순위로 실행
+3. **공유 회피**: Lock-free 자료 구조 사용
+4. **Lock 최소화**: 임계 영역 지속 시간 단축
 
-**Critical for**:
-- Real-time systems
-- Safety-critical applications
-- Embedded systems
-- Any priority-scheduled system
+**다음과 같은 분야에서 중요**:
+- 실시간 시스템
+- 안전 필수 애플리케이션
+- 임베디드 시스템
+- 모든 우선순위 스케줄링 기반 시스템
 
-## Further Reading
+## 추가 읽기
 
 - "What Really Happened on Mars?" - Glenn Reeves (JPL)
 - "Priority Inheritance Protocols" - Sha, Rajkumar, Lehoczky (1990)
 - "Real-Time Systems" - Jane W. S. Liu
 - VxWorks documentation on priority inversion
 
-## Conclusion
+## 결론
 
-Priority inversion is a critical problem in real-time systems that can cause:
-- Missed deadlines
-- System instability
-- Safety violations
-- Mission failures (literally, as in Mars!)
+Priority inversion은 실시간 시스템에서 다음을 초래할 수 있는 치명적인 문제입니다:
+- 데드라인 미충족
+- 시스템 불안정
+- 안전 위반
+- 임무 실패 (화성에서처럼, 말 그대로!)
 
-Understanding and preventing priority inversion is essential for any system where timing guarantees matter.
+타이밍 보장이 중요한 모든 시스템에서 priority inversion을 이해하고 예방하는 것은 필수적입니다.
 
 ---
 
-**Congratulations!** You've completed the concurrency problems section. You now understand the five major concurrency problems and how to detect, prevent, and solve them. Continue to **04-synchronization-primitives/** to learn the tools for building correct concurrent programs.
+**축하합니다!** 동시성 문제 섹션을 완료했습니다. 이제 다섯 가지 주요 동시성 문제와 이를 탐지하고, 예방하고, 해결하는 방법을 이해하게 되었습니다. 올바른 동시성 프로그램을 구축하기 위한 도구를 배우려면 **04-synchronization-primitives/**로 계속 진행하세요.

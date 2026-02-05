@@ -1,19 +1,19 @@
 # Actor Model
 
-## Overview
+## 개요
 
-The Actor Model is a concurrency paradigm where independent "actors" communicate exclusively through asynchronous message passing. Each actor has its own private state and mailbox, processing messages sequentially. This eliminates shared mutable state and makes concurrent programming more manageable and scalable.
+Actor Model은 독립적인 "actor"들이 비동기 message passing을 통해서만 통신하는 동시성 패러다임입니다. 각 actor는 자체적인 private state와 mailbox를 가지며, message를 순차적으로 처리합니다. 이를 통해 공유 가변 상태를 제거하고 동시성 프로그래밍을 더 관리하기 쉽고 확장 가능하게 만듭니다.
 
-## Problem Statement
+## 문제 정의
 
-Traditional shared-memory concurrency has fundamental challenges:
-- Shared mutable state leads to race conditions
-- Locks cause deadlocks and reduce scalability
-- Difficult to reason about complex thread interactions
-- Hard to distribute across machines
-- Callback hell in asynchronous code
+전통적인 공유 메모리 동시성에는 근본적인 문제들이 있습니다:
+- 공유 가변 상태는 경쟁 조건(race condition)을 유발합니다
+- Lock은 deadlock을 일으키고 확장성을 저하시킵니다
+- 복잡한 스레드 상호작용을 추론하기 어렵습니다
+- 여러 머신에 걸쳐 분산하기 어렵습니다
+- 비동기 코드에서의 콜백 지옥(callback hell)
 
-## Solution Architecture
+## 솔루션 아키텍처
 
 ```
 ┌─────────────┐         ┌─────────────┐         ┌─────────────┐
@@ -32,16 +32,16 @@ Traditional shared-memory concurrency has fundamental challenges:
        │   send(msg)          │   send(msg)          │
        └──────────────────────┴───────────────────────┘
 
-Key Principles:
-1. No shared state between actors
-2. Asynchronous message passing only
-3. Each actor processes messages sequentially
-4. Location transparency (local or remote)
+핵심 원칙:
+1. Actor 간 공유 상태 없음
+2. 비동기 message passing만 사용
+3. 각 actor는 message를 순차적으로 처리
+4. 위치 투명성 (로컬 또는 원격)
 ```
 
-## Basic Implementation (C++)
+## 기본 구현 (C++)
 
-### Core Actor Framework
+### 핵심 Actor 프레임워크
 
 ```cpp
 #include <memory>
@@ -54,15 +54,15 @@ Key Principles:
 #include <any>
 #include <optional>
 
-// Base message type
+// 기본 message 타입
 struct Message {
     virtual ~Message() = default;
 };
 
-// Actor address (unique identifier)
+// Actor 주소 (고유 식별자)
 using ActorId = size_t;
 
-// Actor reference for sending messages
+// Message 전송을 위한 actor 참조
 class ActorRef {
 private:
     ActorId id_;
@@ -77,7 +77,7 @@ public:
     ActorId id() const { return id_; }
 };
 
-// Base Actor class
+// 기본 Actor 클래스
 class Actor {
 protected:
     ActorId id_;
@@ -93,10 +93,10 @@ public:
 
     virtual ~Actor() = default;
 
-    // Override to handle messages
+    // Message 처리를 위해 오버라이드
     virtual void receive(std::shared_ptr<Message> msg) = 0;
 
-    // Actor's message processing loop
+    // Actor의 message 처리 루프
     void run() {
         while (!stopped_.load()) {
             std::shared_ptr<Message> msg;
@@ -121,7 +121,7 @@ public:
             try {
                 receive(msg);
             } catch (const std::exception& e) {
-                // Handle exception (could send to supervisor)
+                // 예외 처리 (supervisor에게 전송 가능)
                 std::cerr << "Actor " << id_ << " error: " << e.what() << "\n";
             }
         }
@@ -143,7 +143,7 @@ public:
     ActorId id() const { return id_; }
 };
 
-// Actor System (manages actor lifecycle)
+// Actor System (actor 생명주기 관리)
 class ActorSystem {
 private:
     std::unordered_map<ActorId, std::unique_ptr<Actor>> actors_;
@@ -194,12 +194,12 @@ public:
     void shutdown() {
         std::unique_lock<std::mutex> lock(system_mutex_);
 
-        // Stop all actors
+        // 모든 actor 중지
         for (auto& [id, actor] : actors_) {
             actor->stop();
         }
 
-        // Wait for all threads
+        // 모든 스레드 대기
         auto threads = std::move(threads_);
         lock.unlock();
 
@@ -214,17 +214,17 @@ public:
     }
 };
 
-// ActorRef implementation
+// ActorRef 구현
 template<typename MsgType>
 void ActorRef::send(const MsgType& msg) const {
     system_->send(id_, std::make_shared<MsgType>(msg));
 }
 ```
 
-### Example: Bank Account Actor
+### 예제: 은행 계좌 Actor
 
 ```cpp
-// Messages
+// Message 정의
 struct Deposit : Message {
     double amount;
     Deposit(double amt) : amount(amt) {}
@@ -252,7 +252,7 @@ struct Balance : Message {
     Balance(double amt) : amount(amt) {}
 };
 
-// Bank Account Actor
+// 은행 계좌 Actor
 class BankAccountActor : public Actor {
 private:
     double balance_;
@@ -290,7 +290,7 @@ public:
     }
 };
 
-// Response handler actor
+// 응답 처리 actor
 class ResponseHandlerActor : public Actor {
 public:
     ResponseHandlerActor(ActorId id, ActorSystem* system)
@@ -310,34 +310,34 @@ public:
 int main() {
     ActorSystem system;
 
-    // Create actors
+    // Actor 생성
     auto account = system.spawn<BankAccountActor>(1000.0);
     auto handler = system.spawn<ResponseHandlerActor>();
 
-    // Send messages
+    // Message 전송
     account.send(Deposit(500.0));
     account.send(Withdraw(200.0, handler));
-    account.send(Withdraw(2000.0, handler));  // Should fail
+    account.send(Withdraw(2000.0, handler));  // 실패해야 함
     account.send(GetBalance(handler));
 
-    // Let actors process messages
+    // Actor들이 message를 처리할 시간을 줌
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
     return 0;
 }
 ```
 
-## Advanced Patterns
+## 고급 패턴
 
-### Supervision and Fault Tolerance
+### Supervision과 장애 허용(Fault Tolerance)
 
 ```cpp
-// Supervision strategies
+// Supervision 전략
 enum class SupervisionStrategy {
-    RESTART,      // Restart failed actor
-    STOP,         // Stop failed actor
-    ESCALATE,     // Escalate to parent supervisor
-    RESUME        // Resume actor (ignore error)
+    RESTART,      // 실패한 actor 재시작
+    STOP,         // 실패한 actor 중지
+    ESCALATE,     // 부모 supervisor에게 에스컬레이션
+    RESUME        // Actor 재개 (오류 무시)
 };
 
 struct ActorFailed : Message {
@@ -371,7 +371,7 @@ private:
         switch (strategy_) {
             case SupervisionStrategy::RESTART:
                 std::cout << "Restarting actor " << failed_id << "\n";
-                // Restart logic
+                // 재시작 로직
                 break;
 
             case SupervisionStrategy::STOP:
@@ -380,18 +380,18 @@ private:
                 break;
 
             case SupervisionStrategy::ESCALATE:
-                // Report to parent supervisor
+                // 부모 supervisor에게 보고
                 break;
 
             case SupervisionStrategy::RESUME:
-                // Do nothing
+                // 아무것도 하지 않음
                 break;
         }
     }
 };
 ```
 
-### Request-Response Pattern
+### Request-Response 패턴
 
 ```cpp
 #include <future>
@@ -412,22 +412,22 @@ public:
     void receive(std::shared_ptr<Message> msg) override {
         if (auto response = std::dynamic_pointer_cast<ResponseType>(msg)) {
             promise_.set_value(*response);
-            stop();  // One-shot actor
+            stop();  // 일회성 actor
         }
     }
 };
 
-// Usage: Request-response with future
+// 사용법: future를 이용한 request-response
 auto future_actor = system.spawn<FutureActor<Balance>>();
 auto future = future_actor.get_future();
 
 account.send(GetBalance(future_actor));
 
-auto balance = future.get();  // Blocks until response
+auto balance = future.get();  // 응답이 올 때까지 블로킹
 std::cout << "Balance: $" << balance.amount << "\n";
 ```
 
-### Router Pattern (Load Balancing)
+### Router 패턴 (부하 분산)
 
 ```cpp
 struct WorkItem : Message {
@@ -447,7 +447,7 @@ public:
 
     void receive(std::shared_ptr<Message> msg) override {
         if (auto work = std::dynamic_pointer_cast<WorkItem>(msg)) {
-            // Round-robin routing
+            // 라운드 로빈 라우팅
             workers_[next_worker_].send(*work);
             next_worker_ = (next_worker_ + 1) % workers_.size();
         }
@@ -466,26 +466,26 @@ public:
         if (auto work = std::dynamic_pointer_cast<WorkItem>(msg)) {
             std::cout << "Worker " << id_ << " processing item "
                       << work->id << "\n";
-            // Process work...
+            // 작업 처리...
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     }
 };
 
-// Create router with workers
+// Worker들로 router 생성
 std::vector<ActorRef> workers;
 for (int i = 0; i < 4; ++i) {
     workers.push_back(system.spawn<WorkerActor>(i));
 }
 auto router = system.spawn<RouterActor>(workers);
 
-// Send work to router
+// Router에 작업 전송
 for (int i = 0; i < 20; ++i) {
     router.send(WorkItem(i, "data_" + std::to_string(i)));
 }
 ```
 
-## Actor Coordination Patterns
+## Actor 조정 패턴
 
 ### Scatter-Gather
 
@@ -541,7 +541,7 @@ public:
         : Actor(id, system), order_id_(order_id) {}
 
     void receive(std::shared_ptr<Message> msg) override {
-        // Handle messages based on current state
+        // 현재 상태에 따라 message 처리
         switch (state_) {
             case State::PENDING:
                 handle_pending(msg);
@@ -560,36 +560,36 @@ public:
 
 private:
     void handle_pending(std::shared_ptr<Message> msg) {
-        // Transition to PROCESSING
+        // PROCESSING으로 전환
         state_ = State::PROCESSING;
     }
 
     void handle_processing(std::shared_ptr<Message> msg) {
-        // Transition to SHIPPED
+        // SHIPPED로 전환
         state_ = State::SHIPPED;
     }
 
     void handle_shipped(std::shared_ptr<Message> msg) {
-        // Transition to DELIVERED
+        // DELIVERED로 전환
         state_ = State::DELIVERED;
     }
 
     void handle_delivered(std::shared_ptr<Message> msg) {
-        // Final state
+        // 최종 상태
     }
 };
 ```
 
-## Performance Considerations
+## 성능 고려사항
 
-### Message Batching
+### Message 배치 처리
 
 ```cpp
 struct BatchMessage : Message {
     std::vector<std::shared_ptr<Message>> messages;
 };
 
-// Process multiple messages at once to reduce overhead
+// 오버헤드를 줄이기 위해 여러 message를 한 번에 처리
 void receive(std::shared_ptr<Message> msg) override {
     if (auto batch = std::dynamic_pointer_cast<BatchMessage>(msg)) {
         for (auto& m : batch->messages) {
@@ -599,7 +599,7 @@ void receive(std::shared_ptr<Message> msg) override {
 }
 ```
 
-### Mailbox Size Limits
+### Mailbox 크기 제한
 
 ```cpp
 class BoundedMailboxActor : public Actor {
@@ -611,7 +611,7 @@ public:
         std::lock_guard<std::mutex> lock(mailbox_mutex_);
 
         if (mailbox_.size() >= MAX_MAILBOX_SIZE) {
-            return false;  // Mailbox full, apply backpressure
+            return false;  // Mailbox가 가득 참, 배압(backpressure) 적용
         }
 
         mailbox_.push(msg);
@@ -621,57 +621,57 @@ public:
 };
 ```
 
-## Real-World Applications
+## 실제 활용 사례
 
 ### 1. Erlang/OTP
-The original and most successful actor model implementation.
+최초이자 가장 성공적인 actor model 구현체입니다.
 
 ### 2. Akka (JVM)
-Popular actor framework for Java/Scala applications.
+Java/Scala 애플리케이션을 위한 인기 있는 actor 프레임워크입니다.
 
 ### 3. Orleans (.NET)
-Virtual actor framework from Microsoft.
+Microsoft의 가상 actor 프레임워크입니다.
 
-### 4. Distributed Systems
+### 4. 분산 시스템
 ```
 Actor 1 (Server A) --network--> Actor 2 (Server B)
 ```
 
-### 5. Game Servers
+### 5. 게임 서버
 ```
 Player Actor <--> NPC Actor <--> World Actor
 ```
 
-### 6. Chat Systems
+### 6. 채팅 시스템
 ```
 User Actor <--> Room Actor <--> Message Actor
 ```
 
-## Pros and Cons
+## 장점과 단점
 
-### Pros
-- No shared mutable state (eliminates many bugs)
-- Natural fit for distributed systems
-- Location transparency
-- Easy to reason about (single-threaded semantics per actor)
-- Built-in fault tolerance with supervision
-- Scales well (message passing)
+### 장점
+- 공유 가변 상태가 없음 (많은 버그를 제거)
+- 분산 시스템에 자연스러운 적합성
+- 위치 투명성
+- 추론이 쉬움 (actor당 단일 스레드 의미론)
+- Supervision을 통한 내장 장애 허용
+- 우수한 확장성 (message passing)
 
-### Cons
-- Learning curve (different programming model)
-- Message passing overhead
-- Debugging can be challenging
-- Not suitable for all problems
-- Memory overhead per actor
-- Potential for message queue buildup
+### 단점
+- 학습 곡선 (다른 프로그래밍 모델)
+- Message passing 오버헤드
+- 디버깅이 어려울 수 있음
+- 모든 문제에 적합하지 않음
+- Actor당 메모리 오버헤드
+- Message 큐 누적 가능성
 
-## Best Practices
+## 모범 사례
 
-1. **Keep actors small and focused**:
-   - Single responsibility
-   - Minimal state
+1. **Actor를 작고 집중적으로 유지하기**:
+   - 단일 책임
+   - 최소한의 상태
 
-2. **Make messages immutable**:
+2. **Message를 불변으로 만들기**:
    ```cpp
    struct ImmutableMessage : Message {
        const std::string data;
@@ -679,7 +679,7 @@ User Actor <--> Room Actor <--> Message Actor
    };
    ```
 
-3. **Use supervision trees**:
+3. **Supervision 트리 사용하기**:
    ```
    Supervisor
    ├── Worker 1
@@ -687,50 +687,50 @@ User Actor <--> Room Actor <--> Message Actor
    └── Worker 3
    ```
 
-4. **Design for failure**:
-   - Actors should be restartable
-   - Separate persistent state from actor state
+4. **장애를 고려한 설계**:
+   - Actor는 재시작 가능해야 함
+   - 영속적 상태와 actor 상태를 분리
 
-5. **Avoid blocking operations**:
-   - Don't block waiting for responses
-   - Use async I/O
+5. **블로킹 작업 피하기**:
+   - 응답을 기다리며 블로킹하지 않기
+   - 비동기 I/O 사용
 
-6. **Monitor mailbox sizes**:
-   - Apply backpressure when needed
-   - Prevent memory exhaustion
+6. **Mailbox 크기 모니터링**:
+   - 필요 시 배압(backpressure) 적용
+   - 메모리 고갈 방지
 
-## Testing Strategies
+## 테스트 전략
 
-### Unit Testing
+### 단위 테스트
 ```cpp
-// Test actor in isolation
+// Actor를 격리하여 테스트
 BankAccountActor actor(1, &system, 100.0);
 actor.receive(std::make_shared<Deposit>(50.0));
-// Verify state
+// 상태 검증
 ```
 
-### Integration Testing
+### 통합 테스트
 ```cpp
-// Test actor interactions
+// Actor 간 상호작용 테스트
 auto sender = system.spawn<SenderActor>();
 auto receiver = system.spawn<ReceiverActor>();
 sender.send(SendTo(receiver));
-// Verify message received
+// Message 수신 검증
 ```
 
-### Chaos Testing
+### 카오스 테스트
 ```cpp
-// Random actor failures
-// Message loss
-// Out-of-order delivery
+// 무작위 actor 장애
+// Message 손실
+// 순서가 바뀐 전달
 ```
 
-## Summary
+## 요약
 
-The Actor Model is ideal for:
-- Distributed systems
-- High-concurrency applications
-- Systems requiring fault tolerance
-- Applications with complex state machines
+Actor Model은 다음과 같은 경우에 이상적입니다:
+- 분산 시스템
+- 높은 동시성 애플리케이션
+- 장애 허용이 필요한 시스템
+- 복잡한 상태 머신이 있는 애플리케이션
 
-It provides a fundamentally different approach to concurrency that eliminates shared state and makes concurrent programming more manageable at scale.
+Actor Model은 공유 상태를 제거하고 대규모 동시성 프로그래밍을 더 관리하기 쉽게 만드는 근본적으로 다른 동시성 접근 방식을 제공합니다.

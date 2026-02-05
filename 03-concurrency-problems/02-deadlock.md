@@ -1,21 +1,21 @@
 # Deadlock
 
-## What is Deadlock?
+## Deadlock이란?
 
-**Deadlock** is a situation where two or more threads are blocked forever, each waiting for resources held by the others. It's a circular waiting condition where no thread can make progress, resulting in a permanent standstill.
+**Deadlock**은 두 개 이상의 thread가 서로가 보유한 자원을 기다리면서 영원히 차단되는 상황입니다. 어떤 thread도 진행할 수 없는 순환 대기 조건으로, 영구적인 교착 상태를 초래합니다.
 
-### Formal Definition
+### 공식적 정의
 
-A deadlock occurs when ALL of the following four conditions hold simultaneously (Coffman conditions):
+Deadlock은 다음 네 가지 조건(Coffman 조건)이 동시에 모두 충족될 때 발생합니다:
 
-1. **Mutual Exclusion**: Resources cannot be shared
-2. **Hold and Wait**: Threads hold resources while waiting for others
-3. **No Preemption**: Resources cannot be forcibly taken away
-4. **Circular Wait**: A circular chain of threads waiting for resources
+1. **상호 배제(Mutual Exclusion)**: 자원을 공유할 수 없음
+2. **점유 및 대기(Hold and Wait)**: Thread가 자원을 보유한 채 다른 자원을 기다림
+3. **비선점(No Preemption)**: 자원을 강제로 빼앗을 수 없음
+4. **순환 대기(Circular Wait)**: Thread 간 자원 대기의 순환 고리가 존재
 
-## Visual Representation
+## 시각적 표현
 
-### Simple Two-Thread Deadlock
+### 간단한 두 Thread Deadlock
 
 ```
 Thread 1                          Thread 2
@@ -38,7 +38,7 @@ Lock(Mutex A) ✓                   Lock(Mutex B) ✓
         Circular dependency = Deadlock
 ```
 
-### Resource Allocation Graph
+### 자원 할당 그래프
 
 ```
          P1 (Thread 1)
@@ -54,46 +54,46 @@ Lock(Mutex A) ✓                   Lock(Mutex B) ✓
 Cycle detected → Deadlock exists!
 ```
 
-## The Four Necessary Conditions (Coffman Conditions)
+## 네 가지 필요 조건 (Coffman 조건)
 
-### 1. Mutual Exclusion
+### 1. 상호 배제(Mutual Exclusion)
 
-Resources cannot be shared - only one thread can use a resource at a time.
+자원을 공유할 수 없으며, 한 번에 하나의 thread만 자원을 사용할 수 있습니다.
 
 ```c
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
-// Only ONE thread can hold this mutex
+// 오직 하나의 thread만 이 mutex를 보유할 수 있음
 pthread_mutex_lock(&mutex);
-// Critical section - exclusive access
+// 임계 영역 - 배타적 접근
 pthread_mutex_unlock(&mutex);
 ```
 
-### 2. Hold and Wait
+### 2. 점유 및 대기(Hold and Wait)
 
-A thread holding at least one resource is waiting to acquire additional resources held by other threads.
+최소 하나의 자원을 보유한 thread가 다른 thread가 보유한 추가 자원의 획득을 기다리고 있는 상태입니다.
 
 ```c
-// Thread 1 holds A and waits for B
-pthread_mutex_lock(&mutex_a);  // Holding A
-// ... some work ...
-pthread_mutex_lock(&mutex_b);  // Waiting for B
+// Thread 1이 A를 보유하고 B를 기다림
+pthread_mutex_lock(&mutex_a);  // A를 보유 중
+// ... 작업 수행 ...
+pthread_mutex_lock(&mutex_b);  // B를 기다림
 ```
 
-### 3. No Preemption
+### 3. 비선점(No Preemption)
 
-Resources cannot be forcibly removed from threads - they must be released voluntarily.
+자원을 thread로부터 강제로 제거할 수 없으며, 자발적으로 해제해야 합니다.
 
 ```c
-// Once locked, cannot be taken away
+// 한 번 잠그면 강제로 빼앗을 수 없음
 pthread_mutex_lock(&mutex);
-// ... even if higher priority thread needs it ...
-pthread_mutex_unlock(&mutex);  // Must voluntarily release
+// ... 더 높은 우선순위의 thread가 필요하더라도 ...
+pthread_mutex_unlock(&mutex);  // 자발적으로 해제해야 함
 ```
 
-### 4. Circular Wait
+### 4. 순환 대기(Circular Wait)
 
-A circular chain of threads exists where each thread waits for a resource held by the next thread in the chain.
+각 thread가 체인의 다음 thread가 보유한 자원을 기다리는 순환 고리가 존재합니다.
 
 ```
 T1 waits for resource held by T2
@@ -103,11 +103,11 @@ T3 waits for resource held by T1
 Circular dependency!
 ```
 
-## Classic Example: Dining Philosophers Problem
+## 고전적 예제: 식사하는 철학자 문제
 
-### Problem Description
+### 문제 설명
 
-Five philosophers sit at a round table with five forks. Each philosopher needs TWO forks to eat but there's only one fork between each pair of philosophers.
+다섯 명의 철학자가 다섯 개의 포크가 놓인 원탁에 앉아 있습니다. 각 철학자는 식사를 하려면 두 개의 포크가 필요하지만, 각 철학자 사이에는 포크가 하나밖에 없습니다.
 
 ```
            Fork 0
@@ -122,7 +122,7 @@ Five philosophers sit at a round table with five forks. Each philosopher needs T
               P3
 ```
 
-### Deadlock Implementation
+### Deadlock 구현
 
 ```c
 #include <pthread.h>
@@ -139,23 +139,23 @@ void* philosopher(void* arg) {
     int right_fork = (id + 1) % NUM_PHILOSOPHERS;
 
     while (1) {
-        // Think
+        // 생각하기
         printf("Philosopher %d is thinking\n", id);
         sleep(1);
 
-        // Pick up left fork
+        // 왼쪽 포크 집기
         printf("Philosopher %d picks up left fork %d\n", id, left_fork);
         pthread_mutex_lock(&forks[left_fork]);
 
-        // Pick up right fork - DEADLOCK CAN OCCUR HERE!
+        // 오른쪽 포크 집기 - 여기서 DEADLOCK이 발생할 수 있음!
         printf("Philosopher %d picks up right fork %d\n", id, right_fork);
         pthread_mutex_lock(&forks[right_fork]);
 
-        // Eat
+        // 식사하기
         printf("Philosopher %d is eating\n", id);
         sleep(2);
 
-        // Put down forks
+        // 포크 내려놓기
         pthread_mutex_unlock(&forks[right_fork]);
         pthread_mutex_unlock(&forks[left_fork]);
         printf("Philosopher %d finished eating\n", id);
@@ -168,18 +168,18 @@ int main() {
     pthread_t philosophers[NUM_PHILOSOPHERS];
     int ids[NUM_PHILOSOPHERS];
 
-    // Initialize forks
+    // 포크 초기화
     for (int i = 0; i < NUM_PHILOSOPHERS; i++) {
         pthread_mutex_init(&forks[i], NULL);
     }
 
-    // Create philosophers
+    // 철학자 생성
     for (int i = 0; i < NUM_PHILOSOPHERS; i++) {
         ids[i] = i;
         pthread_create(&philosophers[i], NULL, philosopher, &ids[i]);
     }
 
-    // Wait forever (will deadlock)
+    // 영원히 대기 (deadlock 발생)
     for (int i = 0; i < NUM_PHILOSOPHERS; i++) {
         pthread_join(philosophers[i], NULL);
     }
@@ -188,47 +188,47 @@ int main() {
 }
 ```
 
-**What happens:**
-1. All philosophers pick up their left fork simultaneously
-2. All philosophers try to pick up their right fork
-3. All right forks are already held as left forks by neighbors
-4. **DEADLOCK**: Everyone waits forever
+**발생하는 상황:**
+1. 모든 철학자가 동시에 왼쪽 포크를 집음
+2. 모든 철학자가 오른쪽 포크를 집으려 시도
+3. 모든 오른쪽 포크는 이미 이웃의 왼쪽 포크로 사용되고 있음
+4. **DEADLOCK**: 모두가 영원히 기다림
 
-## Prevention Strategies
+## 예방 전략
 
-Breaking ANY of the four Coffman conditions prevents deadlock.
+네 가지 Coffman 조건 중 하나라도 제거하면 deadlock을 예방할 수 있습니다.
 
-### Strategy 1: Remove Mutual Exclusion
+### 전략 1: 상호 배제 제거
 
-Make resources shareable (not always possible).
+자원을 공유 가능하게 만듭니다 (항상 가능하지는 않음).
 
 ```c
-// Use read-write locks for read-mostly data
+// 읽기 위주의 데이터에 read-write lock 사용
 pthread_rwlock_t rwlock;
 
-// Multiple readers can hold simultaneously
-pthread_rwlock_rdlock(&rwlock);  // Shared access
+// 여러 reader가 동시에 보유 가능
+pthread_rwlock_rdlock(&rwlock);  // 공유 접근
 read_data();
 pthread_rwlock_unlock(&rwlock);
 
-// Writers still need exclusive access
-pthread_rwlock_wrlock(&rwlock);  // Exclusive access
+// writer는 여전히 배타적 접근이 필요
+pthread_rwlock_wrlock(&rwlock);  // 배타적 접근
 write_data();
 pthread_rwlock_unlock(&rwlock);
 ```
 
-### Strategy 2: Remove Hold and Wait
+### 전략 2: 점유 및 대기 제거
 
-Acquire all resources at once, or none at all.
+모든 자원을 한꺼번에 획득하거나, 아예 획득하지 않습니다.
 
 ```c
-// SOLUTION: All-or-nothing resource acquisition
+// 해결책: 전부 아니면 전무 방식의 자원 획득
 pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_a = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_b = PTHREAD_MUTEX_INITIALIZER;
 
 void critical_section() {
-    // Use a global lock to acquire both mutexes atomically
+    // 전역 lock을 사용하여 두 mutex를 원자적으로 획득
     pthread_mutex_lock(&global_lock);
 
     pthread_mutex_lock(&mutex_a);
@@ -236,7 +236,7 @@ void critical_section() {
 
     pthread_mutex_unlock(&global_lock);
 
-    // Work with both resources
+    // 두 자원으로 작업 수행
     // ...
 
     pthread_mutex_unlock(&mutex_b);
@@ -244,7 +244,7 @@ void critical_section() {
 }
 ```
 
-**Better approach with trylock:**
+**trylock을 사용한 더 나은 접근법:**
 ```c
 #include <pthread.h>
 #include <stdbool.h>
@@ -254,22 +254,22 @@ bool acquire_both(pthread_mutex_t* m1, pthread_mutex_t* m2) {
     pthread_mutex_lock(m1);
 
     if (pthread_mutex_trylock(m2) == 0) {
-        return true;  // Got both locks
+        return true;  // 두 lock 모두 획득
     }
 
-    // Couldn't get second lock, release first
+    // 두 번째 lock을 얻지 못했으므로 첫 번째 해제
     pthread_mutex_unlock(m1);
-    return false;  // Failed to acquire both
+    return false;  // 둘 다 획득 실패
 }
 
 void critical_section() {
     while (!acquire_both(&mutex_a, &mutex_b)) {
-        // Back off and retry
-        struct timespec ts = {0, 100000};  // 100 microseconds
+        // 잠시 대기 후 재시도
+        struct timespec ts = {0, 100000};  // 100 마이크로초
         nanosleep(&ts, NULL);
     }
 
-    // Work with both resources
+    // 두 자원으로 작업 수행
     // ...
 
     pthread_mutex_unlock(&mutex_b);
@@ -277,9 +277,9 @@ void critical_section() {
 }
 ```
 
-### Strategy 3: Allow Preemption
+### 전략 3: 선점 허용
 
-Use timeouts to abandon waiting.
+타임아웃을 사용하여 대기를 포기합니다.
 
 ```c
 #include <pthread.h>
@@ -289,20 +289,20 @@ Use timeouts to abandon waiting.
 void critical_section_with_timeout() {
     struct timespec timeout;
     clock_gettime(CLOCK_REALTIME, &timeout);
-    timeout.tv_sec += 1;  // 1 second timeout
+    timeout.tv_sec += 1;  // 1초 타임아웃
 
     pthread_mutex_lock(&mutex_a);
 
     int result = pthread_mutex_timedlock(&mutex_b, &timeout);
 
     if (result == ETIMEDOUT) {
-        // Couldn't acquire, release and retry
+        // 획득할 수 없으므로 해제 후 재시도
         pthread_mutex_unlock(&mutex_a);
         printf("Timeout! Backing off...\n");
         return;
     }
 
-    // Work with both resources
+    // 두 자원으로 작업 수행
     // ...
 
     pthread_mutex_unlock(&mutex_b);
@@ -310,12 +310,12 @@ void critical_section_with_timeout() {
 }
 ```
 
-### Strategy 4: Remove Circular Wait
+### 전략 4: 순환 대기 제거
 
-**Lock Ordering**: Always acquire locks in a consistent global order.
+**Lock 순서화**: 항상 일관된 전역 순서로 lock을 획득합니다.
 
 ```c
-// SOLUTION: Ordered lock acquisition
+// 해결책: 순서화된 lock 획득
 #include <pthread.h>
 #include <stdio.h>
 
@@ -323,14 +323,14 @@ pthread_mutex_t mutex_a = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_b = PTHREAD_MUTEX_INITIALIZER;
 
 void thread1_work() {
-    // Always lock A before B
+    // 항상 A를 B보다 먼저 잠금
     pthread_mutex_lock(&mutex_a);
     printf("Thread 1: Locked A\n");
 
     pthread_mutex_lock(&mutex_b);
     printf("Thread 1: Locked B\n");
 
-    // Critical section
+    // 임계 영역
     // ...
 
     pthread_mutex_unlock(&mutex_b);
@@ -338,14 +338,14 @@ void thread1_work() {
 }
 
 void thread2_work() {
-    // Always lock A before B (same order!)
+    // 항상 A를 B보다 먼저 잠금 (같은 순서!)
     pthread_mutex_lock(&mutex_a);
     printf("Thread 2: Locked A\n");
 
     pthread_mutex_lock(&mutex_b);
     printf("Thread 2: Locked B\n");
 
-    // Critical section
+    // 임계 영역
     // ...
 
     pthread_mutex_unlock(&mutex_b);
@@ -353,14 +353,14 @@ void thread2_work() {
 }
 ```
 
-**Dining Philosophers with Lock Ordering:**
+**Lock 순서화를 적용한 식사하는 철학자:**
 ```c
 void* philosopher_ordered(void* arg) {
     int id = *(int*)arg;
     int left_fork = id;
     int right_fork = (id + 1) % NUM_PHILOSOPHERS;
 
-    // SOLUTION: Always pick up lower-numbered fork first
+    // 해결책: 항상 번호가 낮은 포크를 먼저 집기
     int first_fork = (left_fork < right_fork) ? left_fork : right_fork;
     int second_fork = (left_fork < right_fork) ? right_fork : left_fork;
 
@@ -368,15 +368,15 @@ void* philosopher_ordered(void* arg) {
         printf("Philosopher %d is thinking\n", id);
         sleep(1);
 
-        // Pick up forks in order
+        // 순서대로 포크 집기
         pthread_mutex_lock(&forks[first_fork]);
         pthread_mutex_lock(&forks[second_fork]);
 
-        // Eat
+        // 식사하기
         printf("Philosopher %d is eating\n", id);
         sleep(2);
 
-        // Put down forks
+        // 포크 내려놓기
         pthread_mutex_unlock(&forks[second_fork]);
         pthread_mutex_unlock(&forks[first_fork]);
     }
@@ -697,11 +697,11 @@ void hierarchical_unlock(HierarchicalMutex* hm) {
 */
 ```
 
-## Detection Strategies
+## 탐지 전략
 
-### 1. Resource Allocation Graph
+### 1. 자원 할당 그래프
 
-Build a graph of resources and threads to detect cycles.
+자원과 thread의 그래프를 구축하여 순환을 탐지합니다.
 
 ```c
 typedef struct {
@@ -711,15 +711,15 @@ typedef struct {
 } ThreadInfo;
 
 bool detect_cycle(ThreadInfo* threads, int num_threads) {
-    // Use DFS to detect cycle in wait-for graph
-    // If cycle found, deadlock exists
-    // Implementation: graph traversal algorithm
+    // DFS를 사용하여 wait-for 그래프에서 순환 탐지
+    // 순환이 발견되면 deadlock이 존재
+    // 구현: 그래프 순회 알고리즘
 }
 ```
 
-### 2. Wait-For Graph
+### 2. Wait-For 그래프
 
-Simpler than resource allocation graph - only tracks thread dependencies.
+자원 할당 그래프보다 간단하며, thread 의존성만 추적합니다.
 
 ```
 Thread Dependencies:
@@ -731,24 +731,24 @@ Cycle: T1 → T2 → T3 → T1
 Result: DEADLOCK DETECTED
 ```
 
-### 3. Runtime Detection Tools
+### 3. 런타임 탐지 도구
 
 ```bash
-# Using Helgrind (Valgrind)
+# Helgrind (Valgrind) 사용
 valgrind --tool=helgrind ./program
 
-# Sample output:
+# 출력 예시:
 # Thread #1: lock order "0x4C0D040 before 0x4C0D080" violated
 # Thread #2: lock order "0x4C0D080 before 0x4C0D040" violated
 # => Possible deadlock detected
 
-# Using GDB to inspect deadlocked program
+# GDB를 사용하여 deadlock된 프로그램 검사
 gdb -p <pid>
 (gdb) info threads
-(gdb) thread apply all bt  # Backtrace all threads
+(gdb) thread apply all bt  # 모든 thread의 백트레이스
 ```
 
-### 4. Timeout-Based Detection
+### 4. 타임아웃 기반 탐지
 
 ```c
 #include <pthread.h>
@@ -758,46 +758,46 @@ gdb -p <pid>
 void detect_with_timeout() {
     struct timespec timeout;
     clock_gettime(CLOCK_REALTIME, &timeout);
-    timeout.tv_sec += 5;  // 5 second timeout
+    timeout.tv_sec += 5;  // 5초 타임아웃
 
     int result = pthread_mutex_timedlock(&mutex, &timeout);
 
     if (result == ETIMEDOUT) {
         printf("DEADLOCK suspected: timeout after 5 seconds\n");
-        // Take corrective action
+        // 교정 조치 수행
     }
 }
 ```
 
-## Recovery Strategies
+## 복구 전략
 
-### 1. Thread Termination
+### 1. Thread 종료
 
-Kill one or more threads to break the cycle.
+순환을 끊기 위해 하나 이상의 thread를 종료합니다.
 
 ```c
-// Detect deadlock then:
+// Deadlock 탐지 후:
 pthread_cancel(deadlocked_thread);
-// or
+// 또는
 pthread_kill(deadlocked_thread, SIGTERM);
 ```
 
-### 2. Resource Preemption
+### 2. 자원 선점
 
-Force a thread to release resources.
+Thread가 자원을 강제로 해제하도록 합니다.
 
 ```c
-// Difficult in practice - requires careful state management
+// 실제로는 어려움 - 신중한 상태 관리가 필요
 void force_release(Thread* victim) {
-    // Rollback victim's work
-    // Release its resources
-    // Restart victim
+    // victim의 작업을 롤백
+    // 자원 해제
+    // victim 재시작
 }
 ```
 
-### 3. Rollback and Restart
+### 3. 롤백 및 재시작
 
-Save checkpoints and rollback on deadlock detection.
+체크포인트를 저장하고 deadlock 탐지 시 롤백합니다.
 
 ```c
 typedef struct {
@@ -806,21 +806,21 @@ typedef struct {
 } Checkpoint;
 
 void rollback_on_deadlock(Checkpoint* cp) {
-    // Release all locks
+    // 모든 lock 해제
     for (int i = 0; i < cp->num_locks; i++) {
         pthread_mutex_unlock(&cp->held_locks[i]);
     }
 
-    // Restore state
+    // 상태 복원
     restore_state(cp->saved_state);
 
-    // Retry operation
+    // 작업 재시도
 }
 ```
 
-## Real-World Examples
+## 실제 사례
 
-### Example 1: Database Deadlock
+### 예제 1: 데이터베이스 Deadlock
 
 ```c
 // Transaction 1:
@@ -837,50 +837,50 @@ UPDATE accounts SET balance = balance - 50 WHERE id = 2;   // Lock row 2
 UPDATE accounts SET balance = balance + 50 WHERE id = 1;   // Wait for row 1
 COMMIT;
 
-// DEADLOCK! T1 waits for T2, T2 waits for T1
+// DEADLOCK! T1이 T2를 기다리고, T2가 T1을 기다림
 ```
 
-**Solution: Consistent ordering**
+**해결책: 일관된 순서화**
 ```sql
--- Always update accounts in order by ID
+-- 항상 ID 순서대로 계좌를 업데이트
 BEGIN TRANSACTION;
-UPDATE accounts SET balance = balance - 100 WHERE id = 1;  -- Lower ID first
-UPDATE accounts SET balance = balance + 100 WHERE id = 2;  -- Higher ID second
+UPDATE accounts SET balance = balance - 100 WHERE id = 1;  -- 낮은 ID 먼저
+UPDATE accounts SET balance = balance + 100 WHERE id = 2;  -- 높은 ID 나중에
 COMMIT;
 ```
 
-### Example 2: File System Deadlock
+### 예제 2: 파일 시스템 Deadlock
 
 ```c
-// Thread 1: Move file from /a to /b
+// Thread 1: /a에서 /b로 파일 이동
 lock_directory("/a");
 lock_directory("/b");
 move_file("/a/file.txt", "/b/file.txt");
 unlock_directory("/b");
 unlock_directory("/a");
 
-// Thread 2: Move file from /b to /a
-lock_directory("/b");  // Locks in opposite order!
+// Thread 2: /b에서 /a로 파일 이동
+lock_directory("/b");  // 반대 순서로 잠금!
 lock_directory("/a");
 move_file("/b/other.txt", "/a/other.txt");
 unlock_directory("/a");
 unlock_directory("/b");
 
-// DEADLOCK possible!
+// DEADLOCK 발생 가능!
 ```
 
-**Solution: Lock directory paths in alphabetical order**
+**해결책: 디렉토리 경로를 알파벳 순서로 잠금**
 ```c
 void move_file_safe(const char* from_dir, const char* to_dir,
                    const char* filename) {
-    // Determine lock order
+    // lock 순서 결정
     const char* first = (strcmp(from_dir, to_dir) < 0) ? from_dir : to_dir;
     const char* second = (strcmp(from_dir, to_dir) < 0) ? to_dir : from_dir;
 
     lock_directory(first);
     lock_directory(second);
 
-    // Perform move
+    // 이동 수행
     char from_path[256], to_path[256];
     snprintf(from_path, sizeof(from_path), "%s/%s", from_dir, filename);
     snprintf(to_path, sizeof(to_path), "%s/%s", to_dir, filename);
@@ -891,21 +891,21 @@ void move_file_safe(const char* from_dir, const char* to_dir,
 }
 ```
 
-### Example 3: Network Protocol Deadlock
+### 예제 3: 네트워크 프로토콜 Deadlock
 
 ```c
-// Node A sends to B, waits for ACK
+// Node A가 B에게 전송, ACK 대기
 send_to(node_b, data);
 wait_for_ack_from(node_b);
 
-// Node B sends to A, waits for ACK
+// Node B가 A에게 전송, ACK 대기
 send_to(node_a, data);
 wait_for_ack_from(node_a);
 
-// Both buffers full → DEADLOCK!
+// 양쪽 버퍼 모두 가득 참 → DEADLOCK!
 ```
 
-**Solution: Timeout and retry**
+**해결책: 타임아웃 및 재시도**
 ```c
 bool send_with_timeout(Node* target, Data* data, int timeout_ms) {
     send_to(target, data);
@@ -915,19 +915,19 @@ bool send_with_timeout(Node* target, Data* data, int timeout_ms) {
     timeout.tv_sec += timeout_ms / 1000;
 
     if (wait_for_ack_timeout(target, &timeout) == ETIMEDOUT) {
-        return false;  // Timeout, no deadlock
+        return false;  // 타임아웃, deadlock 없음
     }
 
     return true;
 }
 ```
 
-## Advanced Patterns
+## 고급 패턴
 
-### Hierarchical Locking
+### 계층적 잠금(Hierarchical Locking)
 
 ```c
-// Define lock hierarchy levels
+// lock 계층 레벨 정의
 #define LEVEL_DATABASE  100
 #define LEVEL_TABLE     200
 #define LEVEL_ROW       300
@@ -937,7 +937,7 @@ typedef struct {
     int level;
 } HierarchicalMutex;
 
-// Can only acquire locks in increasing level order
+// 증가하는 레벨 순서로만 lock 획득 가능
 void hierarchical_lock(HierarchicalMutex* m, int current_level) {
     if (m->level <= current_level) {
         fprintf(stderr, "Lock ordering violation!\n");
@@ -947,7 +947,7 @@ void hierarchical_lock(HierarchicalMutex* m, int current_level) {
 }
 ```
 
-### Try-Lock with Backoff
+### Try-Lock과 백오프
 
 ```c
 #include <pthread.h>
@@ -955,29 +955,29 @@ void hierarchical_lock(HierarchicalMutex* m, int current_level) {
 #include <stdbool.h>
 
 bool try_acquire_with_backoff(pthread_mutex_t* m1, pthread_mutex_t* m2) {
-    int backoff = 1000;  // Start with 1ms
+    int backoff = 1000;  // 1ms부터 시작
 
     for (int attempts = 0; attempts < 10; attempts++) {
         pthread_mutex_lock(m1);
 
         if (pthread_mutex_trylock(m2) == 0) {
-            return true;  // Success!
+            return true;  // 성공!
         }
 
-        // Failed, release and backoff
+        // 실패, 해제 후 백오프
         pthread_mutex_unlock(m1);
         usleep(backoff);
-        backoff *= 2;  // Exponential backoff
+        backoff *= 2;  // 지수 백오프
     }
 
-    return false;  // Give up after 10 attempts
+    return false;  // 10회 시도 후 포기
 }
 ```
 
-### Lock-Free Alternative
+### Lock-Free 대안
 
 ```c
-// Avoid deadlock entirely with lock-free structures
+// Lock-free 구조로 deadlock을 완전히 회피
 #include <stdatomic.h>
 
 typedef struct Node {
@@ -1002,30 +1002,30 @@ void push(LockFreeStack* stack, int value) {
                                           (uintptr_t)new_node));
 }
 
-// No locks → No deadlock possible!
+// Lock이 없으므로 deadlock 발생 불가!
 ```
 
-## Best Practices Summary
+## 모범 사례 요약
 
-### DO:
-✓ Use consistent lock ordering
-✓ Minimize critical sections
-✓ Use trylock with backoff
-✓ Implement timeouts
-✓ Test with deadlock detection tools
-✓ Document lock hierarchies
-✓ Consider lock-free alternatives
+### 해야 할 것:
+- 일관된 lock 순서 사용
+- 임계 영역 최소화
+- trylock과 백오프 사용
+- 타임아웃 구현
+- Deadlock 탐지 도구로 테스트
+- Lock 계층 문서화
+- Lock-free 대안 고려
 
-### DON'T:
-✗ Hold locks while waiting for I/O
-✗ Acquire locks in different orders
-✗ Call unknown code while holding locks
-✗ Hold multiple locks if avoidable
-✗ Block indefinitely
+### 하지 말아야 할 것:
+- Lock을 보유한 채 I/O 대기
+- 서로 다른 순서로 lock 획득
+- Lock을 보유한 채 알 수 없는 코드 호출
+- 피할 수 있다면 여러 lock을 동시에 보유
+- 무한정 차단
 
-## Exercises
+## 연습 문제
 
-### Exercise 1: Fix the Deadlock
+### 연습 문제 1: Deadlock 수정하기
 ```c
 void transfer(Account* from, Account* to, int amount) {
     pthread_mutex_lock(&from->mutex);
@@ -1038,35 +1038,35 @@ void transfer(Account* from, Account* to, int amount) {
     pthread_mutex_unlock(&from->mutex);
 }
 
-// This can deadlock! Fix it.
+// 이 코드는 deadlock이 발생할 수 있습니다! 수정하세요.
 ```
 
-### Exercise 2: Implement Safe Dining Philosophers
-Implement a deadlock-free solution using an asymmetric approach (last philosopher picks up forks in reverse order).
+### 연습 문제 2: 안전한 식사하는 철학자 구현
+비대칭 접근법(마지막 철학자가 포크를 반대 순서로 집는 방식)을 사용하여 deadlock이 없는 해결책을 구현하세요.
 
-### Exercise 3: Detect Deadlock
-Write a deadlock detector that monitors thread states and identifies circular wait conditions.
+### 연습 문제 3: Deadlock 탐지
+Thread 상태를 모니터링하고 순환 대기 조건을 식별하는 deadlock 탐지기를 작성하세요.
 
-## Summary
+## 요약
 
-Deadlock occurs when four conditions are met:
-1. Mutual exclusion
-2. Hold and wait
-3. No preemption
-4. Circular wait
+Deadlock은 네 가지 조건이 충족될 때 발생합니다:
+1. 상호 배제(Mutual exclusion)
+2. 점유 및 대기(Hold and wait)
+3. 비선점(No preemption)
+4. 순환 대기(Circular wait)
 
-**Prevention**: Break at least one of the four conditions
-**Detection**: Use resource allocation graphs or timeouts
-**Recovery**: Terminate threads, preempt resources, or rollback
+**예방**: 네 가지 조건 중 하나 이상을 제거
+**탐지**: 자원 할당 그래프 또는 타임아웃 사용
+**복구**: Thread 종료, 자원 선점, 또는 롤백
 
-Remember: **The best deadlock is the one that never happens!**
+기억하세요: **가장 좋은 deadlock은 절대 발생하지 않는 deadlock입니다!**
 
-## Further Reading
+## 추가 읽을거리
 
 - "Operating System Concepts" - Silberschatz, Galvin, Gagne
 - "The Deadlock Problem" - Coffman et al. (1971)
 - "Monitors: An Operating System Structuring Concept" - Hoare (1974)
 
-## Next Topic
+## 다음 주제
 
-Continue to [03-livelock.md](./03-livelock.md) to learn about livelock.
+[03-livelock.md](./03-livelock.md)로 이동하여 livelock에 대해 알아보세요.

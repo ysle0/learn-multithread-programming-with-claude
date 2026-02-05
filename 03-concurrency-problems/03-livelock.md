@@ -1,10 +1,10 @@
 # Livelock
 
-## What is Livelock?
+## Livelock이란?
 
-**Livelock** is a situation where threads are not blocked (unlike deadlock), but they continuously change state in response to each other without making any meaningful progress. Threads remain active and consume CPU resources, but the system as a whole doesn't advance toward completion.
+**Livelock**은 thread들이 (deadlock과 달리) 차단되지 않지만, 서로에게 반응하여 상태를 계속 변경하면서도 의미 있는 진전을 이루지 못하는 상황입니다. Thread들은 활성 상태를 유지하며 CPU 자원을 소비하지만, 시스템 전체적으로는 완료를 향해 나아가지 못합니다.
 
-Think of it as two people trying to pass each other in a narrow hallway - they both step to the same side simultaneously, then both step to the other side, repeating forever without actually passing.
+좁은 복도에서 두 사람이 서로 지나가려고 하는 상황을 떠올려 보세요. 두 사람이 동시에 같은 방향으로 비키고, 다시 반대 방향으로 비키기를 반복하면서 결국 지나가지 못하는 것과 같습니다.
 
 ## Livelock vs Deadlock
 
@@ -21,7 +21,7 @@ Think of it as two people trying to pass each other in a narrow hallway - they b
 └──────────────────┴───────────────────┴──────────────────┘
 ```
 
-### Visual Comparison
+### 시각적 비교
 
 **Deadlock:**
 ```
@@ -41,7 +41,7 @@ CPU: 100% busy
 Progress: NONE
 ```
 
-## Classic Example: The Hallway Problem
+## 고전적인 예시: 복도 문제
 
 ```
 Person A ←─────────────────→ Person B
@@ -53,7 +53,7 @@ Step 3: A moves left, B moves left   (both still blocked)
 ...repeats forever...
 ```
 
-### Code Implementation
+### 코드 구현
 
 ```c
 #include <pthread.h>
@@ -82,7 +82,7 @@ void* person_a_walk(void* arg) {
             usleep(100000);
         }
 
-        // Reset and try again
+        // 초기화하고 다시 시도
         person_a.trying_left = false;
         person_a.trying_right = false;
     }
@@ -101,21 +101,21 @@ void* person_b_walk(void* arg) {
             usleep(100000);
         }
 
-        // Reset and try again
+        // 초기화하고 다시 시도
         person_b.trying_left = false;
         person_b.trying_right = false;
     }
     return NULL;
 }
 
-// This creates LIVELOCK - both keep moving but never pass!
+// LIVELOCK 발생 - 둘 다 계속 움직이지만 결코 지나가지 못함!
 ```
 
-## Common Livelock Patterns
+## 일반적인 Livelock 패턴
 
-### Pattern 1: Collision Avoidance
+### 패턴 1: 충돌 회피
 
-When threads detect conflicts and back off, but do so in a synchronized manner.
+Thread들이 충돌을 감지하고 물러나지만, 동기화된 방식으로 수행하는 경우입니다.
 
 ```c
 #include <pthread.h>
@@ -129,20 +129,20 @@ void* thread_with_livelock(void* arg) {
     int id = *(int*)arg;
 
     while (true) {
-        // Try to acquire both resources
+        // 두 리소스 모두 획득 시도
         pthread_mutex_lock(&resource_a);
 
         if (pthread_mutex_trylock(&resource_b) != 0) {
-            // Failed to get B, release A and retry
+            // B 획득 실패, A를 해제하고 재시도
             printf("Thread %d: Failed to get B, releasing A\n", id);
             pthread_mutex_unlock(&resource_a);
 
-            // PROBLEM: Both threads do this simultaneously!
-            // They keep releasing and retrying forever
+            // 문제: 두 thread가 동시에 이 작업을 수행!
+            // 해제와 재시도를 영원히 반복
             continue;
         }
 
-        // Critical section
+        // 임계 영역
         printf("Thread %d: Got both resources!\n", id);
         pthread_mutex_unlock(&resource_b);
         pthread_mutex_unlock(&resource_a);
@@ -152,10 +152,10 @@ void* thread_with_livelock(void* arg) {
     return NULL;
 }
 
-// LIVELOCK: If both threads retry at same time, they collide repeatedly
+// LIVELOCK: 두 thread가 동시에 재시도하면 반복적으로 충돌
 ```
 
-**Timeline:**
+**타임라인:**
 ```
 Time    Thread 1                Thread 2
 ----    --------                --------
@@ -169,9 +169,9 @@ Time    Thread 1                Thread 2
   8     ...repeats...           ...repeats...
 ```
 
-### Pattern 2: Polite Threads
+### 패턴 2: 양보하는 Thread
 
-Threads try to be "polite" and yield to others, but all do it simultaneously.
+Thread들이 다른 thread에게 "양보"하려 하지만, 모두 동시에 양보하는 경우입니다.
 
 ```c
 #include <pthread.h>
@@ -185,14 +185,14 @@ void* polite_thread1(void* arg) {
     while (true) {
         thread1_wants = true;
 
-        // Be polite: if other thread wants it, yield
+        // 양보: 다른 thread가 원하면 양보
         while (thread2_wants) {
-            thread1_wants = false;  // Give way
-            sched_yield();          // Let other thread go
-            thread1_wants = true;   // Want it again
+            thread1_wants = false;  // 길을 비켜줌
+            sched_yield();          // 다른 thread에게 양보
+            thread1_wants = true;   // 다시 원함
         }
 
-        // Critical section
+        // 임계 영역
         critical_section();
 
         thread1_wants = false;
@@ -204,14 +204,14 @@ void* polite_thread2(void* arg) {
     while (true) {
         thread2_wants = true;
 
-        // Be polite: if other thread wants it, yield
+        // 양보: 다른 thread가 원하면 양보
         while (thread1_wants) {
-            thread2_wants = false;  // Give way
-            sched_yield();          // Let other thread go
-            thread2_wants = true;   // Want it again
+            thread2_wants = false;  // 길을 비켜줌
+            sched_yield();          // 다른 thread에게 양보
+            thread2_wants = true;   // 다시 원함
         }
 
-        // Critical section
+        // 임계 영역
         critical_section();
 
         thread2_wants = false;
@@ -219,12 +219,12 @@ void* polite_thread2(void* arg) {
     return NULL;
 }
 
-// LIVELOCK: Both keep yielding to each other!
+// LIVELOCK: 서로에게 계속 양보!
 ```
 
-### Pattern 3: Message Retransmission
+### 패턴 3: 메시지 재전송
 
-In distributed systems, nodes retransmit on collision but create more collisions.
+분산 시스템에서 노드들이 충돌 시 재전송하지만 더 많은 충돌을 만드는 경우입니다.
 
 ```c
 #include <stdio.h>
@@ -238,7 +238,7 @@ typedef struct {
 } Node;
 
 bool try_send(Node* node) {
-    // Simulate collision detection
+    // 충돌 감지 시뮬레이션
     bool collision = (rand() % 2 == 0);
 
     if (collision) {
@@ -254,19 +254,19 @@ bool try_send(Node* node) {
 
 void node_send_with_livelock(Node* node) {
     while (!try_send(node)) {
-        // Fixed retry interval - causes synchronized retries
-        usleep(1000);  // Always wait 1ms
+        // 고정 재시도 간격 - 동기화된 재시도 유발
+        usleep(1000);  // 항상 1ms 대기
 
-        // LIVELOCK: All nodes retry at same time!
+        // LIVELOCK: 모든 노드가 같은 시간에 재시도!
     }
 }
 ```
 
-## Solutions and Prevention
+## 해결 방법 및 예방
 
-### Solution 1: Random Backoff
+### 해결 방법 1: 랜덤 Backoff
 
-Introduce randomness to break synchronization.
+무작위성을 도입하여 동기화를 깨뜨립니다.
 
 ```c
 #include <pthread.h>
@@ -279,7 +279,7 @@ pthread_mutex_t resource_b = PTHREAD_MUTEX_INITIALIZER;
 
 void* thread_with_random_backoff(void* arg) {
     int id = *(int*)arg;
-    srand(time(NULL) + id);  // Different seed per thread
+    srand(time(NULL) + id);  // thread마다 다른 시드
 
     while (true) {
         pthread_mutex_lock(&resource_a);
@@ -287,14 +287,14 @@ void* thread_with_random_backoff(void* arg) {
         if (pthread_mutex_trylock(&resource_b) != 0) {
             pthread_mutex_unlock(&resource_a);
 
-            // Random backoff: 0-10ms
+            // 랜덤 backoff: 0-10ms
             int backoff = rand() % 10000;
             printf("Thread %d: Backing off %dμs\n", id, backoff);
             usleep(backoff);
             continue;
         }
 
-        // Critical section
+        // 임계 영역
         printf("Thread %d: Success!\n", id);
         pthread_mutex_unlock(&resource_b);
         pthread_mutex_unlock(&resource_a);
@@ -305,9 +305,9 @@ void* thread_with_random_backoff(void* arg) {
 }
 ```
 
-### Solution 2: Exponential Backoff
+### 해결 방법 2: Exponential Backoff
 
-Increase backoff time with each retry (like Ethernet CSMA/CD).
+재시도할 때마다 backoff 시간을 증가시킵니다 (이더넷 CSMA/CD와 유사).
 
 ```c
 #include <pthread.h>
@@ -318,7 +318,7 @@ Increase backoff time with each retry (like Ethernet CSMA/CD).
 
 void* thread_with_exponential_backoff(void* arg) {
     int id = *(int*)arg;
-    int backoff = 1000;  // Start with 1ms
+    int backoff = 1000;  // 1ms부터 시작
 
     while (true) {
         pthread_mutex_lock(&resource_a);
@@ -334,7 +334,7 @@ void* thread_with_exponential_backoff(void* arg) {
             continue;
         }
 
-        // Critical section
+        // 임계 영역
         printf("Thread %d: Success!\n", id);
         pthread_mutex_unlock(&resource_b);
         pthread_mutex_unlock(&resource_a);
@@ -345,9 +345,9 @@ void* thread_with_exponential_backoff(void* arg) {
 }
 ```
 
-### Solution 3: Priority-Based Resolution
+### 해결 방법 3: 우선순위 기반 해결
 
-Give one thread higher priority.
+한 thread에 더 높은 우선순위를 부여합니다.
 
 ```c
 #include <pthread.h>
@@ -365,14 +365,14 @@ void* low_priority_thread(void* arg) {
     while (true) {
         low_priority_wants = true;
 
-        // Yield to high priority thread
+        // 높은 우선순위 thread에게 양보
         while (high_priority_wants) {
             low_priority_wants = false;
             sched_yield();
             low_priority_wants = true;
         }
 
-        // Critical section
+        // 임계 영역
         critical_section();
         low_priority_wants = false;
     }
@@ -383,20 +383,20 @@ void* high_priority_thread(void* arg) {
     while (true) {
         high_priority_wants = true;
 
-        // Don't yield - take priority!
-        // Critical section
+        // 양보하지 않음 - 우선권 행사!
+        // 임계 영역
         critical_section();
         high_priority_wants = false;
     }
     return NULL;
 }
 
-// NO LIVELOCK: High priority always proceeds
+// LIVELOCK 없음: 높은 우선순위가 항상 진행
 ```
 
-### Solution 4: Lock Ordering
+### 해결 방법 4: Lock 순서 지정
 
-Use consistent lock ordering to avoid retries.
+일관된 lock 순서를 사용하여 재시도를 방지합니다.
 
 ```c
 #include <pthread.h>
@@ -405,11 +405,11 @@ pthread_mutex_t resource_a = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t resource_b = PTHREAD_MUTEX_INITIALIZER;
 
 void* thread_with_ordering(void* arg) {
-    // Always acquire in order: A then B
+    // 항상 순서대로 획득: A 다음 B
     pthread_mutex_lock(&resource_a);
     pthread_mutex_lock(&resource_b);
 
-    // Critical section
+    // 임계 영역
     critical_section();
 
     pthread_mutex_unlock(&resource_b);
@@ -418,12 +418,12 @@ void* thread_with_ordering(void* arg) {
     return NULL;
 }
 
-// NO LIVELOCK: No trylock, no retries needed
+// LIVELOCK 없음: trylock 없음, 재시도 불필요
 ```
 
-### Solution 5: Timeout with Randomization
+### 해결 방법 5: Timeout과 랜덤화 결합
 
-Combine timeout with random retry.
+timeout과 랜덤 재시도를 결합합니다.
 
 ```c
 #include <pthread.h>
@@ -437,7 +437,7 @@ void* thread_with_timeout(void* arg) {
     while (true) {
         struct timespec timeout;
         clock_gettime(CLOCK_REALTIME, &timeout);
-        timeout.tv_sec += 1;  // 1 second timeout
+        timeout.tv_sec += 1;  // 1초 timeout
 
         pthread_mutex_lock(&resource_a);
 
@@ -446,12 +446,12 @@ void* thread_with_timeout(void* arg) {
         if (result == ETIMEDOUT) {
             pthread_mutex_unlock(&resource_a);
 
-            // Random backoff before retry
+            // 재시도 전 랜덤 backoff
             usleep(rand() % 100000);
             continue;
         }
 
-        // Critical section
+        // 임계 영역
         printf("Thread %d: Success!\n", id);
         pthread_mutex_unlock(&resource_b);
         pthread_mutex_unlock(&resource_a);
@@ -462,12 +462,12 @@ void* thread_with_timeout(void* arg) {
 }
 ```
 
-## Real-World Examples
+## 실제 사례
 
-### Example 1: Network Collision (Ethernet)
+### 예시 1: 네트워크 충돌 (이더넷)
 
 ```c
-// Simplified CSMA/CD (Carrier Sense Multiple Access with Collision Detection)
+// 간소화된 CSMA/CD (Carrier Sense Multiple Access with Collision Detection)
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
@@ -483,25 +483,25 @@ void transmit_with_csma_cd(NetworkNode* node) {
     int attempt = 0;
 
     while (attempt < MAX_ATTEMPTS) {
-        // Listen for carrier
+        // 캐리어 감지
         if (channel_busy()) {
             wait_until_idle();
         }
 
-        // Transmit
+        // 전송
         if (send_frame()) {
             printf("Node %d: Transmission successful\n", node->id);
             return;
         }
 
-        // Collision detected
+        // 충돌 감지
         node->collisions++;
         printf("Node %d: Collision #%d\n", node->id, node->collisions);
 
-        // Binary exponential backoff
+        // 이진 지수 backoff
         int k = (attempt < 10) ? attempt : 10;
-        int backoff_slots = rand() % (1 << k);  // 0 to 2^k - 1
-        usleep(backoff_slots * 512);  // 512μs per slot
+        int backoff_slots = rand() % (1 << k);  // 0 ~ 2^k - 1
+        usleep(backoff_slots * 512);  // 슬롯당 512μs
 
         attempt++;
     }
@@ -510,7 +510,7 @@ void transmit_with_csma_cd(NetworkNode* node) {
 }
 ```
 
-### Example 2: Database Retry Logic
+### 예시 2: 데이터베이스 재시도 로직
 
 ```c
 #include <pthread.h>
@@ -532,13 +532,13 @@ bool update_records_with_livelock(int id1, int id2, int delta) {
         pthread_mutex_lock(&records[id1].mutex);
 
         if (pthread_mutex_trylock(&records[id2].mutex) != 0) {
-            // Deadlock avoidance causes livelock!
+            // Deadlock 회피가 livelock을 유발!
             pthread_mutex_unlock(&records[id1].mutex);
             attempts++;
-            continue;  // Fixed retry = LIVELOCK
+            continue;  // 고정 재시도 = LIVELOCK
         }
 
-        // Update both records
+        // 두 레코드 갱신
         records[id1].value -= delta;
         records[id2].value += delta;
 
@@ -547,7 +547,7 @@ bool update_records_with_livelock(int id1, int id2, int delta) {
         return true;
     }
 
-    return false;  // Failed
+    return false;  // 실패
 }
 
 bool update_records_fixed(int id1, int id2, int delta) {
@@ -559,13 +559,13 @@ bool update_records_fixed(int id1, int id2, int delta) {
         if (pthread_mutex_trylock(&records[id2].mutex) != 0) {
             pthread_mutex_unlock(&records[id1].mutex);
 
-            // Random backoff prevents livelock
+            // 랜덤 backoff로 livelock 방지
             usleep(rand() % 10000);
             attempts++;
             continue;
         }
 
-        // Update both records
+        // 두 레코드 갱신
         records[id1].value -= delta;
         records[id2].value += delta;
 
@@ -578,7 +578,7 @@ bool update_records_fixed(int id1, int id2, int delta) {
 }
 ```
 
-### Example 3: Distributed Consensus
+### 예시 3: 분산 합의
 
 ```c
 #include <stdio.h>
@@ -591,31 +591,31 @@ typedef struct {
     int seen_proposals;
 } Node;
 
-// Simplified consensus with livelock potential
+// livelock 가능성이 있는 간소화된 합의
 void reach_consensus_bad(Node* nodes, int num_nodes) {
     bool consensus_reached = false;
 
     while (!consensus_reached) {
-        // Each node proposes its value
+        // 각 노드가 자신의 값을 제안
         for (int i = 0; i < num_nodes; i++) {
             nodes[i].seen_proposals = 0;
 
-            // Check what others proposed
+            // 다른 노드의 제안 확인
             for (int j = 0; j < num_nodes; j++) {
                 if (nodes[j].proposed_value == nodes[i].proposed_value) {
                     nodes[i].seen_proposals++;
                 }
             }
 
-            // If not majority, change proposal
+            // 과반수가 아니면 제안 변경
             if (nodes[i].seen_proposals < num_nodes / 2) {
-                // Pick random new value
+                // 새로운 랜덤 값 선택
                 nodes[i].proposed_value = rand() % 100;
                 printf("Node %d: Changing proposal\n", i);
             }
         }
 
-        // Check for consensus
+        // 합의 확인
         int first_value = nodes[0].proposed_value;
         consensus_reached = true;
         for (int i = 1; i < num_nodes; i++) {
@@ -626,12 +626,12 @@ void reach_consensus_bad(Node* nodes, int num_nodes) {
         }
     }
 
-    // LIVELOCK: Nodes keep changing proposals!
+    // LIVELOCK: 노드들이 계속 제안을 변경!
 }
 
-// Fixed version with leader election
+// 리더 선출을 통한 수정 버전
 void reach_consensus_good(Node* nodes, int num_nodes) {
-    // Elect leader (e.g., lowest ID)
+    // 리더 선출 (예: 가장 낮은 ID)
     int leader_id = 0;
     for (int i = 1; i < num_nodes; i++) {
         if (nodes[i].id < nodes[leader_id].id) {
@@ -639,18 +639,18 @@ void reach_consensus_good(Node* nodes, int num_nodes) {
         }
     }
 
-    // Everyone adopts leader's proposal
+    // 모두 리더의 제안을 수용
     int consensus_value = nodes[leader_id].proposed_value;
     for (int i = 0; i < num_nodes; i++) {
         nodes[i].proposed_value = consensus_value;
     }
 
     printf("Consensus reached: %d\n", consensus_value);
-    // NO LIVELOCK: Single decision maker
+    // LIVELOCK 없음: 단일 의사결정자
 }
 ```
 
-## Internal Mechanisms
+## 내부 메커니즘
 
 ### 스케줄러 관점에서의 Livelock
 
@@ -924,9 +924,9 @@ watch -n 1 "cat /proc/<pid>/status | grep -E '(State|voluntary|nonvoluntary)'"
 # nonvoluntary_ctxt_switches: 낮음
 ```
 
-## Detection Strategies
+## 탐지 전략
 
-### 1. Progress Monitoring
+### 1. 진행 상황 모니터링
 
 ```c
 #include <time.h>
@@ -951,7 +951,7 @@ void check_for_livelock() {
 }
 ```
 
-### 2. Retry Counter
+### 2. 재시도 카운터
 
 ```c
 #define MAX_RETRIES 1000
@@ -963,69 +963,69 @@ void detect_excessive_retries() {
 
     if (retry_count > MAX_RETRIES) {
         printf("LIVELOCK suspected: %d retries!\n", retry_count);
-        // Take corrective action
+        // 교정 조치 수행
         abort();
     }
 }
 ```
 
-### 3. CPU Usage Analysis
+### 3. CPU 사용률 분석
 
 ```bash
-# Monitor CPU usage
+# CPU 사용률 모니터링
 top -H -p <pid>
 
-# If threads show high CPU but no progress → livelock
+# thread들이 높은 CPU를 보이지만 진전이 없으면 → livelock
 
-# Use perf to see what threads are doing
+# perf를 사용하여 thread들이 무엇을 하는지 확인
 perf record -p <pid> -g
 perf report
 ```
 
-## Prevention Best Practices
+## 예방 모범 사례
 
-### Checklist
+### 체크리스트
 
-- [ ] Use random backoff instead of fixed delays
-- [ ] Implement exponential backoff for retries
-- [ ] Set maximum retry limits
-- [ ] Use lock ordering instead of trylock when possible
-- [ ] Add timeout mechanisms
-- [ ] Monitor progress metrics
-- [ ] Test with multiple threads under load
-- [ ] Avoid symmetric retry logic
+- [ ] 고정 지연 대신 랜덤 backoff 사용
+- [ ] 재시도에 exponential backoff 구현
+- [ ] 최대 재시도 횟수 제한 설정
+- [ ] 가능하면 trylock 대신 lock 순서 지정 사용
+- [ ] timeout 메커니즘 추가
+- [ ] 진행 상황 지표 모니터링
+- [ ] 부하 상태에서 다중 thread로 테스트
+- [ ] 대칭적 재시도 로직 회피
 
-### Design Patterns
+### 설계 패턴
 
-**Pattern 1: Asymmetric Behavior**
+**패턴 1: 비대칭 동작**
 ```c
 void* thread_function(void* arg) {
     int id = *(int*)arg;
 
-    // Even threads use one strategy
+    // 짝수 thread는 전략 A 사용
     if (id % 2 == 0) {
         strategy_a();
     }
-    // Odd threads use another
+    // 홀수 thread는 전략 B 사용
     else {
         strategy_b();
     }
 }
 ```
 
-**Pattern 2: Centralized Coordination**
+**패턴 2: 중앙 집중식 조정**
 ```c
 pthread_mutex_t coordinator = PTHREAD_MUTEX_INITIALIZER;
 
 void coordinated_access() {
-    // Single point of coordination prevents livelock
+    // 단일 조정 지점으로 livelock 방지
     pthread_mutex_lock(&coordinator);
     access_resources();
     pthread_mutex_unlock(&coordinator);
 }
 ```
 
-## Comparison Summary
+## 비교 요약
 
 ```
 Deadlock vs Livelock:
@@ -1043,10 +1043,10 @@ Livelock:
   Detection: High CPU, no progress
 ```
 
-## Exercises
+## 연습 문제
 
-### Exercise 1: Identify Livelock
-Find the livelock in this code:
+### 연습 문제 1: Livelock 식별
+이 코드에서 livelock을 찾으세요:
 ```c
 void* worker(void* arg) {
     while (!try_acquire_resources()) {
@@ -1056,38 +1056,38 @@ void* worker(void* arg) {
 }
 ```
 
-### Exercise 2: Fix Network Collision
-Implement proper exponential backoff for network transmission simulation.
+### 연습 문제 2: 네트워크 충돌 수정
+네트워크 전송 시뮬레이션에 적절한 exponential backoff를 구현하세요.
 
-### Exercise 3: Build Progress Monitor
-Create a monitoring system that detects livelock conditions.
+### 연습 문제 3: 진행 상황 모니터 구축
+Livelock 상태를 감지하는 모니터링 시스템을 만드세요.
 
-## Summary
+## 요약
 
-**Livelock** is threads being active but not making progress due to:
-- Synchronized retry patterns
-- Excessive politeness
-- Lack of randomization
-- Collision without proper backoff
+**Livelock**은 다음과 같은 이유로 thread가 활성 상태이지만 진전을 이루지 못하는 현상입니다:
+- 동기화된 재시도 패턴
+- 과도한 양보
+- 무작위성 부족
+- 적절한 backoff 없는 충돌
 
-**Key Differences from Deadlock:**
-- Threads are active (not blocked)
-- High CPU usage
-- Harder to detect
-- Different solutions needed
+**Deadlock과의 주요 차이점:**
+- Thread가 활성 상태 (차단되지 않음)
+- 높은 CPU 사용률
+- 탐지가 더 어려움
+- 다른 해결 방법 필요
 
-**Prevention:**
-- Random/exponential backoff
-- Priority schemes
-- Lock ordering
-- Progress monitoring
+**예방 방법:**
+- 랜덤/exponential backoff
+- 우선순위 체계
+- Lock 순서 지정
+- 진행 상황 모니터링
 
-## Further Reading
+## 추가 자료
 
 - "Operating Systems: Three Easy Pieces" - Remzi Arpaci-Dusseau
 - "The Art of Multiprocessor Programming" - Herlihy & Shavit
-- Ethernet CSMA/CD specification (IEEE 802.3)
+- 이더넷 CSMA/CD 명세 (IEEE 802.3)
 
-## Next Topic
+## 다음 주제
 
-Continue to [04-starvation.md](./04-starvation.md) to learn about starvation.
+[04-starvation.md](./04-starvation.md)에서 starvation에 대해 알아보세요.

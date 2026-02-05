@@ -1,18 +1,18 @@
-# Producer-Consumer Pattern
+# Producer-Consumer 패턴
 
-## Overview
+## 개요
 
-The Producer-Consumer pattern is one of the most fundamental concurrency patterns. It decouples threads that produce data (producers) from threads that consume data (consumers) using a shared buffer or queue. This separation allows producers and consumers to operate at different rates and provides natural load balancing.
+Producer-Consumer 패턴은 가장 기본적인 동시성 패턴 중 하나입니다. 이 패턴은 데이터를 생성하는 thread(producer)와 데이터를 소비하는 thread(consumer)를 공유 버퍼 또는 큐를 사용하여 분리합니다. 이러한 분리를 통해 producer와 consumer가 서로 다른 속도로 동작할 수 있으며, 자연스러운 부하 분산을 제공합니다.
 
-## Problem Statement
+## 문제 정의
 
-In many applications:
-- Data producers and consumers operate at different speeds
-- Tight coupling between producers and consumers is undesirable
-- You need buffering to handle bursts in production or consumption
-- Multiple producers and/or consumers need to work concurrently
+많은 애플리케이션에서:
+- 데이터 producer와 consumer가 서로 다른 속도로 동작합니다
+- producer와 consumer 간의 강한 결합은 바람직하지 않습니다
+- 생산 또는 소비의 급증을 처리하기 위한 버퍼링이 필요합니다
+- 여러 producer 및/또는 consumer가 동시에 작업해야 합니다
 
-## Solution Architecture
+## 솔루션 아키텍처
 
 ```
 ┌──────────┐         ┌─────────────────┐         ┌──────────┐
@@ -25,14 +25,14 @@ In many applications:
    produce()          put()    get()              consume()
 ```
 
-### Key Components
+### 핵심 구성 요소
 
-1. **Producers**: Generate data items and add them to the queue
-2. **Consumers**: Remove data items from the queue and process them
-3. **Shared Queue**: Thread-safe buffer with bounded capacity
-4. **Synchronization**: Condition variables for full/empty states
+1. **Producer**: 데이터 항목을 생성하여 큐에 추가합니다
+2. **Consumer**: 큐에서 데이터 항목을 제거하고 처리합니다
+3. **공유 큐**: 제한된 용량을 가진 thread-safe 버퍼입니다
+4. **동기화**: 큐가 가득 찬 상태와 비어 있는 상태를 위한 condition variable을 사용합니다
 
-## Basic Implementation (C++)
+## 기본 구현 (C++)
 
 ### Thread-Safe Bounded Queue
 
@@ -56,25 +56,25 @@ private:
 public:
     explicit BoundedQueue(size_t capacity) : capacity_(capacity) {}
 
-    // Producer: blocking put
+    // Producer: 블로킹 put
     bool put(T item) {
         std::unique_lock<std::mutex> lock(mutex_);
 
-        // Wait until queue is not full or closed
+        // 큐가 가득 차지 않거나 닫힐 때까지 대기
         not_full_.wait(lock, [this] {
             return queue_.size() < capacity_ || closed_;
         });
 
         if (closed_) {
-            return false;  // Queue is closed, can't add
+            return false;  // 큐가 닫혀 추가 불가
         }
 
         queue_.push(std::move(item));
-        not_empty_.notify_one();  // Wake up a consumer
+        not_empty_.notify_one();  // consumer를 깨움
         return true;
     }
 
-    // Producer: non-blocking try_put
+    // Producer: 논블로킹 try_put
     bool try_put(T item) {
         std::unique_lock<std::mutex> lock(mutex_);
 
@@ -87,7 +87,7 @@ public:
         return true;
     }
 
-    // Producer: put with timeout
+    // Producer: 타임아웃이 있는 put
     template<typename Rep, typename Period>
     bool put_for(T item, const std::chrono::duration<Rep, Period>& timeout) {
         std::unique_lock<std::mutex> lock(mutex_);
@@ -95,7 +95,7 @@ public:
         if (!not_full_.wait_for(lock, timeout, [this] {
             return queue_.size() < capacity_ || closed_;
         })) {
-            return false;  // Timeout
+            return false;  // 타임아웃
         }
 
         if (closed_) {
@@ -107,26 +107,26 @@ public:
         return true;
     }
 
-    // Consumer: blocking get
+    // Consumer: 블로킹 get
     std::optional<T> get() {
         std::unique_lock<std::mutex> lock(mutex_);
 
-        // Wait until queue is not empty or closed
+        // 큐가 비어 있지 않거나 닫힐 때까지 대기
         not_empty_.wait(lock, [this] {
             return !queue_.empty() || closed_;
         });
 
         if (queue_.empty()) {
-            return std::nullopt;  // Queue is closed and empty
+            return std::nullopt;  // 큐가 닫혔고 비어 있음
         }
 
         T item = std::move(queue_.front());
         queue_.pop();
-        not_full_.notify_one();  // Wake up a producer
+        not_full_.notify_one();  // producer를 깨움
         return item;
     }
 
-    // Consumer: non-blocking try_get
+    // Consumer: 논블로킹 try_get
     std::optional<T> try_get() {
         std::unique_lock<std::mutex> lock(mutex_);
 
@@ -140,7 +140,7 @@ public:
         return item;
     }
 
-    // Consumer: get with timeout
+    // Consumer: 타임아웃이 있는 get
     template<typename Rep, typename Period>
     std::optional<T> get_for(const std::chrono::duration<Rep, Period>& timeout) {
         std::unique_lock<std::mutex> lock(mutex_);
@@ -148,11 +148,11 @@ public:
         if (!not_empty_.wait_for(lock, timeout, [this] {
             return !queue_.empty() || closed_;
         })) {
-            return std::nullopt;  // Timeout
+            return std::nullopt;  // 타임아웃
         }
 
         if (queue_.empty()) {
-            return std::nullopt;  // Closed and empty
+            return std::nullopt;  // 닫혔고 비어 있음
         }
 
         T item = std::move(queue_.front());
@@ -161,12 +161,12 @@ public:
         return item;
     }
 
-    // Close the queue (no more items can be added)
+    // 큐 닫기 (더 이상 항목을 추가할 수 없음)
     void close() {
         std::lock_guard<std::mutex> lock(mutex_);
         closed_ = true;
-        not_full_.notify_all();   // Wake all waiting producers
-        not_empty_.notify_all();  // Wake all waiting consumers
+        not_full_.notify_all();   // 대기 중인 모든 producer를 깨움
+        not_empty_.notify_all();  // 대기 중인 모든 consumer를 깨움
     }
 
     size_t size() const {
@@ -181,7 +181,7 @@ public:
 };
 ```
 
-### Complete Example: Image Processing Pipeline
+### 전체 예제: 이미지 처리 파이프라인
 
 ```cpp
 #include <iostream>
@@ -191,7 +191,7 @@ public:
 #include <chrono>
 #include <random>
 
-// Simulated image data
+// 시뮬레이션용 이미지 데이터
 struct Image {
     int id;
     std::string filename;
@@ -201,41 +201,41 @@ struct Image {
         : id(id), filename(name), data(1024 * 1024) {}  // 1MB
 };
 
-// Producer: Load images from disk
+// Producer: 디스크에서 이미지 로드
 void image_loader(BoundedQueue<Image>& queue, int count) {
-    std::cout << "Loader thread started\n";
+    std::cout << "로더 thread 시작\n";
 
     for (int i = 0; i < count; ++i) {
-        // Simulate loading image from disk
+        // 디스크에서 이미지를 로드하는 것을 시뮬레이션
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
         Image img(i, "image_" + std::to_string(i) + ".jpg");
-        std::cout << "Loaded: " << img.filename << "\n";
+        std::cout << "로드 완료: " << img.filename << "\n";
 
         if (!queue.put(std::move(img))) {
-            std::cout << "Queue closed, loader exiting\n";
+            std::cout << "큐가 닫힘, 로더 종료\n";
             break;
         }
     }
 
-    std::cout << "Loader finished\n";
+    std::cout << "로더 완료\n";
 }
 
-// Consumer: Process images
+// Consumer: 이미지 처리
 void image_processor(BoundedQueue<Image>& queue, int worker_id) {
-    std::cout << "Processor " << worker_id << " started\n";
+    std::cout << "프로세서 " << worker_id << " 시작\n";
 
     while (true) {
         auto img = queue.get();
 
         if (!img.has_value()) {
-            std::cout << "Processor " << worker_id << " exiting\n";
+            std::cout << "프로세서 " << worker_id << " 종료\n";
             break;
         }
 
-        // Simulate image processing
+        // 이미지 처리를 시뮬레이션
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        std::cout << "Processor " << worker_id << " processed: "
+        std::cout << "프로세서 " << worker_id << " 처리 완료: "
                   << img->filename << "\n";
     }
 }
@@ -247,32 +247,32 @@ int main() {
 
     BoundedQueue<Image> queue(QUEUE_CAPACITY);
 
-    // Start producer
+    // Producer 시작
     std::thread loader(image_loader, std::ref(queue), NUM_IMAGES);
 
-    // Start consumers
+    // Consumer 시작
     std::vector<std::thread> processors;
     for (int i = 0; i < NUM_PROCESSORS; ++i) {
         processors.emplace_back(image_processor, std::ref(queue), i);
     }
 
-    // Wait for producer to finish
+    // Producer 완료 대기
     loader.join();
 
-    // Close queue to signal consumers
+    // Consumer에게 종료 신호를 보내기 위해 큐 닫기
     queue.close();
 
-    // Wait for all consumers
+    // 모든 consumer 완료 대기
     for (auto& p : processors) {
         p.join();
     }
 
-    std::cout << "All processing complete\n";
+    std::cout << "모든 처리 완료\n";
     return 0;
 }
 ```
 
-## Advanced Variant: Multiple Queues with Priorities
+## 고급 변형: 우선순위가 있는 다중 큐
 
 ```cpp
 #include <array>
@@ -291,7 +291,7 @@ private:
 public:
     explicit PriorityBoundedQueue(size_t capacity) : capacity_(capacity) {}
 
-    // Put with priority (0 = highest priority)
+    // 우선순위를 지정하여 put (0 = 가장 높은 우선순위)
     bool put(T item, size_t priority = NumPriorities - 1) {
         if (priority >= NumPriorities) {
             priority = NumPriorities - 1;
@@ -312,7 +312,7 @@ public:
         return true;
     }
 
-    // Get highest priority item available
+    // 가용한 가장 높은 우선순위 항목 가져오기
     std::optional<T> get() {
         std::unique_lock<std::mutex> lock(mutex_);
         not_empty_.wait(lock, [this] {
@@ -323,7 +323,7 @@ public:
             return std::nullopt;
         }
 
-        // Find highest priority non-empty queue
+        // 비어 있지 않은 가장 높은 우선순위 큐 찾기
         for (auto& q : queues_) {
             if (!q.empty()) {
                 T item = std::move(q.front());
@@ -346,7 +346,7 @@ public:
 };
 ```
 
-## Internal Mechanisms
+## 내부 메커니즘
 
 ### Condition Variable 기반 구현의 내부 동작
 
@@ -515,7 +515,7 @@ class MPMCQueue {
 };
 ```
 
-## Lock-Free Implementation (Single Producer, Single Consumer)
+## Lock-Free 구현 (Single Producer, Single Consumer)
 
 ```cpp
 #include <atomic>
@@ -524,7 +524,7 @@ class MPMCQueue {
 template<typename T, size_t Capacity>
 class SPSCQueue {
 private:
-    struct alignas(64) {  // Cache line alignment
+    struct alignas(64) {  // 캐시 라인 정렬
         std::atomic<size_t> head{0};
     };
     struct alignas(64) {
@@ -534,13 +534,13 @@ private:
     std::array<T, Capacity> buffer_;
 
 public:
-    // Producer only
+    // Producer 전용
     bool try_push(const T& item) {
         const size_t current_tail = tail.load(std::memory_order_relaxed);
         const size_t next_tail = (current_tail + 1) % Capacity;
 
         if (next_tail == head.load(std::memory_order_acquire)) {
-            return false;  // Queue full
+            return false;  // 큐가 가득 참
         }
 
         buffer_[current_tail] = item;
@@ -548,12 +548,12 @@ public:
         return true;
     }
 
-    // Consumer only
+    // Consumer 전용
     bool try_pop(T& item) {
         const size_t current_head = head.load(std::memory_order_relaxed);
 
         if (current_head == tail.load(std::memory_order_acquire)) {
-            return false;  // Queue empty
+            return false;  // 큐가 비어 있음
         }
 
         item = buffer_[current_head];
@@ -563,28 +563,28 @@ public:
 };
 ```
 
-## Performance Considerations
+## 성능 고려 사항
 
-### Queue Capacity Selection
+### 큐 용량 선택
 
 ```
-Too Small (capacity = 1-2):
-  - Frequent blocking
-  - Poor throughput
-  - Tight coupling
+너무 작은 경우 (capacity = 1-2):
+  - 빈번한 블로킹
+  - 낮은 처리량
+  - 강한 결합
 
-Optimal (capacity = 10-100):
-  - Absorbs bursts
-  - Good throughput
-  - Balanced coupling
+최적 (capacity = 10-100):
+  - 급증 흡수
+  - 좋은 처리량
+  - 균형 잡힌 결합
 
-Too Large (capacity = 1000+):
-  - Memory waste
-  - Poor cache locality
-  - Delayed backpressure
+너무 큰 경우 (capacity = 1000+):
+  - 메모리 낭비
+  - 낮은 캐시 지역성
+  - 지연된 backpressure
 ```
 
-### Benchmarking Code
+### 벤치마킹 코드
 
 ```cpp
 #include <chrono>
@@ -620,162 +620,162 @@ void benchmark_throughput(size_t num_items) {
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
         end - start).count();
 
-    std::cout << "Throughput: " << (num_items * 1000.0 / duration)
+    std::cout << "처리량: " << (num_items * 1000.0 / duration)
               << " items/sec\n";
 }
 ```
 
-## Common Pitfalls
+## 흔한 실수
 
-### 1. Forgetting to Close the Queue
+### 1. 큐 닫기를 잊는 경우
 
 ```cpp
-// BAD: Consumers will wait forever
+// 잘못된 예: consumer가 영원히 대기함
 queue.put(item);
-// ... producer finishes but doesn't close queue
+// ... producer가 끝났지만 큐를 닫지 않음
 
-// GOOD: Always close when done producing
+// 올바른 예: 생산이 끝나면 항상 큐를 닫아야 함
 queue.put(item);
-queue.close();  // Signal consumers to stop
+queue.close();  // consumer에게 중지 신호를 보냄
 ```
 
-### 2. Lost Wakeups
+### 2. 깨우기 손실 (Lost Wakeup)
 
 ```cpp
-// BAD: Check condition outside lock
-if (queue.empty()) {  // Race: queue might not be empty anymore
+// 잘못된 예: lock 바깥에서 조건 확인
+if (queue.empty()) {  // 경쟁 조건: 큐가 이미 비어 있지 않을 수 있음
     wait_on_condition_variable();
 }
 
-// GOOD: Check condition inside wait predicate
+// 올바른 예: wait 술어 안에서 조건 확인
 lock.wait([&]{ return !queue.empty(); });
 ```
 
-### 3. Spurious Wakeups Not Handled
+### 3. Spurious Wakeup 미처리
 
 ```cpp
-// BAD: Single check
+// 잘못된 예: 단일 확인
 lock.wait();
-auto item = queue.front();  // Might still be empty!
+auto item = queue.front();  // 여전히 비어 있을 수 있음!
 
-// GOOD: Loop or predicate
+// 올바른 예: 루프 또는 술어 사용
 lock.wait([&]{ return !queue.empty(); });
 auto item = queue.front();
 ```
 
-## Variants and Extensions
+## 변형 및 확장
 
-### 1. Work Stealing Queue
-Multiple consumers can steal work from each other's local queues.
+### 1. Work Stealing 큐
+여러 consumer가 서로의 로컬 큐에서 작업을 가져올 수 있습니다.
 
-### 2. Buffered Channel (Go-style)
-Combination of buffered and unbuffered communication.
+### 2. Buffered Channel (Go 스타일)
+버퍼가 있는 통신과 버퍼가 없는 통신의 조합입니다.
 
-### 3. Disruptor Pattern
-Ultra-high-performance ring buffer for low-latency systems.
+### 3. Disruptor 패턴
+저지연 시스템을 위한 초고성능 ring buffer입니다.
 
-## Real-World Applications
+## 실제 활용 사례
 
-### 1. Thread Pool Task Queues
+### 1. Thread Pool 작업 큐
 ```
-Task producers → Task queue → Worker threads
-```
-
-### 2. Message Brokers
-```
-Publishers → Message queue → Subscribers
+작업 producer → 작업 큐 → Worker thread
 ```
 
-### 3. Data Processing Pipelines
+### 2. 메시지 브로커
 ```
-Data ingest → Processing stages → Output
-```
-
-### 4. UI Event Handling
-```
-User events → Event queue → Event handler thread
+발행자 → 메시지 큐 → 구독자
 ```
 
-### 5. Log Aggregation
+### 3. 데이터 처리 파이프라인
 ```
-Multiple services → Log queue → Log processor
+데이터 수집 → 처리 단계 → 출력
 ```
 
-## Pros and Cons
+### 4. UI 이벤트 처리
+```
+사용자 이벤트 → 이벤트 큐 → 이벤트 처리 thread
+```
 
-### Pros
-- Decouples producers from consumers
-- Natural load balancing across consumers
-- Absorbs bursts in production/consumption rates
-- Simple to understand and implement
-- Works well with thread pools
+### 5. 로그 집계
+```
+여러 서비스 → 로그 큐 → 로그 프로세서
+```
 
-### Cons
-- Bounded queues can cause producer blocking
-- Unbounded queues can cause memory exhaustion
-- Potential for high contention on queue locks
-- Doesn't work well for request-response patterns
-- Queue tuning can be application-specific
+## 장단점
 
-## Best Practices
+### 장점
+- producer와 consumer를 분리합니다
+- consumer 간 자연스러운 부하 분산이 가능합니다
+- 생산/소비 속도의 급증을 흡수합니다
+- 이해하고 구현하기 쉽습니다
+- thread pool과 잘 연동됩니다
 
-1. **Choose appropriate queue capacity** based on:
-   - Item size
-   - Production/consumption rates
-   - Memory constraints
-   - Latency requirements
+### 단점
+- bounded 큐는 producer 블로킹을 유발할 수 있습니다
+- unbounded 큐는 메모리 고갈을 유발할 수 있습니다
+- 큐 lock에 대한 높은 경합이 발생할 수 있습니다
+- 요청-응답 패턴에는 적합하지 않습니다
+- 큐 튜닝이 애플리케이션에 따라 달라질 수 있습니다
 
-2. **Provide timeout variants** for production systems:
+## 모범 사례
+
+1. **적절한 큐 용량 선택** 시 고려 사항:
+   - 항목 크기
+   - 생산/소비 속도
+   - 메모리 제약
+   - 지연 시간 요구 사항
+
+2. **프로덕션 시스템을 위한 타임아웃 변형 제공**:
    ```cpp
    if (!queue.put_for(item, 5s)) {
-       // Handle timeout
+       // 타임아웃 처리
    }
    ```
 
-3. **Monitor queue depth** to detect:
-   - Consumer starvation
-   - Producer overload
-   - System imbalances
+3. **큐 깊이 모니터링**으로 다음을 감지:
+   - Consumer 기아 상태
+   - Producer 과부하
+   - 시스템 불균형
 
-4. **Use move semantics** to avoid copies:
+4. **복사를 피하기 위해 이동 시맨틱스 사용**:
    ```cpp
    queue.put(std::move(large_object));
    ```
 
-5. **Consider lock-free implementations** for:
+5. **다음 경우에 lock-free 구현 고려**:
    - Single producer, single consumer
-   - Ultra-low latency requirements
-   - High-frequency trading
+   - 초저지연 요구 사항
+   - 고빈도 거래
 
-## Testing Strategies
+## 테스트 전략
 
-### Stress Test
+### 스트레스 테스트
 ```cpp
-// Test with many producers and consumers
+// 많은 producer와 consumer로 테스트
 const int NUM_PRODUCERS = 10;
 const int NUM_CONSUMERS = 10;
 const int ITEMS_PER_PRODUCER = 10000;
-// Verify all items are produced and consumed exactly once
+// 모든 항목이 정확히 한 번 생산되고 소비되는지 검증
 ```
 
-### Fairness Test
+### 공정성 테스트
 ```cpp
-// Verify no consumer starves
-// Verify load is balanced across consumers
+// consumer가 기아 상태에 빠지지 않는지 검증
+// 부하가 consumer 간에 균형 있게 분배되는지 검증
 ```
 
-### Backpressure Test
+### Backpressure 테스트
 ```cpp
-// Slow consumer, fast producer
-// Verify producers block appropriately
+// 느린 consumer, 빠른 producer
+// producer가 적절히 블로킹되는지 검증
 ```
 
-## Summary
+## 요약
 
-The Producer-Consumer pattern is essential for:
-- Decoupling system components
-- Building scalable data processing systems
-- Handling variable workload rates
-- Implementing work distribution
+Producer-Consumer 패턴은 다음에 필수적입니다:
+- 시스템 구성 요소 분리
+- 확장 가능한 데이터 처리 시스템 구축
+- 가변적인 작업 부하 속도 처리
+- 작업 분배 구현
 
-Master this pattern as it forms the foundation for many other concurrency patterns and is used extensively in real-world systems.
+이 패턴은 다른 많은 동시성 패턴의 기초를 이루며 실제 시스템에서 광범위하게 사용되므로 반드시 숙달해야 합니다.
