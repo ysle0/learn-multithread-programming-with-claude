@@ -1,41 +1,41 @@
-# C# Concurrency
+# C# 동시성
 
-C# provides a rich, high-level approach to concurrent programming with excellent async/await support, comprehensive threading libraries, and built-in concurrent collections. It balances developer productivity with performance.
+C#은 뛰어난 async/await 지원, 포괄적인 스레딩 라이브러리, 내장 동시성 컬렉션을 통해 풍부하고 고수준의 동시성 프로그래밍 접근 방식을 제공합니다. 개발자 생산성과 성능 간의 균형을 잘 맞추고 있습니다.
 
-## Overview
+## 개요
 
-C# concurrency has evolved significantly:
-- **.NET 1.0**: Basic threading with `Thread` class
-- **.NET 2.0**: Thread pool, asynchronous programming model
+C# 동시성은 크게 발전해 왔습니다:
+- **.NET 1.0**: `Thread` 클래스를 사용한 기본 스레딩
+- **.NET 2.0**: Thread pool, 비동기 프로그래밍 모델
 - **.NET 4.0**: Task Parallel Library (TPL), PLINQ
-- **.NET 4.5**: async/await keywords
-- **.NET Core/5+**: Improved performance, Channels, ValueTask
+- **.NET 4.5**: async/await 키워드
+- **.NET Core/5+**: 성능 개선, Channels, ValueTask
 
-## Core Components
+## 핵심 구성 요소
 
-### 1. [Thread and Task](./01-thread-task.md)
-- `Thread` class for low-level threading
-- `Task` and TPL for task-based parallelism
-- Thread pool management
-- Task schedulers and contexts
+### 1. [Thread와 Task](./01-thread-task.md)
+- 저수준 스레딩을 위한 `Thread` 클래스
+- 작업 기반 병렬 처리를 위한 `Task`와 TPL
+- Thread pool 관리
+- Task 스케줄러와 컨텍스트
 
 ### 2. [Async/Await](./02-async-await.md)
-- The async/await pattern
-- Asynchronous programming model
-- ConfigureAwait and context
-- ValueTask for performance
+- async/await 패턴
+- 비동기 프로그래밍 모델
+- ConfigureAwait와 컨텍스트
+- 성능을 위한 ValueTask
 
-### 3. [Lock and Monitor](./03-lock-monitor.md)
-- `lock` statement for mutual exclusion
-- `Monitor` class for advanced locking
-- Reader-writer locks
-- SpinLock for low-latency scenarios
+### 3. [Lock과 Monitor](./03-lock-monitor.md)
+- 상호 배제를 위한 `lock` 문
+- 고급 잠금을 위한 `Monitor` 클래스
+- Reader-Writer lock
+- 저지연 시나리오를 위한 SpinLock
 
 ### 4. [SemaphoreSlim](./04-semaphore-slim.md)
-- Limiting concurrent access
-- Asynchronous waiting
-- Resource throttling
-- Cancellation support
+- 동시 접근 제한
+- 비동기 대기
+- 리소스 스로틀링
+- 취소 지원
 
 ### 5. [Concurrent Collections](./05-concurrent-collections.md)
 - `ConcurrentQueue<T>`
@@ -43,27 +43,27 @@ C# concurrency has evolved significantly:
 - `ConcurrentBag<T>`
 - `BlockingCollection<T>`
 
-## Quick Comparison with Other Languages
+## 다른 언어와의 간단한 비교
 
-| Feature | C# | Comparison |
-|---------|----|-----------|
-| **Async Syntax** | `async/await` | Most elegant, similar to JavaScript |
-| **Threading** | Thread + Task | Higher level than C++, heavier than Go |
-| **Message Passing** | Channels (System.Threading.Channels) | Similar to Go channels |
-| **Collections** | Rich concurrent collections | More comprehensive than other languages |
-| **Safety** | Memory-safe (GC) | Safer than C++, similar to Go/JS |
+| 기능 | C# | 비교 |
+|------|-----|------|
+| **Async 구문** | `async/await` | 가장 우아하며, JavaScript와 유사 |
+| **스레딩** | Thread + Task | C++보다 고수준, Go보다 무거움 |
+| **메시지 전달** | Channels (System.Threading.Channels) | Go channels와 유사 |
+| **컬렉션** | 풍부한 동시성 컬렉션 | 다른 언어보다 포괄적 |
+| **안전성** | 메모리 안전 (GC) | C++보다 안전, Go/JS와 유사 |
 
-## Key Principles
+## 핵심 원칙
 
-### 1. Async/Await Over Threads
+### 1. Thread보다 Async/Await 우선
 ```csharp
-// GOOD: Modern async/await
+// 좋은 방법: 현대적인 async/await
 public async Task<string> FetchDataAsync()
 {
     return await httpClient.GetStringAsync(url);
 }
 
-// OLD: Manual thread management
+// 이전 방식: 수동 스레드 관리
 public string FetchData()
 {
     string result = null;
@@ -76,26 +76,26 @@ public string FetchData()
 }
 ```
 
-### 2. Task-Based Parallelism
+### 2. Task 기반 병렬 처리
 ```csharp
-// Tasks abstract away thread management
+// Task가 스레드 관리를 추상화합니다
 var task1 = Task.Run(() => Compute1());
 var task2 = Task.Run(() => Compute2());
 await Task.WhenAll(task1, task2);
 ```
 
-### 3. Built-in Synchronization
+### 3. 내장 동기화
 ```csharp
-// C# provides rich synchronization primitives
+// C#은 풍부한 동기화 프리미티브를 제공합니다
 lock (lockObject)
 {
-    // Critical section
+    // 임계 영역
 }
 ```
 
-## Common Patterns
+## 일반적인 패턴
 
-### Parallel Processing
+### 병렬 처리
 ```csharp
 Parallel.For(0, 1000, i =>
 {
@@ -103,81 +103,81 @@ Parallel.For(0, 1000, i =>
 });
 ```
 
-### Producer-Consumer with BlockingCollection
+### BlockingCollection을 사용한 생산자-소비자
 ```csharp
 var queue = new BlockingCollection<int>();
 
-// Producer
+// 생산자
 Task.Run(() => {
     for (int i = 0; i < 100; i++)
         queue.Add(i);
     queue.CompleteAdding();
 });
 
-// Consumer
+// 소비자
 foreach (var item in queue.GetConsumingEnumerable())
 {
     Console.WriteLine(item);
 }
 ```
 
-## Best Practices
+## 모범 사례
 
-1. **Use async/await for I/O**: Don't block threads on I/O operations
-2. **Avoid async void**: Only use for event handlers
-3. **ConfigureAwait(false)**: In library code to avoid context capture
-4. **Use CancellationToken**: For cooperative cancellation
-5. **Prefer immutability**: Reduce need for synchronization
-6. **Use concurrent collections**: Over manual locking
-7. **Avoid locks on public types**: Never lock on `this` or `typeof(Type)`
+1. **I/O에는 async/await 사용**: I/O 작업에서 스레드를 차단하지 마세요
+2. **async void 피하기**: 이벤트 핸들러에만 사용하세요
+3. **ConfigureAwait(false)**: 라이브러리 코드에서 컨텍스트 캡처를 피하기 위해 사용
+4. **CancellationToken 사용**: 협력적 취소를 위해
+5. **불변성 선호**: 동기화 필요성을 줄입니다
+6. **동시성 컬렉션 사용**: 수동 잠금 대신 사용
+7. **공개 타입에 대한 잠금 피하기**: `this`나 `typeof(Type)`에 대해 절대 lock하지 마세요
 
-## Common Pitfalls
+## 일반적인 실수
 
 ### 1. Async Void
 ```csharp
-// BAD: Exceptions unhandled
+// 나쁜 예: 예외가 처리되지 않음
 public async void ProcessData()
 {
     await Task.Delay(1000);
-    throw new Exception();  // Can't catch!
+    throw new Exception();  // 잡을 수 없습니다!
 }
 
-// GOOD: Return Task
+// 좋은 예: Task 반환
 public async Task ProcessDataAsync()
 {
     await Task.Delay(1000);
 }
 ```
 
-### 2. Deadlock with .Result
+### 2. .Result로 인한 교착 상태
 ```csharp
-// BAD: Deadlocks in UI/ASP.NET contexts
+// 나쁜 예: UI/ASP.NET 컨텍스트에서 교착 상태 발생
 public void Button_Click(object sender, EventArgs e)
 {
-    var result = GetDataAsync().Result;  // Deadlock!
+    var result = GetDataAsync().Result;  // 교착 상태!
 }
 
-// GOOD: Use await
+// 좋은 예: await 사용
 public async void Button_Click(object sender, EventArgs e)
 {
     var result = await GetDataAsync();
 }
 ```
 
-### 3. Locking on Wrong Object
+### 3. 잘못된 객체에 대한 잠금
 ```csharp
-// BAD: Locking on public object
+// 나쁜 예: 공개 객체에 잠금
 public class BadClass
 {
     public void Method()
     {
-        lock (this)  // BAD: Others can lock on this!
+        lock (this)  // 나쁨: 외부 코드도 이것에 잠금을 걸 수 있습니다!
         {
         }
     }
 }
 
-// GOOD: Private lock object
+// 좋은 예: 비공개 잠금 객체
 public class GoodClass
 {
     private readonly object _lock = new object();
@@ -191,60 +191,60 @@ public class GoodClass
 }
 ```
 
-### 4. Capturing SynchronizationContext Unnecessarily
+### 4. 불필요한 SynchronizationContext 캡처
 ```csharp
-// In library code (BAD):
-await Task.Delay(1000);  // Captures context
+// 라이브러리 코드에서 (나쁜 예):
+await Task.Delay(1000);  // 컨텍스트를 캡처함
 
-// GOOD: Don't capture context
+// 좋은 예: 컨텍스트를 캡처하지 않음
 await Task.Delay(1000).ConfigureAwait(false);
 ```
 
-### 5. Not Handling Cancellation
+### 5. 취소 처리 미흡
 ```csharp
-// BAD: No cancellation support
+// 나쁜 예: 취소 지원 없음
 public async Task ProcessAsync()
 {
     await Task.Delay(10000);
 }
 
-// GOOD: Support cancellation
+// 좋은 예: 취소 지원
 public async Task ProcessAsync(CancellationToken ct)
 {
     await Task.Delay(10000, ct);
 }
 ```
 
-## Performance Considerations
+## 성능 고려 사항
 
 ### Task vs. Thread
-- **Thread**: ~100 μs to create, ~2MB memory
-- **Task**: Runs on thread pool, minimal overhead
-- **Rule**: Use tasks unless you need dedicated thread
+- **Thread**: 생성에 ~100 μs, ~2MB 메모리
+- **Task**: Thread pool에서 실행, 최소한의 오버헤드
+- **원칙**: 전용 스레드가 필요한 경우가 아니면 Task를 사용하세요
 
 ### ValueTask vs. Task
 ```csharp
-// Use ValueTask when result often available synchronously
+// 결과가 자주 동기적으로 사용 가능한 경우 ValueTask 사용
 public ValueTask<int> GetCachedValue(string key)
 {
     if (cache.TryGetValue(key, out int value))
-        return new ValueTask<int>(value);  // No allocation
+        return new ValueTask<int>(value);  // 할당 없음
 
     return new ValueTask<int>(FetchFromDbAsync(key));
 }
 ```
 
-### Thread Pool Sizing
+### Thread Pool 크기 조정
 ```csharp
-// Get thread pool info
+// Thread pool 정보 가져오기
 ThreadPool.GetMinThreads(out int minWorker, out int minIO);
 ThreadPool.GetMaxThreads(out int maxWorker, out int maxIO);
 
-// Adjust if needed (rarely necessary)
+// 필요시 조정 (드물게 필요)
 ThreadPool.SetMinThreads(Environment.ProcessorCount * 2, minIO);
 ```
 
-## Modern C# Features
+## 최신 C# 기능
 
 ### Async Streams (C# 8.0)
 ```csharp
@@ -257,7 +257,7 @@ public async IAsyncEnumerable<int> GetNumbersAsync()
     }
 }
 
-// Consume
+// 사용
 await foreach (var number in GetNumbersAsync())
 {
     Console.WriteLine(number);
@@ -268,10 +268,10 @@ await foreach (var number in GetNumbersAsync())
 ```csharp
 var channel = Channel.CreateUnbounded<int>();
 
-// Producer
+// 생산자
 await channel.Writer.WriteAsync(42);
 
-// Consumer
+// 소비자
 while (await channel.Reader.WaitToReadAsync())
 {
     if (channel.Reader.TryRead(out var item))
@@ -286,66 +286,66 @@ public class AsyncResource : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await FlushAsync();
-        // Cleanup
+        // 정리
     }
 }
 
 await using var resource = new AsyncResource();
 ```
 
-## Tools and Debugging
+## 도구 및 디버깅
 
-### Visual Studio Debugger
-- Threads window
-- Parallel Stacks window
-- Tasks window
+### Visual Studio 디버거
+- Threads 창
+- Parallel Stacks 창
+- Tasks 창
 - Concurrency Visualizer
 
-### Performance Profiling
+### 성능 프로파일링
 - dotTrace
 - PerfView
 - Visual Studio Profiler
-- BenchmarkDotNet for micro-benchmarks
+- 마이크로 벤치마크를 위한 BenchmarkDotNet
 
-### Diagnostic Tools
+### 진단 도구
 ```csharp
-// Detect deadlocks
+// 교착 상태 감지
 ThreadPool.GetAvailableThreads(out int available, out int _);
 if (available == 0)
 {
-    // Potential thread pool starvation
+    // Thread pool 기아 가능성
 }
 ```
 
-## Platform Considerations
+## 플랫폼 고려 사항
 
 ### .NET Framework vs. .NET Core/5+
-- .NET Core has better async performance
-- .NET 5+ has improved thread pool
-- Some APIs differ between platforms
+- .NET Core는 더 나은 async 성능을 제공합니다
+- .NET 5+는 개선된 Thread pool을 갖추고 있습니다
+- 일부 API는 플랫폼 간에 차이가 있습니다
 
 ### ASP.NET Core
-- Don't use `Task.Run` in controllers
-- Don't block on async code
-- Use async all the way down
+- 컨트롤러에서 `Task.Run`을 사용하지 마세요
+- async 코드를 차단하지 마세요
+- 끝까지 async를 사용하세요
 
 ### WPF/WinForms
-- Marshal to UI thread: `Dispatcher.Invoke` / `Control.Invoke`
-- Or use async/await (captures SynchronizationContext automatically)
+- UI 스레드로 마샬링: `Dispatcher.Invoke` / `Control.Invoke`
+- 또는 async/await 사용 (SynchronizationContext를 자동으로 캡처)
 
-## Further Reading
+## 추가 자료
 
 - **C# in Depth** by Jon Skeet
 - **Concurrency in C# Cookbook** by Stephen Cleary
 - Microsoft Docs: https://docs.microsoft.com/en-us/dotnet/standard/parallel-programming/
 - Stephen Cleary's Blog: https://blog.stephencleary.com/
 
-## Navigation
+## 탐색
 
-- [Back to Language Implementations](../)
-- Next Topics:
-  - [Thread and Task](./01-thread-task.md)
+- [언어 구현으로 돌아가기](../)
+- 다음 주제:
+  - [Thread와 Task](./01-thread-task.md)
   - [Async/Await](./02-async-await.md)
-  - [Lock and Monitor](./03-lock-monitor.md)
+  - [Lock과 Monitor](./03-lock-monitor.md)
   - [SemaphoreSlim](./04-semaphore-slim.md)
   - [Concurrent Collections](./05-concurrent-collections.md)

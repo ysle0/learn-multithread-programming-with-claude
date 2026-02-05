@@ -1,30 +1,30 @@
-# SemaphoreSlim in C#
+# C#의 SemaphoreSlim
 
-`SemaphoreSlim` is a lightweight semaphore that limits the number of threads that can access a resource concurrently. It supports both synchronous and asynchronous waiting.
+`SemaphoreSlim`은 리소스에 동시에 접근할 수 있는 스레드 수를 제한하는 경량 세마포어입니다. 동기 및 비동기 대기를 모두 지원합니다.
 
-## Table of Contents
-- [Basic Concepts](#basic-concepts)
-- [Synchronous Usage](#synchronous-usage)
-- [Asynchronous Usage](#asynchronous-usage)
-- [Rate Limiting](#rate-limiting)
-- [Best Practices](#best-practices)
-- [Common Pitfalls](#common-pitfalls)
+## 목차
+- [기본 개념](#기본-개념)
+- [동기 사용](#동기-사용)
+- [비동기 사용](#비동기-사용)
+- [속도 제한](#속도-제한)
+- [모범 사례](#모범-사례)
+- [일반적인 실수](#일반적인-실수)
 
-## Basic Concepts
+## 기본 개념
 
-### What is a Semaphore?
+### 세마포어란?
 
 ```csharp
 using System;
 using System.Threading;
 using System.Threading.Tasks;
 
-// Allow max 3 concurrent accesses
+// 최대 3개의 동시 접근 허용
 var semaphore = new SemaphoreSlim(3, 3);
 
 var tasks = Enumerable.Range(0, 10).Select(i => Task.Run(async () => {
     Console.WriteLine($"Task {i} waiting...");
-    
+
     await semaphore.WaitAsync();
     try
     {
@@ -41,16 +41,16 @@ var tasks = Enumerable.Range(0, 10).Select(i => Task.Run(async () => {
 await Task.WhenAll(tasks);
 ```
 
-## Synchronous Usage
+## 동기 사용
 
-### Basic Pattern
+### 기본 패턴
 
 ```csharp
 var semaphore = new SemaphoreSlim(initialCount: 2, maxCount: 2);
 
 void AccessResource(int id)
 {
-    semaphore.Wait();  // Blocks until available
+    semaphore.Wait();  // 사용 가능해질 때까지 차단
     try
     {
         Console.WriteLine($"Worker {id} accessing resource");
@@ -65,7 +65,7 @@ void AccessResource(int id)
 Parallel.For(0, 10, i => AccessResource(i));
 ```
 
-### With Timeout
+### 타임아웃 사용
 
 ```csharp
 var semaphore = new SemaphoreSlim(1);
@@ -76,7 +76,7 @@ bool TryAccessResource(int timeoutMs)
     {
         try
         {
-            // Access resource
+            // 리소스 접근
             return true;
         }
         finally
@@ -84,18 +84,18 @@ bool TryAccessResource(int timeoutMs)
             semaphore.Release();
         }
     }
-    
+
     Console.WriteLine("Timeout - couldn't access resource");
     return false;
 }
 ```
 
-## Asynchronous Usage
+## 비동기 사용
 
-### Basic Async Pattern
+### 기본 Async 패턴
 
 ```csharp
-private readonly SemaphoreSlim _semaphore = new(5); // Max 5 concurrent
+private readonly SemaphoreSlim _semaphore = new(5); // 최대 5개 동시 실행
 
 public async Task ProcessAsync(string item)
 {
@@ -111,7 +111,7 @@ public async Task ProcessAsync(string item)
 }
 ```
 
-### With Cancellation
+### 취소 지원
 
 ```csharp
 public async Task ProcessAsync(CancellationToken ct)
@@ -128,22 +128,22 @@ public async Task ProcessAsync(CancellationToken ct)
 }
 ```
 
-## Rate Limiting
+## 속도 제한
 
-### HTTP Request Throttling
+### HTTP 요청 스로틀링
 
 ```csharp
 public class HttpThrottler
 {
     private readonly HttpClient _client = new();
-    private readonly SemaphoreSlim _semaphore = new(10); // Max 10 concurrent
-    
+    private readonly SemaphoreSlim _semaphore = new(10); // 최대 10개 동시 실행
+
     public async Task<string[]> FetchAllAsync(IEnumerable<string> urls)
     {
         var tasks = urls.Select(FetchAsync);
         return await Task.WhenAll(tasks);
     }
-    
+
     private async Task<string> FetchAsync(string url)
     {
         await _semaphore.WaitAsync();
@@ -159,18 +159,18 @@ public class HttpThrottler
 }
 ```
 
-### Database Connection Pool
+### 데이터베이스 연결 풀
 
 ```csharp
 public class ConnectionPool
 {
     private readonly SemaphoreSlim _semaphore;
-    
+
     public ConnectionPool(int maxConnections)
     {
         _semaphore = new SemaphoreSlim(maxConnections);
     }
-    
+
     public async Task<T> ExecuteAsync<T>(Func<Task<T>> query)
     {
         await _semaphore.WaitAsync();
@@ -186,25 +186,25 @@ public class ConnectionPool
 }
 ```
 
-## Best Practices
+## 모범 사례
 
-1. **Always Release in Finally**: Ensure `Release()` is called even on exceptions
-2. **Use Async Version**: Prefer `WaitAsync()` over `Wait()` in async code
-3. **Proper Disposal**: Dispose semaphore when done
-4. **Match Wait/Release**: Every Wait must have corresponding Release
-5. **Avoid Recursive Acquisition**: Don't wait on same semaphore in nested code
+1. **항상 Finally에서 Release**: 예외 발생 시에도 `Release()`가 호출되도록 보장하세요
+2. **Async 버전 사용**: async 코드에서는 `Wait()` 대신 `WaitAsync()`를 선호하세요
+3. **적절한 해제**: 사용이 끝나면 세마포어를 해제하세요
+4. **Wait/Release 매칭**: 모든 Wait에는 대응하는 Release가 있어야 합니다
+5. **재귀적 획득 피하기**: 중첩 코드에서 동일한 세마포어를 대기하지 마세요
 
-## Common Pitfalls
+## 일반적인 실수
 
-### Forgetting to Release
+### Release 누락
 
 ```csharp
-// BAD: Exception causes lock leak
+// 나쁜 예: 예외로 인한 잠금 누수
 await _semaphore.WaitAsync();
-await MightThrowAsync();  // If throws, never releases!
+await MightThrowAsync();  // 예외 발생 시 해제되지 않음!
 _semaphore.Release();
 
-// GOOD: Always release in finally
+// 좋은 예: 항상 finally에서 해제
 await _semaphore.WaitAsync();
 try
 {
@@ -216,20 +216,20 @@ finally
 }
 ```
 
-### Double Release
+### 이중 Release
 
 ```csharp
-// BAD: Releasing too many times
+// 나쁜 예: 너무 많이 해제
 _semaphore.Release();
-_semaphore.Release();  // Can exceed maxCount!
+_semaphore.Release();  // maxCount를 초과할 수 있습니다!
 
-// GOOD: Track state
+// 좋은 예: 상태 추적
 bool acquired = false;
 try
 {
     await _semaphore.WaitAsync();
     acquired = true;
-    // Work
+    // 작업
 }
 finally
 {
@@ -238,7 +238,7 @@ finally
 }
 ```
 
-## Complete Example: Parallel Downloader
+## 전체 예제: 병렬 다운로더
 
 ```csharp
 using System;
@@ -252,12 +252,12 @@ public class ParallelDownloader
 {
     private readonly HttpClient _client = new();
     private readonly SemaphoreSlim _semaphore;
-    
+
     public ParallelDownloader(int maxConcurrent = 5)
     {
         _semaphore = new SemaphoreSlim(maxConcurrent);
     }
-    
+
     public async Task<Dictionary<string, string>> DownloadAllAsync(
         IEnumerable<string> urls,
         IProgress<int> progress = null,
@@ -267,13 +267,13 @@ public class ParallelDownloader
         var results = new Dictionary<string, string>();
         var completed = 0;
         var lockObj = new object();
-        
+
         var tasks = urlList.Select(async url => {
             await _semaphore.WaitAsync(ct);
             try
             {
                 var content = await _client.GetStringAsync(url, ct);
-                
+
                 lock (lockObj)
                 {
                     results[url] = content;
@@ -286,21 +286,21 @@ public class ParallelDownloader
                 _semaphore.Release();
             }
         });
-        
+
         await Task.WhenAll(tasks);
         return results;
     }
 }
 
-// Usage
+// 사용법
 var downloader = new ParallelDownloader(maxConcurrent: 10);
 var progress = new Progress<int>(p => Console.WriteLine($"Progress: {p}%"));
 var urls = new[] { "https://example.com", "https://example.org" };
 var results = await downloader.DownloadAllAsync(urls, progress);
 ```
 
-## Navigation
+## 탐색
 
-- [Back to C# Overview](./README.md)
-- Previous: [Lock and Monitor](./03-lock-monitor.md)
-- Next: [Concurrent Collections](./05-concurrent-collections.md)
+- [C# 개요로 돌아가기](./README.md)
+- 이전: [Lock과 Monitor](./03-lock-monitor.md)
+- 다음: [Concurrent Collections](./05-concurrent-collections.md)

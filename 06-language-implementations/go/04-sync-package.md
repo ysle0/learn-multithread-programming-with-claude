@@ -1,10 +1,10 @@
-# Sync Package in Go
+# Go의 Sync 패키지
 
-The `sync` package provides traditional synchronization primitives for when channels aren't the right tool.
+`sync` 패키지는 channel이 적합하지 않은 경우를 위한 전통적인 동기화 기본 요소를 제공합니다.
 
 ## Mutex
 
-### Basic Mutex
+### 기본 Mutex
 
 ```go
 import "sync"
@@ -27,7 +27,7 @@ func (c *Counter) Value() int {
 }
 ```
 
-## RWMutex (Reader-Writer Lock)
+## RWMutex (읽기-쓰기 락)
 
 ```go
 type Cache struct {
@@ -64,7 +64,7 @@ for i := 0; i < 5; i++ {
 wg.Wait()
 ```
 
-## Once (Run Once)
+## Once (한 번만 실행)
 
 ```go
 var once sync.Once
@@ -78,33 +78,33 @@ func GetInstance() *Singleton {
 }
 ```
 
-## sync.Map (Concurrent Map)
+## sync.Map (동시성 안전 Map)
 
 ```go
 var m sync.Map
 
-// Store
+// 저장
 m.Store("key", "value")
 
-// Load
+// 로드
 if val, ok := m.Load("key"); ok {
     fmt.Println(val)
 }
 
-// LoadOrStore
+// 로드 또는 저장
 actual, loaded := m.LoadOrStore("key", "value")
 
-// Delete
+// 삭제
 m.Delete("key")
 
-// Range
+// 순회
 m.Range(func(key, value interface{}) bool {
     fmt.Printf("%v: %v\n", key, value)
-    return true  // continue iteration
+    return true  // 반복 계속
 })
 ```
 
-## Internal Mechanisms
+## 내부 메커니즘
 
 ### Mutex 구조체
 
@@ -281,8 +281,8 @@ type readOnly struct {
 // 3. misses가 임계값 넘으면 dirty → read 승격
 ```
 
-## Navigation
+## 탐색
 
-- [Back to Go Overview](./README.md)
-- Previous: [Select Statement](./03-select.md)
-- Next: [Context Package](./05-context.md)
+- [Go 개요로 돌아가기](./README.md)
+- 이전: [Select 문](./03-select.md)
+- 다음: [Context 패키지](./05-context.md)

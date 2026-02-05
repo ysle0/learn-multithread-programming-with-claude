@@ -1,24 +1,24 @@
-# Select Statement in Go
+# Go의 Select 문
 
-The `select` statement lets a goroutine wait on multiple channel operations, choosing whichever is ready first.
+`select` 문은 goroutine이 여러 channel 연산을 동시에 대기하면서, 먼저 준비된 것을 선택할 수 있게 해줍니다.
 
-## Basic Select
+## 기본 Select
 
 ```go
 func main() {
     ch1 := make(chan string)
     ch2 := make(chan string)
-    
+
     go func() {
         time.Sleep(time.Second)
         ch1 <- "from ch1"
     }()
-    
+
     go func() {
         time.Sleep(2 * time.Second)
         ch2 <- "from ch2"
     }()
-    
+
     select {
     case msg1 := <-ch1:
         fmt.Println(msg1)
@@ -28,7 +28,7 @@ func main() {
 }
 ```
 
-## Default Case (Non-blocking)
+## Default Case (비차단)
 
 ```go
 select {
@@ -39,7 +39,7 @@ default:
 }
 ```
 
-## Timeout Pattern
+## 타임아웃 패턴
 
 ```go
 select {
@@ -50,7 +50,7 @@ case <-time.After(time.Second):
 }
 ```
 
-## Complete Example
+## 전체 예제
 
 ```go
 package main
@@ -63,7 +63,7 @@ import (
 func main() {
     c1 := make(chan string)
     c2 := make(chan string)
-    
+
     go func() {
         for {
             select {
@@ -77,7 +77,7 @@ func main() {
             }
         }
     }()
-    
+
     c1 <- "Hello"
     time.Sleep(time.Second)
     c2 <- "World"
@@ -85,7 +85,7 @@ func main() {
 }
 ```
 
-## Internal Mechanisms
+## 내부 메커니즘
 
 ### Select 구조체 (runtime.scase)
 
@@ -201,9 +201,9 @@ select {}  // 영원히 블록
 for {
     select {
     case <-ch:
-        // process
+        // 처리
     case <-time.After(time.Second):  // 매번 새 Timer 생성!
-        // timeout
+        // 타임아웃
     }
 }
 
@@ -222,8 +222,8 @@ for {
 }
 ```
 
-## Navigation
+## 탐색
 
-- [Back to Go Overview](./README.md)
-- Previous: [Channels](./02-channel.md)
-- Next: [Sync Package](./04-sync-package.md)
+- [Go 개요로 돌아가기](./README.md)
+- 이전: [Channel](./02-channel.md)
+- 다음: [Sync 패키지](./04-sync-package.md)

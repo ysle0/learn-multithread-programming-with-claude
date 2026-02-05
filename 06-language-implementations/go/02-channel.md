@@ -1,91 +1,91 @@
-# Channels in Go
+# Go의 Channel
 
-Channels are Go's way of allowing goroutines to communicate and synchronize. They're type-safe conduits for passing values between goroutines.
+Channel은 goroutine 간에 통신하고 동기화하는 Go의 방식입니다. goroutine 간에 값을 전달하기 위한 타입 안전한 통로입니다.
 
-## Basic Concepts
+## 기본 개념
 
-### Creating Channels
+### Channel 생성
 
 ```go
 ch := make(chan int)           // Unbuffered
-ch := make(chan int, 5)        // Buffered (capacity 5)
+ch := make(chan int, 5)        // Buffered (용량 5)
 ch := make(chan string, 100)   // Buffered string channel
 ```
 
-### Sending and Receiving
+### 송신과 수신
 
 ```go
 ch := make(chan int)
 
-// Send
+// 송신
 go func() {
-    ch <- 42  // Send 42 to channel
+    ch <- 42  // channel에 42 송신
 }()
 
-// Receive
-value := <-ch  // Receive from channel
+// 수신
+value := <-ch  // channel에서 수신
 
-// Receive and discard
+// 수신 후 버림
 <-ch
 ```
 
-## Unbuffered Channels
+## Unbuffered Channel
 
-### Synchronization
+### 동기화
 
 ```go
 func main() {
     ch := make(chan string)
-    
+
     go func() {
-        ch <- "hello"  // Blocks until received
+        ch <- "hello"  // 수신될 때까지 차단
     }()
-    
-    msg := <-ch  // Blocks until sent
+
+    msg := <-ch  // 송신될 때까지 차단
     fmt.Println(msg)
 }
 ```
 
-## Buffered Channels
+## Buffered Channel
 
-### Non-blocking Sends (Until Full)
+### 비차단 송신 (가득 찰 때까지)
 
 ```go
 ch := make(chan int, 3)
 
-ch <- 1  // Doesn't block
-ch <- 2  // Doesn't block
-ch <- 3  // Doesn't block
-// ch <- 4  // Would block (buffer full)
+ch <- 1  // 차단 안 됨
+ch <- 2  // 차단 안 됨
+ch <- 3  // 차단 안 됨
+// ch <- 4  // 차단됨 (버퍼 가득 참)
 
 fmt.Println(<-ch)  // 1
 fmt.Println(<-ch)  // 2
 ```
 
-## Closing Channels
+## Channel 닫기
 
-### Sender Closes
+### 송신자가 닫기
 
 ```go
 func sender(ch chan<- int) {
     for i := 0; i < 5; i++ {
         ch <- i
     }
-    close(ch)  // Sender closes
+    close(ch)  // 송신자가 닫음
 }
 
 func main() {
     ch := make(chan int)
     go sender(ch)
-    
-    // Receive until closed
+
+    // 닫힐 때까지 수신
     for val := range ch {
         fmt.Println(val)
     }
 }
 ```
 
-### Checking if Closed
+### 닫힘 여부 확인
 
 ```go
 val, ok := <-ch
@@ -94,23 +94,23 @@ if !ok {
 }
 ```
 
-## Direction (Send-only, Receive-only)
+## 방향 (송신 전용, 수신 전용)
 
 ```go
-// Send-only channel
+// 송신 전용 channel
 func sender(ch chan<- int) {
     ch <- 42
-    // val := <-ch  // Compile error
+    // val := <-ch  // 컴파일 에러
 }
 
-// Receive-only channel
+// 수신 전용 channel
 func receiver(ch <-chan int) {
     val := <-ch
-    // ch <- 42  // Compile error
+    // ch <- 42  // 컴파일 에러
 }
 ```
 
-## Common Patterns
+## 일반적인 패턴
 
 ### Worker Pool
 
@@ -124,19 +124,19 @@ func worker(jobs <-chan int, results chan<- int) {
 func main() {
     jobs := make(chan int, 100)
     results := make(chan int, 100)
-    
-    // Start workers
+
+    // 워커 시작
     for w := 0; w < 3; w++ {
         go worker(jobs, results)
     }
-    
-    // Send jobs
+
+    // 작업 송신
     for j := 1; j <= 5; j++ {
         jobs <- j
     }
     close(jobs)
-    
-    // Receive results
+
+    // 결과 수신
     for r := 1; r <= 5; r++ {
         fmt.Println(<-results)
     }
@@ -175,7 +175,7 @@ func main() {
 }
 ```
 
-## Internal Mechanisms
+## 내부 메커니즘
 
 ### Channel 구조체 (runtime.hchan)
 
@@ -355,8 +355,8 @@ case <-other:  // other만 체크
 }
 ```
 
-## Navigation
+## 탐색
 
-- [Back to Go Overview](./README.md)
-- Previous: [Goroutines](./01-goroutine.md)
-- Next: [Select Statement](./03-select.md)
+- [Go 개요로 돌아가기](./README.md)
+- 이전: [Goroutine](./01-goroutine.md)
+- 다음: [Select 문](./03-select.md)

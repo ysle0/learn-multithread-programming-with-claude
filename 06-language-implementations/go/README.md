@@ -1,82 +1,82 @@
-# Go Concurrency
+# Go 동시성 프로그래밍
 
-Go was designed from the ground up with concurrency as a first-class citizen. Its lightweight goroutines and channels make concurrent programming natural and efficient.
+Go는 동시성을 핵심 기능으로 처음부터 설계되었습니다. 경량 goroutine과 channel을 통해 동시성 프로그래밍을 자연스럽고 효율적으로 만들어줍니다.
 
-## Overview
+## 개요
 
-Go's concurrency model is based on CSP (Communicating Sequential Processes):
-- **Goroutines**: Lightweight threads managed by Go runtime
-- **Channels**: Type-safe communication between goroutines
-- **Select**: Multiplexing channel operations
-- **Sync Package**: Traditional synchronization primitives
-- **Context**: Cancellation and deadlines
+Go의 동시성 모델은 CSP(Communicating Sequential Processes)를 기반으로 합니다:
+- **Goroutine**: Go 런타임이 관리하는 경량 스레드
+- **Channel**: goroutine 간 타입 안전한 통신
+- **Select**: channel 연산 다중화
+- **Sync 패키지**: 전통적인 동기화 기본 요소
+- **Context**: 취소 및 데드라인
 
-## Core Components
+## 핵심 구성 요소
 
-### 1. [Goroutines](./01-goroutine.md)
-- Creating goroutines with `go` keyword
-- Lightweight concurrency
-- Runtime scheduler (M:N model)
-- Goroutine lifecycle
+### 1. [Goroutine](./01-goroutine.md)
+- `go` 키워드로 goroutine 생성
+- 경량 동시성
+- 런타임 스케줄러 (M:N 모델)
+- Goroutine 수명 주기
 
-### 2. [Channels](./02-channel.md)
-- Unbuffered and buffered channels
-- Sending and receiving
-- Closing channels
-- Range over channels
+### 2. [Channel](./02-channel.md)
+- Unbuffered 및 buffered channel
+- 송신과 수신
+- Channel 닫기
+- Channel에 대한 range 반복
 
-### 3. [Select Statement](./03-select.md)
-- Multiplexing channel operations
-- Non-blocking operations
-- Timeouts and defaults
-- Select patterns
+### 3. [Select 문](./03-select.md)
+- Channel 연산 다중화
+- 비차단 연산
+- 타임아웃과 기본값
+- Select 패턴
 
-### 4. [Sync Package](./04-sync-package.md)
-- `sync.Mutex` and `sync.RWMutex`
+### 4. [Sync 패키지](./04-sync-package.md)
+- `sync.Mutex`와 `sync.RWMutex`
 - `sync.WaitGroup`
 - `sync.Once`
 - `sync.Pool`
 
-### 5. [Context Package](./05-context.md)
-- Cancellation propagation
-- Timeouts and deadlines
-- Request-scoped values
-- Context best practices
+### 5. [Context 패키지](./05-context.md)
+- 취소 전파
+- 타임아웃과 데드라인
+- 요청 범위 값
+- Context 모범 사례
 
-## Quick Comparison with Other Languages
+## 다른 언어와의 간략 비교
 
-| Feature | Go | Comparison |
+| 기능 | Go | 비교 |
 |---------|-----|------------|
-| **Concurrency Model** | Goroutines + Channels (CSP) | Most natural for concurrent programming |
-| **Thread Weight** | ~2KB per goroutine | Lightest - can have millions |
-| **Communication** | Channels (built-in) | Most elegant message passing |
-| **Syntax** | `go` keyword | Simplest to create concurrent tasks |
-| **Learning Curve** | Gentle | Easier than C++, simpler than async/await |
+| **동시성 모델** | Goroutine + Channel (CSP) | 동시성 프로그래밍에 가장 자연스러움 |
+| **스레드 무게** | goroutine당 ~2KB | 가장 가벼움 - 수백만 개 가능 |
+| **통신** | Channel (내장) | 가장 우아한 메시지 전달 |
+| **문법** | `go` 키워드 | 동시성 작업 생성이 가장 간단 |
+| **학습 곡선** | 완만함 | C++보다 쉽고 async/await보다 단순 |
 
-## Key Principles
+## 핵심 원칙
 
-### 1. Goroutines are Cheap
+### 1. Goroutine은 저렴하다
 
 ```go
-// Can easily create millions of goroutines
+// 수백만 개의 goroutine을 쉽게 생성 가능
 for i := 0; i < 1000000; i++ {
     go func(n int) {
-        // Work
+        // 작업
     }(i)
 }
 ```
 
-### 2. Share Memory by Communicating
+### 2. 통신을 통해 메모리를 공유하라
 
 ```go
-// GOOD: Use channels to communicate
+// 좋음: channel을 사용하여 통신
 ch := make(chan int)
 go func() {
-    ch <- 42  // Send
+    ch <- 42  // 송신
 }()
-result := <-ch  // Receive
+result := <-ch  // 수신
 
-// Less preferred: Shared memory with mutex
+// 덜 선호됨: mutex를 사용한 공유 메모리
 var mu sync.Mutex
 var shared int
 mu.Lock()
@@ -84,11 +84,11 @@ shared = 42
 mu.Unlock()
 ```
 
-### 3. Don't Communicate by Sharing Memory
+### 3. 공유 메모리로 통신하지 마라
 
-Go's philosophy: "Don't communicate by sharing memory; share memory by communicating."
+Go의 철학: "공유 메모리로 통신하지 말고, 통신을 통해 메모리를 공유하라."
 
-## Common Patterns
+## 일반적인 패턴
 
 ### Worker Pool
 
@@ -129,36 +129,36 @@ func square(in <-chan int) <-chan int {
     return out
 }
 
-// Usage
+// 사용법
 for result := range square(generator()) {
     fmt.Println(result)
 }
 ```
 
-## Best Practices
+## 모범 사례
 
-1. **Always handle goroutine completion**: Use WaitGroups or channels
-2. **Close channels from sender side**: Receivers should never close
-3. **Use select for timeouts**: Don't block indefinitely
-4. **Pass context for cancellation**: First parameter of functions
-5. **Check for closed channels**: Test receive operations
-6. **Avoid goroutine leaks**: Ensure all goroutines can exit
-7. **Use buffered channels wisely**: For known capacity
+1. **항상 goroutine 완료를 처리하라**: WaitGroup이나 channel 사용
+2. **송신자 쪽에서 channel을 닫아라**: 수신자는 절대 닫지 말 것
+3. **타임아웃에 select를 사용하라**: 무한정 차단하지 말 것
+4. **취소에는 context를 전달하라**: 함수의 첫 번째 매개변수로
+5. **닫힌 channel을 확인하라**: 수신 연산을 테스트할 것
+6. **goroutine 누수를 방지하라**: 모든 goroutine이 종료할 수 있도록 보장
+7. **buffered channel을 현명하게 사용하라**: 알려진 용량에 대해서만
 
-## Common Pitfalls
+## 일반적인 함정
 
-### 1. Goroutine Leaks
+### 1. Goroutine 누수
 
 ```go
-// BAD: Goroutine never exits
+// 나쁨: goroutine이 절대 종료되지 않음
 func leak() {
     ch := make(chan int)
     go func() {
-        <-ch  // Blocks forever if nothing sent
+        <-ch  // 아무것도 송신되지 않으면 영원히 차단됨
     }()
 }
 
-// GOOD: With timeout
+// 좋음: 타임아웃 사용
 func noLeak() {
     ch := make(chan int)
     go func() {
@@ -171,37 +171,37 @@ func noLeak() {
 }
 ```
 
-### 2. Closing Channel from Receiver
+### 2. 수신자가 Channel 닫기
 
 ```go
-// BAD: Receiver closes
+// 나쁨: 수신자가 닫음
 go func() {
     for val := range ch {
         process(val)
     }
-    close(ch)  // WRONG!
+    close(ch)  // 잘못됨!
 }()
 
-// GOOD: Sender closes
+// 좋음: 송신자가 닫음
 go func() {
     for i := 0; i < 10; i++ {
         ch <- i
     }
-    close(ch)  // Correct
+    close(ch)  // 올바름
 }()
 ```
 
-### 3. Loop Variable Capture
+### 3. 루프 변수 캡처
 
 ```go
-// BAD: Captures loop variable
+// 나쁨: 루프 변수를 캡처함
 for i := 0; i < 10; i++ {
     go func() {
-        fmt.Println(i)  // May print wrong value
+        fmt.Println(i)  // 잘못된 값을 출력할 수 있음
     }()
 }
 
-// GOOD: Pass as parameter
+// 좋음: 매개변수로 전달
 for i := 0; i < 10; i++ {
     go func(n int) {
         fmt.Println(n)
@@ -209,33 +209,33 @@ for i := 0; i < 10; i++ {
 }
 ```
 
-### 4. Sending on Closed Channel
+### 4. 닫힌 Channel에 송신
 
 ```go
-// BAD: Panic
+// 나쁨: 패닉 발생
 ch := make(chan int)
 close(ch)
-ch <- 1  // Panic!
+ch <- 1  // 패닉!
 
-// GOOD: Check before closing
+// 좋음: 닫기 전 확인
 var once sync.Once
 once.Do(func() {
     close(ch)
 })
 ```
 
-### 5. Race Conditions
+### 5. 경쟁 조건
 
 ```go
-// BAD: Data race
+// 나쁨: 데이터 경쟁
 var counter int
 for i := 0; i < 1000; i++ {
     go func() {
-        counter++  // Race!
+        counter++  // 경쟁!
     }()
 }
 
-// GOOD: Use atomic or mutex
+// 좋음: atomic이나 mutex 사용
 var counter int64
 for i := 0; i < 1000; i++ {
     go func() {
@@ -244,35 +244,35 @@ for i := 0; i < 1000; i++ {
 }
 ```
 
-## Performance Characteristics
+## 성능 특성
 
-### Goroutine Overhead
-- **Creation**: ~1 microsecond
-- **Memory**: ~2KB initial stack (growable)
-- **Context switch**: Very fast (in-process)
-- **Scalability**: Millions of goroutines possible
+### Goroutine 오버헤드
+- **생성**: ~1 마이크로초
+- **메모리**: ~2KB 초기 스택 (증가 가능)
+- **컨텍스트 전환**: 매우 빠름 (프로세스 내)
+- **확장성**: 수백만 개의 goroutine 가능
 
-### Channel Performance
-- **Unbuffered**: Synchronization point, slower
-- **Buffered**: Faster, decouples sender/receiver
-- **Send/receive**: ~100 nanoseconds
+### Channel 성능
+- **Unbuffered**: 동기화 지점, 더 느림
+- **Buffered**: 더 빠름, 송신자/수신자 분리
+- **송신/수신**: ~100 나노초
 
-## Race Detection
+## 경쟁 감지
 
 ```bash
-# Run with race detector
+# 경쟁 감지기로 실행
 go run -race main.go
 
-# Build with race detector
+# 경쟁 감지기로 빌드
 go build -race
 
-# Test with race detector
+# 경쟁 감지기로 테스트
 go test -race
 ```
 
-## Tools and Debugging
+## 도구 및 디버깅
 
-### pprof for Profiling
+### 프로파일링을 위한 pprof
 
 ```go
 import _ "net/http/pprof"
@@ -281,19 +281,19 @@ func main() {
     go func() {
         http.ListenAndServe("localhost:6060", nil)
     }()
-    // Your program
+    // 프로그램 코드
 }
 
-// Access at http://localhost:6060/debug/pprof/
+// http://localhost:6060/debug/pprof/ 에서 접근
 ```
 
-### Goroutine Profiling
+### Goroutine 프로파일링
 
 ```bash
 go tool pprof http://localhost:6060/debug/pprof/goroutine
 ```
 
-### Tracing
+### 추적
 
 ```go
 import "runtime/trace"
@@ -302,12 +302,12 @@ f, _ := os.Create("trace.out")
 trace.Start(f)
 defer trace.Stop()
 
-// Your code
+// 코드
 ```
 
-## Modern Go Features
+## 최신 Go 기능
 
-### Generics (Go 1.18+)
+### 제네릭 (Go 1.18+)
 
 ```go
 func SendSlice[T any](ch chan<- T, slice []T) {
@@ -318,7 +318,7 @@ func SendSlice[T any](ch chan<- T, slice []T) {
 }
 ```
 
-### Error Handling with Goroutines
+### Goroutine을 사용한 에러 처리
 
 ```go
 type Result struct {
@@ -329,26 +329,26 @@ type Result struct {
 func compute() Result {
     ch := make(chan Result, 1)
     go func() {
-        // Do work
+        // 작업 수행
         ch <- Result{Value: 42}
     }()
     return <-ch
 }
 ```
 
-## Further Reading
+## 추가 참고 자료
 
 - **Go Concurrency Patterns** by Rob Pike
 - **Concurrency in Go** by Katherine Cox-Buday
-- Go Blog: https://go.dev/blog/
+- Go 블로그: https://go.dev/blog/
 - Effective Go: https://go.dev/doc/effective_go
 
-## Navigation
+## 탐색
 
-- [Back to Language Implementations](../)
-- Next Topics:
-  - [Goroutines](./01-goroutine.md)
-  - [Channels](./02-channel.md)
-  - [Select Statement](./03-select.md)
-  - [Sync Package](./04-sync-package.md)
-  - [Context Package](./05-context.md)
+- [언어 구현으로 돌아가기](../)
+- 다음 주제:
+  - [Goroutine](./01-goroutine.md)
+  - [Channel](./02-channel.md)
+  - [Select 문](./03-select.md)
+  - [Sync 패키지](./04-sync-package.md)
+  - [Context 패키지](./05-context.md)

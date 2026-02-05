@@ -1,22 +1,22 @@
-# Context Package in Go
+# Go의 Context 패키지
 
-The `context` package provides a way to pass cancellation signals, deadlines, and request-scoped values across API boundaries.
+`context` 패키지는 API 경계를 넘어 취소 신호, 데드라인, 요청 범위 값을 전달하는 방법을 제공합니다.
 
-## Basic Context
+## 기본 Context
 
-### Background and TODO
+### Background와 TODO
 
 ```go
 import "context"
 
-// Root context
+// 루트 context
 ctx := context.Background()
 
-// When you don't know which context to use
+// 어떤 context를 사용할지 모를 때
 ctx := context.TODO()
 ```
 
-## Cancellation
+## 취소
 
 ### WithCancel
 
@@ -24,7 +24,7 @@ ctx := context.TODO()
 func main() {
     ctx, cancel := context.WithCancel(context.Background())
     defer cancel()
-    
+
     go func(ctx context.Context) {
         for {
             select {
@@ -37,14 +37,14 @@ func main() {
             }
         }
     }(ctx)
-    
+
     time.Sleep(2 * time.Second)
-    cancel()  // Cancel goroutine
+    cancel()  // goroutine 취소
     time.Sleep(time.Second)
 }
 ```
 
-## Timeouts
+## 타임아웃
 
 ### WithTimeout
 
@@ -75,7 +75,7 @@ case <-ctx.Done():
 }
 ```
 
-## Context Values
+## Context 값
 
 ### WithValue
 
@@ -84,45 +84,45 @@ type key string
 
 ctx := context.WithValue(context.Background(), key("user"), "alice")
 
-// Retrieve value
+// 값 가져오기
 if user, ok := ctx.Value(key("user")).(string); ok {
     fmt.Println("User:", user)
 }
 ```
 
-## Best Practices
+## 모범 사례
 
-### Function Signature
+### 함수 시그니처
 
 ```go
-// GOOD: Context as first parameter
+// 좋음: Context를 첫 번째 매개변수로
 func DoWork(ctx context.Context, arg string) error {
     select {
     case <-ctx.Done():
         return ctx.Err()
     default:
-        // Work
+        // 작업
         return nil
     }
 }
 ```
 
-### Always Respect Context
+### 항상 Context를 존중하라
 
 ```go
 func worker(ctx context.Context) {
     for {
         select {
         case <-ctx.Done():
-            return  // Exit when cancelled
+            return  // 취소되면 종료
         default:
-            // Do work
+            // 작업 수행
         }
     }
 }
 ```
 
-## Complete Example: HTTP Request with Timeout
+## 전체 예제: 타임아웃이 있는 HTTP 요청
 
 ```go
 package main
@@ -138,23 +138,23 @@ import (
 func fetchWithTimeout(url string, timeout time.Duration) (string, error) {
     ctx, cancel := context.WithTimeout(context.Background(), timeout)
     defer cancel()
-    
+
     req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
     if err != nil {
         return "", err
     }
-    
+
     resp, err := http.DefaultClient.Do(req)
     if err != nil {
         return "", err
     }
     defer resp.Body.Close()
-    
+
     body, err := io.ReadAll(resp.Body)
     if err != nil {
         return "", err
     }
-    
+
     return string(body), nil
 }
 
@@ -168,7 +168,7 @@ func main() {
 }
 ```
 
-## Internal Mechanisms
+## 내부 메커니즘
 
 ### Context 인터페이스
 
@@ -369,8 +369,8 @@ func bad() context.Context {
 }
 ```
 
-## Navigation
+## 탐색
 
-- [Back to Go Overview](./README.md)
-- Previous: [Sync Package](./04-sync-package.md)
-- [Back to Language Implementations](../)
+- [Go 개요로 돌아가기](./README.md)
+- 이전: [Sync 패키지](./04-sync-package.md)
+- [언어 구현으로 돌아가기](../)

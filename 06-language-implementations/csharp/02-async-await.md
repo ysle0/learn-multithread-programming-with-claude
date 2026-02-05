@@ -1,20 +1,20 @@
-# Async/Await in C#
+# C#의 Async/Await
 
-The async/await pattern is C#'s flagship feature for asynchronous programming, providing clean, readable code for concurrent operations without blocking threads.
+async/await 패턴은 비동기 프로그래밍을 위한 C#의 대표적인 기능으로, 스레드를 차단하지 않으면서 동시성 작업을 위한 깔끔하고 읽기 쉬운 코드를 제공합니다.
 
-## Table of Contents
-- [Basic Concepts](#basic-concepts)
-- [Async Methods](#async-methods)
-- [Awaiting Tasks](#awaiting-tasks)
+## 목차
+- [기본 개념](#기본-개념)
+- [Async 메서드](#async-메서드)
+- [Task 대기](#task-대기)
 - [ConfigureAwait](#configureawait)
-- [Error Handling](#error-handling)
-- [Comparison with Other Languages](#comparison-with-other-languages)
-- [Best Practices](#best-practices)
-- [Common Pitfalls](#common-pitfalls)
+- [오류 처리](#오류-처리)
+- [다른 언어와의 비교](#다른-언어와의-비교)
+- [모범 사례](#모범-사례)
+- [일반적인 실수](#일반적인-실수)
 
-## Basic Concepts
+## 기본 개념
 
-### What is Async/Await?
+### Async/Await란?
 
 ```csharp
 using System;
@@ -23,18 +23,18 @@ using System.Threading.Tasks;
 
 class Program
 {
-    // Synchronous - blocks thread
+    // 동기 방식 - 스레드를 차단합니다
     static string FetchDataSync(string url)
     {
         using var client = new HttpClient();
-        return client.GetStringAsync(url).Result;  // BLOCKS!
+        return client.GetStringAsync(url).Result;  // 차단!
     }
 
-    // Asynchronous - doesn't block thread
+    // 비동기 방식 - 스레드를 차단하지 않습니다
     static async Task<string> FetchDataAsync(string url)
     {
         using var client = new HttpClient();
-        return await client.GetStringAsync(url);  // Doesn't block!
+        return await client.GetStringAsync(url);  // 차단하지 않음!
     }
 
     static async Task Main()
@@ -45,25 +45,25 @@ class Program
 }
 ```
 
-### How Async/Await Works
+### Async/Await의 작동 방식
 
 ```csharp
 public async Task<int> ComputeAsync()
 {
     Console.WriteLine("1. Starting");
 
-    await Task.Delay(1000);  // Yields control here
+    await Task.Delay(1000);  // 여기서 제어를 양보합니다
 
     Console.WriteLine("2. After delay");
     return 42;
 }
 
-// Compiler transforms this into a state machine
+// 컴파일러가 이것을 상태 머신으로 변환합니다
 ```
 
-## Async Methods
+## Async 메서드
 
-### Basic Async Method
+### 기본 Async 메서드
 
 ```csharp
 public async Task DoWorkAsync()
@@ -72,11 +72,11 @@ public async Task DoWorkAsync()
     Console.WriteLine("Work done");
 }
 
-// Usage
+// 사용법
 await DoWorkAsync();
 ```
 
-### Async Method with Return Value
+### 반환 값이 있는 Async 메서드
 
 ```csharp
 public async Task<int> GetValueAsync()
@@ -85,14 +85,14 @@ public async Task<int> GetValueAsync()
     return 42;
 }
 
-// Usage
+// 사용법
 int value = await GetValueAsync();
 ```
 
-### Async Void (Event Handlers Only)
+### Async Void (이벤트 핸들러에만 사용)
 
 ```csharp
-// ONLY for event handlers
+// 이벤트 핸들러에만 사용
 private async void Button_Click(object sender, EventArgs e)
 {
     try
@@ -101,56 +101,56 @@ private async void Button_Click(object sender, EventArgs e)
     }
     catch (Exception ex)
     {
-        // Must handle exceptions here - they can't propagate!
+        // 여기서 예외를 처리해야 합니다 - 전파할 수 없습니다!
         MessageBox.Show(ex.Message);
     }
 }
 
-// DON'T use async void elsewhere
-public async void BadMethod()  // BAD!
+// 다른 곳에서는 async void를 사용하지 마세요
+public async void BadMethod()  // 나쁨!
 {
     await Task.Delay(1000);
 }
 
-// GOOD: Return Task
+// 좋은 예: Task 반환
 public async Task GoodMethod()
 {
     await Task.Delay(1000);
 }
 ```
 
-### ValueTask for Performance
+### 성능을 위한 ValueTask
 
 ```csharp
 public ValueTask<int> GetCachedValueAsync(string key)
 {
-    // If value in cache, return synchronously (no allocation)
+    // 캐시에 값이 있으면 동기적으로 반환 (할당 없음)
     if (_cache.TryGetValue(key, out int value))
     {
         return new ValueTask<int>(value);
     }
 
-    // Otherwise, return actual async operation
+    // 그렇지 않으면 실제 비동기 작업 반환
     return new ValueTask<int>(FetchFromDatabaseAsync(key));
 }
 
-// Usage is same as Task
+// 사용법은 Task와 동일
 int value = await GetCachedValueAsync("key");
 ```
 
-## Awaiting Tasks
+## Task 대기
 
-### Awaiting Multiple Tasks
+### 여러 Task 대기
 
 ```csharp
 public async Task ProcessMultipleAsync()
 {
-    // Sequential - slow
+    // 순차 실행 - 느림
     var result1 = await FetchData1Async();
     var result2 = await FetchData2Async();
     var result3 = await FetchData3Async();
 
-    // Parallel - fast
+    // 병렬 실행 - 빠름
     var task1 = FetchData1Async();
     var task2 = FetchData2Async();
     var task3 = FetchData3Async();
@@ -163,7 +163,7 @@ public async Task ProcessMultipleAsync()
 }
 ```
 
-### Task.WhenAll with Results
+### 결과가 있는 Task.WhenAll
 
 ```csharp
 public async Task<string[]> FetchAllAsync(string[] urls)
@@ -172,11 +172,11 @@ public async Task<string[]> FetchAllAsync(string[] urls)
     return await Task.WhenAll(tasks);
 }
 
-// Usage
+// 사용법
 var results = await FetchAllAsync(new[] { "url1", "url2", "url3" });
 ```
 
-### Task.WhenAny for Timeout
+### 타임아웃을 위한 Task.WhenAny
 
 ```csharp
 public async Task<string> FetchWithTimeoutAsync(string url, TimeSpan timeout)
@@ -195,25 +195,25 @@ public async Task<string> FetchWithTimeoutAsync(string url, TimeSpan timeout)
 }
 ```
 
-### Cancellation Support
+### 취소 지원
 
 ```csharp
 public async Task ProcessAsync(CancellationToken cancellationToken)
 {
     for (int i = 0; i < 100; i++)
     {
-        // Check for cancellation
+        // 취소 확인
         cancellationToken.ThrowIfCancellationRequested();
 
         await DoWorkAsync(cancellationToken);
     }
 }
 
-// Usage
+// 사용법
 var cts = new CancellationTokenSource();
 var task = ProcessAsync(cts.Token);
 
-// Cancel after 5 seconds
+// 5초 후 취소
 cts.CancelAfter(TimeSpan.FromSeconds(5));
 
 try
@@ -228,16 +228,16 @@ catch (OperationCanceledException)
 
 ## ConfigureAwait
 
-### Understanding SynchronizationContext
+### SynchronizationContext 이해하기
 
 ```csharp
-// In UI application (WPF/WinForms)
+// UI 애플리케이션 (WPF/WinForms)에서
 private async void Button_Click(object sender, EventArgs e)
 {
-    // Captures UI SynchronizationContext
+    // UI SynchronizationContext를 캡처합니다
     var data = await FetchDataAsync();
 
-    // Resumes on UI thread - can update UI
+    // UI 스레드에서 재개 - UI 업데이트 가능
     textBox.Text = data;
 }
 ```
@@ -245,32 +245,32 @@ private async void Button_Click(object sender, EventArgs e)
 ### ConfigureAwait(false)
 
 ```csharp
-// In library code - don't capture context
+// 라이브러리 코드에서 - 컨텍스트를 캡처하지 않음
 public async Task<string> GetDataAsync()
 {
-    // Don't need to resume on original context
+    // 원래 컨텍스트에서 재개할 필요 없음
     var data = await httpClient.GetStringAsync(url)
                                .ConfigureAwait(false);
 
-    // May resume on different thread - that's OK
+    // 다른 스레드에서 재개될 수 있음 - 괜찮습니다
     return ProcessData(data);
 }
 
-// In application code with UI updates
+// UI 업데이트가 있는 애플리케이션 코드에서
 private async void Button_Click(object sender, EventArgs e)
 {
-    // Keep default (ConfigureAwait(true))
+    // 기본값 유지 (ConfigureAwait(true))
     var data = await GetDataAsync();
 
-    // Back on UI thread - can update UI
+    // UI 스레드로 복귀 - UI 업데이트 가능
     textBox.Text = data;
 }
 ```
 
-### When to Use ConfigureAwait(false)
+### ConfigureAwait(false)를 사용해야 하는 경우
 
 ```csharp
-// Library code - always use ConfigureAwait(false)
+// 라이브러리 코드 - 항상 ConfigureAwait(false) 사용
 public async Task<string> LibraryMethodAsync()
 {
     var result = await SomeOperationAsync().ConfigureAwait(false);
@@ -278,24 +278,24 @@ public async Task<string> LibraryMethodAsync()
     return processed;
 }
 
-// Application code with no UI updates - can use ConfigureAwait(false)
+// UI 업데이트가 없는 애플리케이션 코드 - ConfigureAwait(false) 사용 가능
 public async Task BackgroundProcessAsync()
 {
     await Task.Delay(1000).ConfigureAwait(false);
-    // Do work that doesn't need UI thread
+    // UI 스레드가 필요 없는 작업 수행
 }
 
-// Application code with UI updates - don't use ConfigureAwait(false)
+// UI 업데이트가 있는 애플리케이션 코드 - ConfigureAwait(false) 사용하지 않음
 private async void UpdateUI()
 {
-    var data = await FetchAsync();  // Default is fine
-    textBox.Text = data;  // Needs UI thread
+    var data = await FetchAsync();  // 기본값으로 충분
+    textBox.Text = data;  // UI 스레드 필요
 }
 ```
 
-## Error Handling
+## 오류 처리
 
-### Try-Catch in Async
+### Async에서 Try-Catch
 
 ```csharp
 public async Task ProcessWithErrorHandlingAsync()
@@ -319,7 +319,7 @@ public async Task ProcessWithErrorHandlingAsync()
 }
 ```
 
-### Multiple Task Exceptions
+### 여러 Task의 예외
 
 ```csharp
 public async Task ProcessMultipleWithErrorsAsync()
@@ -334,11 +334,11 @@ public async Task ProcessMultipleWithErrorsAsync()
     }
     catch (Exception ex)
     {
-        // Only gets first exception
+        // 첫 번째 예외만 가져옴
         Console.WriteLine($"First exception: {ex.Message}");
     }
 
-    // To get all exceptions
+    // 모든 예외를 가져오려면
     try
     {
         await Task.WhenAll(task1, task2, task3);
@@ -353,7 +353,7 @@ public async Task ProcessMultipleWithErrorsAsync()
 }
 ```
 
-### Using Statement in Async
+### Async에서 Using 문
 
 ```csharp
 public async Task ProcessFileAsync(string path)
@@ -363,7 +363,7 @@ public async Task ProcessFileAsync(string path)
     return content;
 }
 
-// Async disposal (C# 8.0+)
+// 비동기 해제 (C# 8.0+)
 public async Task ProcessResourceAsync()
 {
     await using var resource = new AsyncDisposableResource();
@@ -375,7 +375,7 @@ class AsyncDisposableResource : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await FlushAsync();
-        // Cleanup
+        // 정리
     }
 
     public async Task FlushAsync()
@@ -390,19 +390,19 @@ class AsyncDisposableResource : IAsyncDisposable
 }
 ```
 
-## Comparison with Other Languages
+## 다른 언어와의 비교
 
 ### C# vs. JavaScript
 
 ```csharp
-// C# async/await (very similar!)
+// C# async/await (매우 유사!)
 public async Task<string> FetchDataAsync(string url)
 {
     var response = await httpClient.GetAsync(url);
     return await response.Content.ReadAsStringAsync();
 }
 
-// JavaScript equivalent:
+// JavaScript 동등 코드:
 // async function fetchData(url) {
 //     const response = await fetch(url);
 //     return await response.text();
@@ -418,7 +418,7 @@ public async Task<string> FetchAsync(string url)
     return await httpClient.GetStringAsync(url);
 }
 
-// Python equivalent:
+// Python 동등 코드:
 // async def fetch(url):
 //     async with aiohttp.ClientSession() as session:
 //         async with session.get(url) as response:
@@ -428,135 +428,135 @@ public async Task<string> FetchAsync(string url)
 ### C# vs. C++
 
 ```csharp
-// C#: Built-in async/await
+// C#: 내장 async/await
 var result = await ComputeAsync();
 
-// C++: Coroutines (C++20, more complex)
+// C++: 코루틴 (C++20, 더 복잡함)
 // co_await compute();
 ```
 
-## Best Practices
+## 모범 사례
 
-### 1. Async All the Way
+### 1. 끝까지 Async 사용
 
 ```csharp
-// GOOD: Async all the way down
+// 좋은 예: 끝까지 async
 public async Task<string> GetDataAsync()
 {
     return await FetchAsync();
 }
 
-// BAD: Mixing sync and async
+// 나쁜 예: 동기와 비동기 혼합
 public string GetData()
 {
-    return FetchAsync().Result;  // Can deadlock!
+    return FetchAsync().Result;  // 교착 상태 가능!
 }
 ```
 
-### 2. Avoid Async Void
+### 2. Async Void 피하기
 
 ```csharp
-// GOOD: Return Task
+// 좋은 예: Task 반환
 public async Task ProcessAsync()
 {
     await DoWorkAsync();
 }
 
-// BAD: Async void (except event handlers)
+// 나쁜 예: Async void (이벤트 핸들러 제외)
 public async void ProcessBad()
 {
     await DoWorkAsync();
 }
 ```
 
-### 3. Use CancellationToken
+### 3. CancellationToken 사용
 
 ```csharp
-// GOOD: Support cancellation
+// 좋은 예: 취소 지원
 public async Task ProcessAsync(CancellationToken ct)
 {
     await DoWorkAsync(ct);
 }
 
-// Usage
+// 사용법
 var cts = new CancellationTokenSource();
 await ProcessAsync(cts.Token);
 ```
 
-### 4. ConfigureAwait in Libraries
+### 4. 라이브러리에서 ConfigureAwait
 
 ```csharp
-// In library code
+// 라이브러리 코드에서
 public async Task<string> LibraryMethodAsync()
 {
     return await FetchAsync().ConfigureAwait(false);
 }
 
-// In application code (context needed)
+// 애플리케이션 코드에서 (컨텍스트 필요)
 private async void Button_Click(object sender, EventArgs e)
 {
-    var data = await LibraryMethodAsync();  // Default is fine
+    var data = await LibraryMethodAsync();  // 기본값으로 충분
     textBox.Text = data;
 }
 ```
 
-### 5. Prefer Task.WhenAll for Parallelism
+### 5. 병렬 처리에 Task.WhenAll 선호
 
 ```csharp
-// GOOD: Parallel execution
+// 좋은 예: 병렬 실행
 var task1 = FetchAsync(url1);
 var task2 = FetchAsync(url2);
 await Task.WhenAll(task1, task2);
 
-// BAD: Sequential execution
+// 나쁜 예: 순차 실행
 var data1 = await FetchAsync(url1);
 var data2 = await FetchAsync(url2);
 ```
 
-## Common Pitfalls
+## 일반적인 실수
 
-### 1. Deadlock with .Result or .Wait()
+### 1. .Result 또는 .Wait()로 인한 교착 상태
 
 ```csharp
-// DEADLOCK in UI/ASP.NET!
+// UI/ASP.NET에서 교착 상태!
 public void BadMethod()
 {
-    var result = GetDataAsync().Result;  // Blocks
+    var result = GetDataAsync().Result;  // 차단
 }
 
 public async Task<string> GetDataAsync()
 {
-    return await FetchAsync();  // Tries to resume on blocked context
+    return await FetchAsync();  // 차단된 컨텍스트에서 재개 시도
 }
 
-// GOOD: Use async all the way
+// 좋은 예: 끝까지 async 사용
 public async Task GoodMethod()
 {
     var result = await GetDataAsync();
 }
 ```
 
-### 2. Async Void Exceptions
+### 2. Async Void 예외
 
 ```csharp
-// BAD: Exception can't be caught
+// 나쁜 예: 예외를 잡을 수 없음
 public async void BadAsync()
 {
     await Task.Delay(100);
     throw new Exception("Lost!");
 }
 
-// Caller can't catch this!
+// 호출자가 잡을 수 없습니다!
 try
 {
     BadAsync();
 }
 catch (Exception)
 {
-    // Never caught!
+    // 절대 잡히지 않음!
 }
 
-// GOOD: Return Task
+// 좋은 예: Task 반환
 public async Task GoodAsync()
 {
     await Task.Delay(100);
@@ -576,7 +576,7 @@ catch (Exception ex)
 ### 3. Fire and Forget
 
 ```csharp
-// BAD: Exceptions lost
+// 나쁜 예: 예외 손실
 public void StartBackground()
 {
     Task.Run(async () => {
@@ -585,7 +585,7 @@ public void StartBackground()
     });
 }
 
-// GOOD: Await or handle exceptions
+// 좋은 예: await 또는 예외 처리
 public async Task StartBackgroundGood()
 {
     try
@@ -601,28 +601,28 @@ public async Task StartBackgroundGood()
 }
 ```
 
-### 4. Blocking in Async Method
+### 4. Async 메서드에서 차단
 
 ```csharp
-// BAD: Blocking in async method
+// 나쁜 예: async 메서드에서 차단
 public async Task<string> BadAsync()
 {
-    Thread.Sleep(1000);  // Blocks thread!
+    Thread.Sleep(1000);  // 스레드를 차단합니다!
     return "result";
 }
 
-// GOOD: Use async APIs
+// 좋은 예: async API 사용
 public async Task<string> GoodAsync()
 {
-    await Task.Delay(1000);  // Doesn't block
+    await Task.Delay(1000);  // 차단하지 않음
     return "result";
 }
 ```
 
-### 5. Not Using CancellationToken
+### 5. CancellationToken 미사용
 
 ```csharp
-// BAD: No way to cancel
+// 나쁜 예: 취소할 방법이 없음
 public async Task LongProcessAsync()
 {
     for (int i = 0; i < 1000; i++)
@@ -631,7 +631,7 @@ public async Task LongProcessAsync()
     }
 }
 
-// GOOD: Support cancellation
+// 좋은 예: 취소 지원
 public async Task LongProcessAsync(CancellationToken ct)
 {
     for (int i = 0; i < 1000; i++)
@@ -642,7 +642,7 @@ public async Task LongProcessAsync(CancellationToken ct)
 }
 ```
 
-## Advanced Patterns
+## 고급 패턴
 
 ### Async Streams (C# 8.0+)
 
@@ -658,14 +658,14 @@ public async IAsyncEnumerable<int> GenerateNumbersAsync(
     }
 }
 
-// Consume
+// 사용
 await foreach (var number in GenerateNumbersAsync())
 {
     Console.WriteLine(number);
 }
 ```
 
-### Async Lazy Initialization
+### Async 지연 초기화
 
 ```csharp
 public class AsyncLazy<T>
@@ -680,7 +680,7 @@ public class AsyncLazy<T>
     public Task<T> Value => _instance.Value;
 }
 
-// Usage
+// 사용법
 private readonly AsyncLazy<string> _data = new AsyncLazy<string>(LoadDataAsync);
 
 public async Task UseDataAsync()
@@ -689,7 +689,7 @@ public async Task UseDataAsync()
 }
 ```
 
-### Progress Reporting
+### 진행률 보고
 
 ```csharp
 public async Task ProcessWithProgressAsync(IProgress<int> progress)
@@ -701,7 +701,7 @@ public async Task ProcessWithProgressAsync(IProgress<int> progress)
     }
 }
 
-// Usage
+// 사용법
 var progress = new Progress<int>(percent => {
     Console.WriteLine($"Progress: {percent}%");
 });
@@ -709,51 +709,51 @@ var progress = new Progress<int>(percent => {
 await ProcessWithProgressAsync(progress);
 ```
 
-## Performance Considerations
+## 성능 고려 사항
 
 ### ValueTask vs Task
 
 ```csharp
-// Use Task for most cases
+// 대부분의 경우 Task 사용
 public async Task<int> GetValueAsync()
 {
     await SomeOperationAsync();
     return 42;
 }
 
-// Use ValueTask when often completing synchronously
+// 자주 동기적으로 완료되는 경우 ValueTask 사용
 public ValueTask<int> GetCachedAsync(string key)
 {
     if (_cache.TryGetValue(key, out int value))
-        return new ValueTask<int>(value);  // No allocation
+        return new ValueTask<int>(value);  // 할당 없음
 
     return new ValueTask<int>(FetchAsync(key));
 }
 ```
 
-### Avoid Unnecessary Async
+### 불필요한 Async 피하기
 
 ```csharp
-// BAD: Unnecessary async/await
+// 나쁜 예: 불필요한 async/await
 public async Task<int> GetValueAsync()
 {
     return await Task.FromResult(42);
 }
 
-// GOOD: Just return the task
+// 좋은 예: Task를 그대로 반환
 public Task<int> GetValueAsync()
 {
     return Task.FromResult(42);
 }
 
-// Or even better if value is known
+// 또는 값을 알고 있으면 더 나은 방법
 public ValueTask<int> GetValueAsync()
 {
     return new ValueTask<int>(42);
 }
 ```
 
-## Complete Example: Async Web Scraper
+## 전체 예제: Async 웹 스크래퍼
 
 ```csharp
 using System;
@@ -766,7 +766,7 @@ using System.Threading.Tasks;
 public class WebScraper
 {
     private readonly HttpClient _client = new();
-    private readonly SemaphoreSlim _semaphore = new(5); // Max 5 concurrent
+    private readonly SemaphoreSlim _semaphore = new(5); // 최대 5개 동시 실행
 
     public async Task<Dictionary<string, int>> FetchAllAsync(
         IEnumerable<string> urls,
@@ -802,7 +802,7 @@ public class WebScraper
     }
 }
 
-// Usage
+// 사용법
 var scraper = new WebScraper();
 var urls = new[] { "https://example.com", "https://example.org" };
 var results = await scraper.FetchAllAsync(urls);
@@ -813,14 +813,14 @@ foreach (var (url, length) in results)
 }
 ```
 
-## Further Reading
+## 추가 자료
 
-- [Thread and Task](./01-thread-task.md)
+- [Thread와 Task](./01-thread-task.md)
 - [SemaphoreSlim](./04-semaphore-slim.md)
 - Stephen Cleary's Blog: https://blog.stephencleary.com/
 
-## Navigation
+## 탐색
 
-- [Back to C# Overview](./README.md)
-- Previous: [Thread and Task](./01-thread-task.md)
-- Next: [Lock and Monitor](./03-lock-monitor.md)
+- [C# 개요로 돌아가기](./README.md)
+- 이전: [Thread와 Task](./01-thread-task.md)
+- 다음: [Lock과 Monitor](./03-lock-monitor.md)

@@ -1,19 +1,19 @@
-# Goroutines in Go
+# Go의 Goroutine
 
-Goroutines are lightweight threads managed by the Go runtime. They're the foundation of Go's concurrency model.
+Goroutine은 Go 런타임이 관리하는 경량 스레드입니다. Go 동시성 모델의 기반이 됩니다.
 
-## Table of Contents
-- [Basic Concepts](#basic-concepts)
-- [Creating Goroutines](#creating-goroutines)
-- [Goroutine Lifecycle](#goroutine-lifecycle)
-- [WaitGroups](#waitgroups)
-- [Comparison with Other Languages](#comparison-with-other-languages)
-- [Best Practices](#best-practices)
-- [Common Pitfalls](#common-pitfalls)
+## 목차
+- [기본 개념](#기본-개념)
+- [Goroutine 생성](#goroutine-생성)
+- [Goroutine 수명 주기](#goroutine-수명-주기)
+- [WaitGroup](#waitgroup)
+- [다른 언어와의 비교](#다른-언어와의-비교)
+- [모범 사례](#모범-사례)
+- [일반적인 함정](#일반적인-함정)
 
-## Basic Concepts
+## 기본 개념
 
-### What is a Goroutine?
+### Goroutine이란?
 
 ```go
 package main
@@ -28,23 +28,23 @@ func hello() {
 }
 
 func main() {
-    go hello()  // Launch goroutine
-    
-    time.Sleep(time.Second)  // Wait (not ideal, see WaitGroup)
+    go hello()  // goroutine 시작
+
+    time.Sleep(time.Second)  // 대기 (이상적이지 않음, WaitGroup 참조)
     fmt.Println("Main function")
 }
 ```
 
-### How Goroutines Work
+### Goroutine 동작 원리
 
-- **M:N Scheduler**: Many goroutines on fewer OS threads
-- **Initial Stack**: ~2KB (grows/shrinks automatically)
-- **Cooperative**: Goroutines yield at function calls, channel ops, etc.
-- **Cheap**: Can create millions
+- **M:N 스케줄러**: 많은 goroutine을 더 적은 OS 스레드에서 실행
+- **초기 스택**: ~2KB (자동으로 증가/축소)
+- **협력적**: goroutine은 함수 호출, channel 연산 등에서 양보
+- **저렴함**: 수백만 개 생성 가능
 
-## Creating Goroutines
+## Goroutine 생성
 
-### Anonymous Functions
+### 익명 함수
 
 ```go
 package main
@@ -55,22 +55,22 @@ import (
 )
 
 func main() {
-    // Launch with anonymous function
+    // 익명 함수로 시작
     go func() {
         fmt.Println("Anonymous goroutine")
     }()
-    
-    // With parameters
+
+    // 매개변수 사용
     message := "Hello"
     go func(msg string) {
         fmt.Println(msg)
     }(message)
-    
+
     time.Sleep(time.Second)
 }
 ```
 
-### Named Functions
+### 명명된 함수
 
 ```go
 func printNumbers() {
@@ -85,7 +85,7 @@ func main() {
 }
 ```
 
-### Methods as Goroutines
+### 메서드를 Goroutine으로 실행
 
 ```go
 type Worker struct {
@@ -103,29 +103,29 @@ func main() {
 }
 ```
 
-## Goroutine Lifecycle
+## Goroutine 수명 주기
 
-### Simple Goroutine
+### 간단한 Goroutine
 
 ```go
 func main() {
     done := make(chan bool)
-    
+
     go func() {
         fmt.Println("Goroutine running")
         time.Sleep(time.Second)
         fmt.Println("Goroutine done")
         done <- true
     }()
-    
-    <-done  // Wait for goroutine
+
+    <-done  // goroutine 대기
     fmt.Println("Main done")
 }
 ```
 
-## WaitGroups
+## WaitGroup
 
-### Basic WaitGroup
+### 기본 WaitGroup
 
 ```go
 import (
@@ -134,7 +134,7 @@ import (
 )
 
 func worker(id int, wg *sync.WaitGroup) {
-    defer wg.Done()  // Decrement counter when done
+    defer wg.Done()  // 완료 시 카운터 감소
     fmt.Printf("Worker %d starting\n", id)
     time.Sleep(time.Second)
     fmt.Printf("Worker %d done\n", id)
@@ -142,60 +142,60 @@ func worker(id int, wg *sync.WaitGroup) {
 
 func main() {
     var wg sync.WaitGroup
-    
+
     for i := 1; i <= 5; i++ {
-        wg.Add(1)  // Increment counter
+        wg.Add(1)  // 카운터 증가
         go worker(i, &wg)
     }
-    
-    wg.Wait()  // Block until counter reaches 0
+
+    wg.Wait()  // 카운터가 0이 될 때까지 차단
     fmt.Println("All workers done")
 }
 ```
 
-### WaitGroup with Error Handling
+### 에러 처리가 있는 WaitGroup
 
 ```go
 func worker(id int, wg *sync.WaitGroup, errCh chan<- error) {
     defer wg.Done()
-    
+
     if id == 3 {
         errCh <- fmt.Errorf("worker %d failed", id)
         return
     }
-    
+
     fmt.Printf("Worker %d completed\n", id)
 }
 
 func main() {
     var wg sync.WaitGroup
     errCh := make(chan error, 5)
-    
+
     for i := 1; i <= 5; i++ {
         wg.Add(1)
         go worker(i, &wg, errCh)
     }
-    
+
     wg.Wait()
     close(errCh)
-    
+
     for err := range errCh {
         fmt.Println("Error:", err)
     }
 }
 ```
 
-## Comparison with Other Languages
+## 다른 언어와의 비교
 
 ### Go vs. C++
 ```go
-// Go: Very lightweight
+// Go: 매우 가벼움
 go doWork()
 
-// C++ equivalent:
+// C++ 동등 코드:
 // std::thread t(doWork);
 // t.join();
-// (Much heavier - OS thread)
+// (훨씬 무거움 - OS 스레드)
 ```
 
 ### Go vs. C#
@@ -203,17 +203,17 @@ go doWork()
 // Go: Goroutine
 go doWork()
 
-// C# equivalent:
+// C# 동등 코드:
 // Task.Run(() => doWork());
-// (Task uses thread pool, still heavier)
+// (Task는 스레드 풀 사용, 여전히 더 무거움)
 ```
 
-## Best Practices
+## 모범 사례
 
-### 1. Always Coordinate Goroutine Completion
+### 1. 항상 Goroutine 완료를 조율하라
 
 ```go
-// GOOD: Using WaitGroup
+// 좋음: WaitGroup 사용
 var wg sync.WaitGroup
 wg.Add(1)
 go func() {
@@ -222,7 +222,7 @@ go func() {
 }()
 wg.Wait()
 
-// GOOD: Using channel
+// 좋음: channel 사용
 done := make(chan bool)
 go func() {
     work()
@@ -231,14 +231,14 @@ go func() {
 <-done
 ```
 
-### 2. Don't Sleep to Wait
+### 2. 대기를 위해 Sleep 사용하지 마라
 
 ```go
-// BAD: Sleeping to wait
+// 나쁨: 대기를 위해 sleep 사용
 go work()
 time.Sleep(time.Second)
 
-// GOOD: Use synchronization
+// 좋음: 동기화 사용
 done := make(chan bool)
 go func() {
     work()
@@ -247,37 +247,37 @@ go func() {
 <-done
 ```
 
-### 3. Pass Data via Parameters
+### 3. 매개변수를 통해 데이터를 전달하라
 
 ```go
-// GOOD: Pass as parameter
+// 좋음: 매개변수로 전달
 for i := 0; i < 10; i++ {
     go func(n int) {
         fmt.Println(n)
     }(i)
 }
 
-// BAD: Capture loop variable
+// 나쁨: 루프 변수 캡처
 for i := 0; i < 10; i++ {
     go func() {
-        fmt.Println(i)  // May print wrong value
+        fmt.Println(i)  // 잘못된 값을 출력할 수 있음
     }()
 }
 ```
 
-## Common Pitfalls
+## 일반적인 함정
 
-### Loop Variable Capture
+### 루프 변수 캡처
 
 ```go
-// BAD: All goroutines see same variable
+// 나쁨: 모든 goroutine이 같은 변수를 봄
 for _, val := range values {
     go func() {
-        fmt.Println(val)  // Wrong!
+        fmt.Println(val)  // 잘못됨!
     }()
 }
 
-// GOOD: Pass as parameter
+// 좋음: 매개변수로 전달
 for _, val := range values {
     go func(v string) {
         fmt.Println(v)
@@ -285,18 +285,18 @@ for _, val := range values {
 }
 ```
 
-### Goroutine Leaks
+### Goroutine 누수
 
 ```go
-// BAD: Goroutine leaks if channel never receives
+// 나쁨: channel이 수신하지 않으면 goroutine 누수
 func leak() {
     ch := make(chan int)
     go func() {
-        <-ch  // Blocks forever
+        <-ch  // 영원히 차단됨
     }()
 }
 
-// GOOD: With timeout
+// 좋음: 타임아웃 사용
 func noLeak() {
     ch := make(chan int)
     go func() {
@@ -308,9 +308,9 @@ func noLeak() {
 }
 ```
 
-## Internal Mechanisms
+## 내부 메커니즘
 
-### G-M-P Scheduler Model
+### G-M-P 스케줄러 모델
 
 Go 런타임의 스케줄러는 M:N 스레딩 모델을 사용합니다:
 
@@ -381,7 +381,7 @@ const (
 )
 ```
 
-### Stack Growth Mechanism
+### 스택 증가 메커니즘
 
 Goroutine 스택은 2KB에서 시작하여 필요에 따라 자동으로 증가합니다:
 
@@ -427,7 +427,7 @@ func copystack(gp *g, newsize uintptr) {
 }
 ```
 
-### Work Stealing Algorithm
+### Work Stealing 알고리즘
 
 P의 로컬 런큐가 비면 다른 P에서 goroutine을 훔쳐옵니다:
 
@@ -448,7 +448,7 @@ Work Stealing:
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Preemption (선점)
+### 선점 (Preemption)
 
 Go 1.14+에서는 비협력적 선점(async preemption)이 도입되었습니다:
 
@@ -499,7 +499,7 @@ type p struct {
 }
 ```
 
-## Complete Example: Concurrent Web Scraper
+## 전체 예제: 동시성 웹 스크래퍼
 
 ```go
 package main
@@ -513,14 +513,14 @@ import (
 
 func fetch(url string, wg *sync.WaitGroup, results chan<- string) {
     defer wg.Done()
-    
+
     resp, err := http.Get(url)
     if err != nil {
         results <- fmt.Sprintf("%s: error - %v", url, err)
         return
     }
     defer resp.Body.Close()
-    
+
     body, _ := io.ReadAll(resp.Body)
     results <- fmt.Sprintf("%s: %d bytes", url, len(body))
 }
@@ -531,25 +531,25 @@ func main() {
         "https://google.com",
         "https://github.com",
     }
-    
+
     var wg sync.WaitGroup
     results := make(chan string, len(urls))
-    
+
     for _, url := range urls {
         wg.Add(1)
         go fetch(url, &wg, results)
     }
-    
+
     wg.Wait()
     close(results)
-    
+
     for result := range results {
         fmt.Println(result)
     }
 }
 ```
 
-## Navigation
+## 탐색
 
-- [Back to Go Overview](./README.md)
-- Next: [Channels](./02-channel.md)
+- [Go 개요로 돌아가기](./README.md)
+- 다음: [Channel](./02-channel.md)
