@@ -1,21 +1,21 @@
-# Game Loop and Multithreading
+# Game Loop와 멀티스레딩
 
-## Overview
+## 개요
 
-The game loop is the heartbeat of any game server. It processes inputs, updates game state, and generates outputs at a fixed or variable rate. Designing an efficient, thread-safe game loop is crucial for performance and fairness. This document covers game loop patterns, multithreading strategies, frame pacing, and deterministic simulation.
+Game loop는 모든 게임 서버의 심장박동입니다. 고정 또는 가변 속도로 입력을 처리하고, 게임 상태를 업데이트하며, 출력을 생성합니다. 효율적이고 스레드 안전한 game loop를 설계하는 것은 성능과 공정성에 필수적입니다. 이 문서에서는 game loop 패턴, 멀티스레딩 전략, 프레임 페이싱, 결정론적 시뮬레이션을 다룹니다.
 
-## Table of Contents
+## 목차
 
-1. [Game Loop Fundamentals](#game-loop-fundamentals)
-2. [Single-threaded vs Multi-threaded](#single-threaded-vs-multi-threaded)
-3. [Fixed Timestep vs Variable Timestep](#fixed-timestep-vs-variable-timestep)
-4. [Threading Patterns](#threading-patterns)
-5. [Deterministic Simulation](#deterministic-simulation)
-6. [Performance Optimization](#performance-optimization)
+1. [Game Loop 기초](#game-loop-기초)
+2. [단일 스레드 vs 멀티 스레드](#단일-스레드-vs-멀티-스레드)
+3. [고정 타임스텝 vs 가변 타임스텝](#고정-타임스텝-vs-가변-타임스텝)
+4. [스레딩 패턴](#스레딩-패턴)
+5. [결정론적 시뮬레이션](#결정론적-시뮬레이션)
+6. [성능 최적화](#성능-최적화)
 
-## Game Loop Fundamentals
+## Game Loop 기초
 
-### Basic Game Loop Structure
+### 기본 Game Loop 구조
 
 ```
 Classic Game Loop
@@ -47,10 +47,10 @@ Classic Game Loop
 └──────────────────┴───────────────────┘
 ```
 
-### Basic Implementation
+### 기본 구현
 
 ```cpp
-// Simple single-threaded game loop
+// 간단한 단일 스레드 game loop
 class SimpleGameLoop {
 public:
     void Run() {
@@ -65,22 +65,22 @@ public:
             ).count();
             last_time = current_time;
 
-            // 1. Process input
+            // 1. 입력 처리
             ProcessInput();
 
-            // 2. Update game state
+            // 2. 게임 상태 업데이트
             Update(delta_time);
 
-            // 3. Generate output
+            // 3. 출력 생성
             Render();
 
-            // 4. Measure frame time
+            // 4. 프레임 시간 측정
             auto frame_end = std::chrono::high_resolution_clock::now();
             auto frame_time = std::chrono::duration<float>(
                 frame_end - current_time
             ).count();
 
-            // Optionally sleep to maintain target frame rate
+            // 목표 프레임 레이트 유지를 위해 선택적으로 sleep
             float target_frame_time = 1.0f / 60.0f; // 60 FPS
             if (frame_time < target_frame_time) {
                 std::this_thread::sleep_for(
@@ -92,21 +92,21 @@ public:
 
 private:
     void ProcessInput() {
-        // Read network packets
-        // Parse player commands
-        // Queue inputs for processing
+        // 네트워크 패킷 읽기
+        // 플레이어 명령 파싱
+        // 처리를 위해 입력 큐에 넣기
     }
 
     void Update(float delta_time) {
-        // Update physics
-        // Update AI
-        // Process combat
-        // Update game logic
+        // 물리 업데이트
+        // AI 업데이트
+        // 전투 처리
+        // 게임 로직 업데이트
     }
 
     void Render() {
-        // Prepare network updates
-        // Send state to clients
+        // 네트워크 업데이트 준비
+        // 클라이언트에 상태 전송
     }
 
 private:
@@ -114,49 +114,49 @@ private:
 };
 ```
 
-## Single-threaded vs Multi-threaded
+## 단일 스레드 vs 멀티 스레드
 
-### Single-threaded Game Loop
+### 단일 스레드 Game Loop
 
-**Advantages:**
-- No synchronization overhead
-- Deterministic execution order
-- Simple to debug
-- No race conditions
+**장점:**
+- 동기화 오버헤드 없음
+- 결정론적 실행 순서
+- 디버깅 용이
+- 경쟁 조건 없음
 
-**Disadvantages:**
-- Limited CPU utilization (1 core)
-- Cannot scale to many players
-- I/O blocks game logic
+**단점:**
+- 제한된 CPU 활용 (1 코어)
+- 많은 플레이어로 확장 불가
+- I/O가 게임 로직을 차단
 
 ```cpp
-// Single-threaded server
+// 단일 스레드 서버
 class SingleThreadedServer {
 public:
     void Run() {
         while (running_) {
-            // Everything happens sequentially on one thread
+            // 모든 것이 하나의 스레드에서 순차적으로 실행
 
-            // 1. Network I/O (blocking or non-blocking)
+            // 1. 네트워크 I/O (블로킹 또는 논블로킹)
             PollNetworkEvents();
 
-            // 2. Process inputs from players
+            // 2. 플레이어 입력 처리
             for (auto& input : input_queue_) {
                 ProcessInput(input);
             }
             input_queue_.clear();
 
-            // 3. Update game simulation
+            // 3. 게임 시뮬레이션 업데이트
             UpdatePhysics(delta_time_);
             UpdateAI(delta_time_);
             UpdateGameLogic(delta_time_);
 
-            // 4. Prepare and send updates
+            // 4. 업데이트 준비 및 전송
             for (auto& player : players_) {
                 SendUpdate(player);
             }
 
-            // 5. Wait for next frame
+            // 5. 다음 프레임 대기
             WaitForNextFrame();
         }
     }
@@ -169,34 +169,34 @@ private:
 };
 ```
 
-### Multi-threaded Game Loop
+### 멀티 스레드 Game Loop
 
-**Advantages:**
-- Utilize multiple CPU cores
-- Scale to more players
-- Separate I/O from game logic
-- Better performance
+**장점:**
+- 여러 CPU 코어 활용
+- 더 많은 플레이어로 확장
+- I/O와 게임 로직 분리
+- 더 나은 성능
 
-**Disadvantages:**
-- Synchronization overhead
-- More complex
-- Potential race conditions
-- Harder to debug
+**단점:**
+- 동기화 오버헤드
+- 더 복잡함
+- 잠재적 경쟁 조건
+- 디버깅이 어려움
 
 ```cpp
-// Multi-threaded server
+// 멀티 스레드 서버
 class MultiThreadedServer {
 public:
     void Start() {
         running_ = true;
 
-        // I/O thread (network)
+        // I/O 스레드 (네트워크)
         io_thread_ = std::thread(&MultiThreadedServer::IOThread, this);
 
-        // Game logic thread
+        // 게임 로직 스레드
         game_thread_ = std::thread(&MultiThreadedServer::GameThread, this);
 
-        // Worker thread pool
+        // 워커 thread pool
         for (int i = 0; i < num_worker_threads_; ++i) {
             worker_threads_.emplace_back(
                 &MultiThreadedServer::WorkerThread, this
@@ -206,61 +206,61 @@ public:
 
     void Stop() {
         running_ = false;
-        // Join threads...
+        // 스레드 join...
     }
 
 private:
     void IOThread() {
-        // Handles all network I/O
+        // 모든 네트워크 I/O 처리
         while (running_) {
-            // Non-blocking I/O
+            // 논블로킹 I/O
             PollNetworkEvents();
 
-            // Push received data to input queue
+            // 수신 데이터를 입력 큐에 넣기
             for (auto& packet : received_packets_) {
                 input_queue_.push(packet);
             }
             received_packets_.clear();
 
-            // Send outgoing packets
+            // 송신 패킷 전송
             SendPendingPackets();
 
-            // Small sleep to prevent busy-waiting
+            // 바쁜 대기 방지를 위한 짧은 sleep
             std::this_thread::sleep_for(std::chrono::microseconds(100));
         }
     }
 
     void GameThread() {
-        // Main game simulation thread
+        // 메인 게임 시뮬레이션 스레드
         auto tick_interval = std::chrono::milliseconds(16); // ~60 FPS
         auto next_tick = std::chrono::steady_clock::now();
 
         while (running_) {
             auto tick_start = std::chrono::steady_clock::now();
 
-            // 1. Process inputs from queue
+            // 1. 큐에서 입력 처리
             ProcessInputs();
 
-            // 2. Update game state (deterministic)
+            // 2. 게임 상태 업데이트 (결정론적)
             UpdateGameState();
 
-            // 3. Prepare outputs
+            // 3. 출력 준비
             PrepareNetworkUpdates();
 
-            // 4. Wait for next tick
+            // 4. 다음 tick 대기
             next_tick += tick_interval;
             std::this_thread::sleep_until(next_tick);
 
-            // Measure tick time
+            // tick 시간 측정
             auto tick_time = std::chrono::steady_clock::now() - tick_start;
             RecordTickTime(tick_time);
         }
     }
 
     void WorkerThread() {
-        // Worker threads process parallel tasks
+        // 워커 스레드는 병렬 작업 처리
         while (running_) {
-            // Wait for work
+            // 작업 대기
             std::unique_lock<std::mutex> lock(work_mutex_);
             work_cv_.wait(lock, [this]() {
                 return !work_queue_.empty() || !running_;
@@ -273,56 +273,56 @@ private:
                 work_queue_.pop();
                 lock.unlock();
 
-                // Execute task
+                // 작업 실행
                 task();
             }
         }
     }
 
     void ProcessInputs() {
-        // Pop all inputs from lock-free queue
+        // lock-free 큐에서 모든 입력 꺼내기
         std::vector<Input> inputs;
         Input input;
         while (input_queue_.try_pop(input)) {
             inputs.push_back(input);
         }
 
-        // Process inputs
+        // 입력 처리
         for (auto& input : inputs) {
             ProcessInput(input);
         }
     }
 
     void UpdateGameState() {
-        // Update can be parallelized
+        // 업데이트는 병렬화 가능
         SubmitParallelTasks();
 
-        // Update physics
+        // 물리 업데이트
         UpdatePhysics(delta_time_);
 
-        // Update AI (can be parallel)
+        // AI 업데이트 (병렬 가능)
         UpdateAI(delta_time_);
 
-        // Update game logic
+        // 게임 로직 업데이트
         UpdateGameLogic(delta_time_);
 
-        // Wait for all parallel tasks to complete
+        // 모든 병렬 작업 완료 대기
         WaitForTasks();
     }
 
 private:
     std::atomic<bool> running_;
 
-    // Threading
+    // 스레딩
     std::thread io_thread_;
     std::thread game_thread_;
     std::vector<std::thread> worker_threads_;
     int num_worker_threads_ = 4;
 
-    // Communication
+    // 통신
     LockFreeQueue<Input> input_queue_;
 
-    // Worker pool
+    // 워커 풀
     std::queue<std::function<void()>> work_queue_;
     std::mutex work_mutex_;
     std::condition_variable work_cv_;
@@ -331,28 +331,28 @@ private:
 };
 ```
 
-## Fixed Timestep vs Variable Timestep
+## 고정 타임스텝 vs 가변 타임스텝
 
-### Fixed Timestep
+### 고정 타임스텝
 
-**Concept:** Update game at fixed intervals (e.g., 60 times per second).
+**개념:** 고정 간격으로 게임을 업데이트합니다 (예: 초당 60회).
 
-**Advantages:**
-- Deterministic simulation
-- Consistent physics
-- Easier to debug
-- Network synchronization easier
+**장점:**
+- 결정론적 시뮬레이션
+- 일관된 물리
+- 디버깅 용이
+- 네트워크 동기화 용이
 
-**Disadvantages:**
-- Can lag if update takes too long
-- May need interpolation for rendering
+**단점:**
+- 업데이트가 오래 걸리면 지연 발생 가능
+- 렌더링을 위한 보간이 필요할 수 있음
 
 ```cpp
-// Fixed timestep game loop
+// 고정 타임스텝 game loop
 class FixedTimestepLoop {
 public:
     void Run() {
-        constexpr double dt = 1.0 / 60.0; // Fixed 60 Hz
+        constexpr double dt = 1.0 / 60.0; // 고정 60 Hz
         constexpr auto tick_duration = std::chrono::duration<double>(dt);
 
         auto current_time = std::chrono::high_resolution_clock::now();
@@ -363,24 +363,24 @@ public:
             auto frame_time = std::chrono::duration<double>(new_time - current_time).count();
             current_time = new_time;
 
-            // Prevent spiral of death (cap maximum frame time)
+            // 죽음의 나선 방지 (최대 프레임 시간 제한)
             if (frame_time > 0.25) {
-                frame_time = 0.25; // Max 4 frames to catch up
+                frame_time = 0.25; // 최대 4 프레임 따라잡기
             }
 
             accumulator += frame_time;
 
-            // Process input
+            // 입력 처리
             ProcessInput();
 
-            // Update simulation with fixed timestep
+            // 고정 타임스텝으로 시뮬레이션 업데이트
             while (accumulator >= dt) {
                 Update(dt);
                 tick_number_++;
                 accumulator -= dt;
             }
 
-            // Render with interpolation
+            // 보간을 적용한 렌더링
             double alpha = accumulator / dt;
             Render(alpha);
         }
@@ -388,14 +388,14 @@ public:
 
 private:
     void Update(double dt) {
-        // Fixed timestep update
+        // 고정 타임스텝 업데이트
         UpdatePhysics(dt);
         UpdateGameLogic(dt);
     }
 
     void Render(double alpha) {
-        // Interpolate between previous and current state
-        // for smooth rendering
+        // 부드러운 렌더링을 위해
+        // 이전 상태와 현재 상태를 보간
         for (auto& entity : entities_) {
             entity.interpolated_position =
                 entity.previous_position * (1.0 - alpha) +
@@ -412,22 +412,22 @@ private:
 };
 ```
 
-### Variable Timestep
+### 가변 타임스텝
 
-**Concept:** Update based on actual elapsed time.
+**개념:** 실제 경과 시간을 기반으로 업데이트합니다.
 
-**Advantages:**
-- Adapts to system load
-- Smoother frame rate
-- Simple implementation
+**장점:**
+- 시스템 부하에 적응
+- 더 부드러운 프레임 레이트
+- 간단한 구현
 
-**Disadvantages:**
-- Non-deterministic
-- Physics instability with large dt
-- Harder to reproduce bugs
+**단점:**
+- 비결정론적
+- 큰 dt에서 물리 불안정
+- 버그 재현이 어려움
 
 ```cpp
-// Variable timestep game loop
+// 가변 타임스텝 game loop
 class VariableTimestepLoop {
 public:
     void Run() {
@@ -440,25 +440,25 @@ public:
             ).count();
             last_time = current_time;
 
-            // Cap delta time to prevent huge jumps
+            // 큰 점프 방지를 위해 delta time 제한
             if (delta_time > 0.1) {
-                delta_time = 0.1; // Cap at 100ms
+                delta_time = 0.1; // 100ms로 제한
             }
 
-            // Process input
+            // 입력 처리
             ProcessInput();
 
-            // Update with variable timestep
+            // 가변 타임스텝으로 업데이트
             Update(delta_time);
 
-            // Render
+            // 렌더링
             Render();
         }
     }
 
 private:
     void Update(double dt) {
-        // All updates use actual elapsed time
+        // 모든 업데이트가 실제 경과 시간 사용
         UpdatePhysics(dt);
         UpdateGameLogic(dt);
     }
@@ -468,16 +468,16 @@ private:
 };
 ```
 
-### Hybrid Approach (Semi-Fixed)
+### 하이브리드 접근 방식 (반고정)
 
-**Best of both worlds:** Fixed timestep for physics, variable for other systems.
+**양쪽의 장점:** 물리는 고정 타임스텝, 다른 시스템은 가변 타임스텝을 사용합니다.
 
 ```cpp
-// Hybrid timestep game loop
+// 하이브리드 타임스텝 game loop
 class HybridTimestepLoop {
 public:
     void Run() {
-        constexpr double physics_dt = 1.0 / 60.0; // 60 Hz physics
+        constexpr double physics_dt = 1.0 / 60.0; // 60 Hz 물리
         double physics_accumulator = 0.0;
 
         auto last_time = std::chrono::high_resolution_clock::now();
@@ -493,20 +493,20 @@ public:
 
             physics_accumulator += frame_time;
 
-            // Process input
+            // 입력 처리
             ProcessInput();
 
-            // Update physics with fixed timestep
+            // 고정 타임스텝으로 물리 업데이트
             while (physics_accumulator >= physics_dt) {
                 UpdatePhysics(physics_dt);
                 physics_accumulator -= physics_dt;
             }
 
-            // Update game logic with variable timestep
+            // 가변 타임스텝으로 게임 로직 업데이트
             UpdateGameLogic(frame_time);
             UpdateAI(frame_time);
 
-            // Render
+            // 렌더링
             double alpha = physics_accumulator / physics_dt;
             Render(alpha);
         }
@@ -514,9 +514,9 @@ public:
 };
 ```
 
-## Threading Patterns
+## 스레딩 패턴
 
-### Pattern 1: IO Thread + Game Thread
+### 패턴 1: I/O 스레드 + 게임 스레드
 
 ```
 ┌──────────────┐         ┌──────────────────┐
@@ -528,7 +528,7 @@ public:
 └──────────────┘         └──────────────────┘
 ```
 
-**Implementation:**
+**구현:**
 
 ```cpp
 class IOAndGameThreadServer {
@@ -536,13 +536,13 @@ public:
     void Start() {
         io_thread_ = std::thread([this]() {
             while (running_) {
-                // Receive from network
+                // 네트워크에서 수신
                 auto packets = network_.Receive();
                 for (auto& packet : packets) {
                     input_queue_.push(packet);
                 }
 
-                // Send outgoing
+                // 송신
                 Packet output;
                 while (output_queue_.try_pop(output)) {
                     network_.Send(output);
@@ -557,16 +557,16 @@ public:
             auto next_tick = std::chrono::steady_clock::now();
 
             while (running_) {
-                // Process all pending inputs
+                // 대기 중인 모든 입력 처리
                 Packet input;
                 while (input_queue_.try_pop(input)) {
                     ProcessInput(input);
                 }
 
-                // Update game
+                // 게임 업데이트
                 Update(0.016f);
 
-                // Prepare outputs
+                // 출력 준비
                 for (auto& update : PrepareUpdates()) {
                     output_queue_.push(update);
                 }
@@ -586,7 +586,7 @@ private:
 };
 ```
 
-### Pattern 2: Thread Pool for Parallel Updates
+### 패턴 2: 병렬 업데이트를 위한 Thread Pool
 
 ```
                   ┌──────────────────┐
@@ -608,7 +608,7 @@ private:
                     Wait for completion
 ```
 
-**Implementation:**
+**구현:**
 
 ```cpp
 class ThreadPoolGameLoop {
@@ -621,13 +621,13 @@ public:
         auto next_tick = std::chrono::steady_clock::now();
 
         while (running_) {
-            // Sequential: Process input
+            // 순차: 입력 처리
             ProcessInput();
 
-            // Parallel: Update systems
+            // 병렬: 시스템 업데이트
             std::vector<std::future<void>> futures;
 
-            // AI updates (parallel)
+            // AI 업데이트 (병렬)
             for (auto& zone : zones_) {
                 futures.push_back(
                     thread_pool_.Submit([&zone]() {
@@ -636,7 +636,7 @@ public:
                 );
             }
 
-            // Physics updates (parallel)
+            // 물리 업데이트 (병렬)
             for (auto& physics_island : physics_islands_) {
                 futures.push_back(
                     thread_pool_.Submit([&physics_island]() {
@@ -645,15 +645,15 @@ public:
                 );
             }
 
-            // Wait for all parallel work
+            // 모든 병렬 작업 대기
             for (auto& future : futures) {
                 future.wait();
             }
 
-            // Sequential: Finalize state
+            // 순차: 상태 확정
             FinalizeGameState();
 
-            // Sequential: Prepare output
+            // 순차: 출력 준비
             PrepareNetworkUpdates();
 
             next_tick += tick_interval;
@@ -669,10 +669,10 @@ private:
 };
 ```
 
-### Pattern 3: Job System
+### 패턴 3: Job 시스템
 
 ```cpp
-// Job-based parallelism
+// Job 기반 병렬 처리
 class JobSystem {
 public:
     struct Job {
@@ -718,7 +718,7 @@ public:
     }
 
     void WaitForCounter(std::atomic<int>& counter) {
-        // Spin-wait (can help with work stealing)
+        // 스핀 대기 (작업 스틸링에 도움이 될 수 있음)
         while (counter.load() > 0) {
             std::this_thread::yield();
         }
@@ -761,7 +761,7 @@ private:
     std::atomic<bool> running_{true};
 };
 
-// Usage
+// 사용 예시
 class GameLoopWithJobs {
 public:
     GameLoopWithJobs() : job_system_(4) {}
@@ -770,11 +770,11 @@ public:
         while (running_) {
             ProcessInput();
 
-            // Submit parallel jobs
+            // 병렬 job 제출
             std::atomic<int> job_counter{0};
             std::vector<JobSystem::Job> jobs;
 
-            // AI jobs
+            // AI job
             for (auto& npc : npcs_) {
                 jobs.push_back({
                     [&npc]() { npc.UpdateAI(0.016f); },
@@ -782,7 +782,7 @@ public:
                 });
             }
 
-            // Physics jobs
+            // 물리 job
             for (auto& entity : entities_) {
                 jobs.push_back({
                     [&entity]() { entity.UpdatePhysics(0.016f); },
@@ -792,10 +792,10 @@ public:
 
             job_system_.SubmitJobs(jobs, job_counter);
 
-            // Wait for completion
+            // 완료 대기
             job_system_.WaitForCounter(job_counter);
 
-            // Finalize and output
+            // 확정 및 출력
             FinalizeState();
             SendUpdates();
 
@@ -811,70 +811,70 @@ private:
 };
 ```
 
-## Deterministic Simulation
+## 결정론적 시뮬레이션
 
-### Why Determinism Matters
+### 결정론이 중요한 이유
 
-- **Reproducible bugs:** Same inputs = same outputs
-- **Replay systems:** Store inputs, replay simulation
-- **Rollback netcode:** Rewind and re-simulate
-- **Lockstep multiplayer:** All clients run same simulation
+- **재현 가능한 버그:** 같은 입력 = 같은 출력
+- **리플레이 시스템:** 입력을 저장하고 시뮬레이션을 재생
+- **롤백 넷코드:** 되감기 및 재시뮬레이션
+- **Lockstep 멀티플레이어:** 모든 클라이언트가 같은 시뮬레이션 실행
 
-### Achieving Determinism
+### 결정론 달성
 
 ```cpp
-// Deterministic game loop
+// 결정론적 game loop
 class DeterministicGameLoop {
 public:
     void Run() {
-        // Fixed timestep is crucial
+        // 고정 타임스텝이 필수적
         constexpr double dt = 1.0 / 30.0; // 30 Hz
         uint64_t tick = 0;
 
         while (running_) {
-            // 1. Collect all inputs for this tick
+            // 1. 이 tick의 모든 입력 수집
             auto inputs = CollectInputs(tick);
 
-            // 2. Sort inputs deterministically
+            // 2. 결정론적으로 입력 정렬
             std::sort(inputs.begin(), inputs.end(),
                 [](const Input& a, const Input& b) {
-                    // Sort by player ID first, then timestamp
+                    // 플레이어 ID로 먼저 정렬, 그 다음 타임스탬프
                     if (a.player_id != b.player_id) {
                         return a.player_id < b.player_id;
                     }
                     return a.timestamp < b.timestamp;
                 });
 
-            // 3. Process inputs in order
+            // 3. 순서대로 입력 처리
             for (const auto& input : inputs) {
                 ProcessInput(input);
             }
 
-            // 4. Update simulation (deterministic)
+            // 4. 시뮬레이션 업데이트 (결정론적)
             UpdateDeterministic(dt);
 
-            // 5. Save state snapshot (for rollback/replay)
+            // 5. 상태 스냅샷 저장 (롤백/리플레이용)
             SaveSnapshot(tick);
 
             tick++;
 
-            // 6. Wait for next tick
+            // 6. 다음 tick 대기
             WaitForNextTick();
         }
     }
 
 private:
     void UpdateDeterministic(double dt) {
-        // Use deterministic math (no floating point inconsistencies)
-        // - Fixed-point arithmetic, or
-        // - Carefully controlled floating point
+        // 결정론적 수학 사용 (부동소수점 불일치 방지)
+        // - 고정소수점 연산, 또는
+        // - 주의 깊게 제어된 부동소수점
 
-        // Update in consistent order
+        // 일관된 순서로 업데이트
         for (auto& entity : entities_) {
             entity.Update(dt);
         }
 
-        // Resolve collisions deterministically
+        // 결정론적으로 충돌 해결
         auto collisions = physics_.DetectCollisions();
         std::sort(collisions.begin(), collisions.end(),
             [](const Collision& a, const Collision& b) {
@@ -894,7 +894,7 @@ private:
             snapshot.entity_states.push_back(entity.GetState());
         }
 
-        // Store in circular buffer
+        // 순환 버퍼에 저장
         snapshots_[tick % snapshot_buffer_size_] = snapshot;
     }
 
@@ -907,10 +907,10 @@ private:
 };
 ```
 
-### Rollback and Replay
+### 롤백과 리플레이
 
 ```cpp
-// Rollback netcode (for fighting games, fast-paced games)
+// 롤백 넷코드 (격투 게임, 빠른 페이스 게임용)
 class RollbackGameLoop {
 public:
     void Run() {
@@ -918,37 +918,37 @@ public:
         uint64_t current_tick = 0;
 
         while (running_) {
-            // Get local input for current tick
+            // 현재 tick의 로컬 입력 가져오기
             auto local_input = GetLocalInput();
             input_buffer_[current_tick % input_buffer_size_] = local_input;
 
-            // Send to other players
+            // 다른 플레이어에게 전송
             SendInput(local_input, current_tick);
 
-            // Receive remote inputs
+            // 원격 입력 수신
             auto remote_inputs = ReceiveRemoteInputs();
 
-            // Check if we need to rollback
+            // 롤백이 필요한지 확인
             uint64_t oldest_new_input = FindOldestNewInput(remote_inputs);
 
             if (oldest_new_input < current_tick) {
-                // Rollback required
+                // 롤백 필요
                 Rollback(oldest_new_input);
 
-                // Re-simulate from rollback point to current
+                // 롤백 지점부터 현재까지 재시뮬레이션
                 for (uint64_t tick = oldest_new_input; tick <= current_tick; ++tick) {
                     auto all_inputs = GetAllInputs(tick);
                     UpdateDeterministic(all_inputs, dt);
                     SaveState(tick);
                 }
             } else {
-                // No rollback needed, just simulate current tick
+                // 롤백 불필요, 현재 tick만 시뮬레이션
                 auto all_inputs = GetAllInputs(current_tick);
                 UpdateDeterministic(all_inputs, dt);
                 SaveState(current_tick);
             }
 
-            // Render (with prediction)
+            // 렌더링 (예측 포함)
             Render();
 
             current_tick++;
@@ -958,27 +958,27 @@ public:
 
 private:
     void Rollback(uint64_t target_tick) {
-        // Restore state from snapshot
+        // 스냅샷에서 상태 복원
         game_state_ = snapshots_[target_tick % snapshot_buffer_size_];
     }
 
     void UpdateDeterministic(const std::vector<Input>& inputs, double dt) {
-        // Sort inputs
+        // 입력 정렬
         auto sorted_inputs = inputs;
         std::sort(sorted_inputs.begin(), sorted_inputs.end(),
             [](const Input& a, const Input& b) {
                 return a.player_id < b.player_id;
             });
 
-        // Process inputs
+        // 입력 처리
         for (const auto& input : sorted_inputs) {
             ApplyInput(input);
         }
 
-        // Update physics
+        // 물리 업데이트
         physics_.Update(dt);
 
-        // Update game logic
+        // 게임 로직 업데이트
         UpdateGameLogic(dt);
     }
 
@@ -999,9 +999,9 @@ private:
 };
 ```
 
-## Performance Optimization
+## 성능 최적화
 
-### 1. Tick Budget Management
+### 1. Tick 예산 관리
 
 ```cpp
 class TickBudgetManager {
@@ -1027,7 +1027,7 @@ public:
     void EndTick() {
         auto tick_time = std::chrono::high_resolution_clock::now() - tick_start_;
 
-        // Record metrics
+        // 지표 기록
         RecordTickTime(tick_time);
 
         if (tick_time > tick_budget_) {
@@ -1044,9 +1044,9 @@ private:
     size_t tick_overruns_ = 0;
 };
 
-// Usage
+// 사용 예시
 void GameLoop() {
-    TickBudgetManager budget(16.0); // 16ms for 60 Hz
+    TickBudgetManager budget(16.0); // 60 Hz를 위한 16ms
 
     while (running_) {
         budget.BeginTick();
@@ -1054,7 +1054,7 @@ void GameLoop() {
         ProcessInput();
         UpdatePhysics(0.016);
 
-        // Only update AI if we have budget
+        // 예산이 남은 경우에만 AI 업데이트
         if (budget.HasBudget()) {
             UpdateAI(0.016);
         }
@@ -1068,14 +1068,14 @@ void GameLoop() {
 }
 ```
 
-### 2. Adaptive Tick Rate
+### 2. 적응형 Tick Rate
 
 ```cpp
-// Dynamically adjust tick rate based on load
+// 부하에 따라 tick rate를 동적으로 조정
 class AdaptiveTickRateLoop {
 public:
     void Run() {
-        double current_tick_rate = 30.0; // Start at 30 Hz
+        double current_tick_rate = 30.0; // 30 Hz로 시작
         double min_tick_rate = 10.0;
         double max_tick_rate = 60.0;
 
@@ -1093,16 +1093,16 @@ public:
 
             double target_tick_time = 1.0 / current_tick_rate;
 
-            // Adjust tick rate based on actual performance
+            // 실제 성능에 따라 tick rate 조정
             if (tick_time > target_tick_time * 1.2) {
-                // Server is overloaded - reduce tick rate
+                // 서버 과부하 - tick rate 감소
                 current_tick_rate = std::max(min_tick_rate, current_tick_rate * 0.9);
             } else if (tick_time < target_tick_time * 0.8) {
-                // Server has headroom - increase tick rate
+                // 서버 여유 있음 - tick rate 증가
                 current_tick_rate = std::min(max_tick_rate, current_tick_rate * 1.1);
             }
 
-            // Wait for next tick
+            // 다음 tick 대기
             double sleep_time = target_tick_time - tick_time;
             if (sleep_time > 0) {
                 std::this_thread::sleep_for(
@@ -1117,11 +1117,11 @@ private:
 };
 ```
 
-## Conclusion
+## 결론
 
-Game loop design is fundamental to server performance and correctness. Fixed timestep loops provide determinism crucial for fairness and reproducibility. Multi-threading can dramatically improve performance but requires careful synchronization. The choice of threading pattern depends on game requirements: real-time competitive games benefit from deterministic single-threaded or carefully synchronized loops, while MMOs can leverage parallelism more aggressively.
+Game loop 설계는 서버 성능과 정확성의 근본입니다. 고정 타임스텝 loop는 공정성과 재현성에 필수적인 결정론을 제공합니다. 멀티스레딩은 성능을 극적으로 향상시킬 수 있지만 신중한 동기화가 필요합니다. 스레딩 패턴의 선택은 게임 요구사항에 따라 달라집니다: 실시간 경쟁 게임은 결정론적 단일 스레드 또는 신중하게 동기화된 loop가 유리하고, MMO는 병렬성을 더 적극적으로 활용할 수 있습니다.
 
-## Further Reading
+## 추가 참고 자료
 
 - [Fix Your Timestep!](https://gafferongames.com/post/fix_your_timestep/)
 - [Game Programming Patterns - Game Loop](https://gameprogrammingpatterns.com/game-loop.html)

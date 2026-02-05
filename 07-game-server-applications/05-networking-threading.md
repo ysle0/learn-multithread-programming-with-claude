@@ -1,23 +1,23 @@
-# Networking I/O and Threading
+# 네트워크 I/O와 Threading
 
-## Overview
+## 개요
 
-Network I/O is often the bottleneck in game servers. Efficiently handling thousands of concurrent connections requires advanced I/O models and threading strategies. This document covers asynchronous I/O, I/O completion ports (IOCP), epoll, thread pools for network handling, and zero-copy techniques.
+네트워크 I/O는 게임 서버에서 병목이 되는 경우가 많습니다. 수천 개의 동시 연결을 효율적으로 처리하려면 고급 I/O 모델과 threading 전략이 필요합니다. 이 문서에서는 비동기 I/O, I/O completion ports (IOCP), epoll, 네트워크 처리를 위한 thread pool, 그리고 zero-copy 기법을 다룹니다.
 
-## Table of Contents
+## 목차
 
-1. [I/O Models](#io-models)
-2. [Platform-Specific APIs](#platform-specific-apis)
-3. [Threading Strategies](#threading-strategies)
-4. [Protocol Design](#protocol-design)
-5. [Performance Optimization](#performance-optimization)
-6. [Real-world Implementations](#real-world-implementations)
+1. [I/O 모델](#io-models)
+2. [플랫폼별 API](#platform-specific-apis)
+3. [Threading 전략](#threading-strategies)
+4. [프로토콜 설계](#protocol-design)
+5. [성능 최적화](#performance-optimization)
+6. [실제 구현 사례](#real-world-implementations)
 
-## I/O Models
+## I/O 모델
 
 ### 1. Blocking I/O
 
-**Concept:** Thread blocks until I/O operation completes.
+**개념:** I/O 작업이 완료될 때까지 thread가 차단됩니다.
 
 ```
 Thread Timeline (Blocking I/O)
@@ -26,52 +26,52 @@ Thread 1: [recv]─────────[recv]─────
            ↓ blocks      ↓ blocks
           waiting       waiting
 
-Pros: Simple
-Cons: One thread per connection, doesn't scale
+장점: 단순함
+단점: 연결당 하나의 thread 필요, 확장성 부족
 ```
 
-**Implementation:**
+**구현:**
 
 ```cpp
-// Blocking I/O - Simple but doesn't scale
+// Blocking I/O - 단순하지만 확장성이 부족함
 void HandleClient(int socket_fd) {
     char buffer[4096];
 
     while (true) {
-        // Blocks until data arrives
+        // 데이터가 도착할 때까지 차단
         ssize_t bytes_read = recv(socket_fd, buffer, sizeof(buffer), 0);
 
         if (bytes_read <= 0) {
-            break; // Connection closed or error
+            break; // 연결 종료 또는 오류
         }
 
-        // Process data
+        // 데이터 처리
         ProcessData(buffer, bytes_read);
 
-        // Send response (also blocks)
+        // 응답 전송 (역시 차단됨)
         send(socket_fd, response, response_length, 0);
     }
 
     close(socket_fd);
 }
 
-// Thread per connection (doesn't scale beyond ~1000 connections)
+// 연결당 thread 방식 (약 1000개 이상의 연결에서는 확장 불가)
 void RunServer() {
     int listen_fd = CreateListenSocket(8080);
 
     while (true) {
         int client_fd = accept(listen_fd, nullptr, nullptr);
 
-        // Spawn thread for each connection
+        // 각 연결마다 thread 생성
         std::thread client_thread(HandleClient, client_fd);
         client_thread.detach();
     }
 }
 ```
 
-### 2. Non-blocking I/O with select/poll
+### 2. Non-blocking I/O (select/poll 사용)
 
-**Concept:** Single thread monitors multiple sockets.
+**개념:** 단일 thread가 여러 소켓을 모니터링합니다.
 
 ```
 Event Loop (select/poll)
@@ -80,22 +80,22 @@ Event Loop (select/poll)
          │  select()   │───────┐
          └─────────────┘       │
                 │              │
-         Ready sockets         │
+         준비된 소켓들          │
                 │              │
          ┌──────▼──────┐       │
-         │ Process I/O │       │
+         │  I/O 처리   │       │
          └─────────────┘       │
                 │              │
                 └──────────────┘
 
-Pros: Handles multiple connections
-Cons: O(n) to scan FDs, doesn't scale to 10K+ connections
+장점: 여러 연결 처리 가능
+단점: FD 스캔에 O(n), 10K+ 연결에서 확장 불가
 ```
 
-**Implementation:**
+**구현:**
 
 ```cpp
-// Non-blocking I/O with select
+// select를 사용한 Non-blocking I/O
 class SelectServer {
 public:
     void Run(uint16_t port) {
@@ -111,7 +111,7 @@ public:
         while (true) {
             fd_set read_set = master_set;
 
-            // Wait for activity on any socket
+            // 소켓에서 활동이 발생할 때까지 대기
             int activity = select(max_fd + 1, &read_set, nullptr, nullptr, nullptr);
 
             if (activity < 0) {
@@ -119,25 +119,25 @@ public:
                 break;
             }
 
-            // Check each socket
+            // 각 소켓 확인
             for (int fd = 0; fd <= max_fd; ++fd) {
                 if (!FD_ISSET(fd, &read_set)) {
                     continue;
                 }
 
                 if (fd == listen_fd) {
-                    // New connection
+                    // 새 연결
                     int client_fd = accept(listen_fd, nullptr, nullptr);
                     SetNonBlocking(client_fd);
                     FD_SET(client_fd, &master_set);
                     max_fd = std::max(max_fd, client_fd);
                 } else {
-                    // Data from existing connection
+                    // 기존 연결에서 데이터 수신
                     char buffer[4096];
                     ssize_t bytes = recv(fd, buffer, sizeof(buffer), 0);
 
                     if (bytes <= 0) {
-                        // Connection closed
+                        // 연결 종료
                         close(fd);
                         FD_CLR(fd, &master_set);
                     } else {
@@ -156,9 +156,9 @@ private:
 };
 ```
 
-### 3. Asynchronous I/O (Reactor Pattern)
+### 3. 비동기 I/O (Reactor 패턴)
 
-**Concept:** Event-driven I/O with callbacks.
+**개념:** 콜백을 사용하는 이벤트 기반 I/O입니다.
 
 ```
 Reactor Pattern
@@ -176,18 +176,18 @@ Reactor Pattern
    │(socket A)│   │(socket B)│
    └─────────┘   └─────────┘
 
-Pros: Scalable, efficient
-Cons: Callback complexity
+장점: 확장 가능, 효율적
+단점: 콜백 복잡성
 ```
 
-### 4. Proactor Pattern (Asynchronous Completion)
+### 4. Proactor 패턴 (비동기 완료)
 
-**Concept:** I/O operations complete asynchronously, callbacks invoked on completion.
+**개념:** I/O 작업이 비동기적으로 완료되며, 완료 시 콜백이 호출됩니다.
 
 ```
 Proactor Pattern (IOCP)
 ─────────────────────────────────────
-  Initiate I/O
+  I/O 시작
        │
        ▼
   ┌─────────────┐
@@ -195,31 +195,31 @@ Proactor Pattern (IOCP)
   │  (Async I/O)│
   └──────┬──────┘
          │
-    Completion
+      완료
          │
          ▼
   ┌─────────────┐
-  │ Completion  │
+  │   완료      │
   │   Handler   │
   └─────────────┘
 
-Pros: True async, scalable
-Cons: Complex, platform-specific
+장점: 진정한 비동기, 확장 가능
+단점: 복잡함, 플랫폼 의존적
 ```
 
-## Platform-Specific APIs
+## 플랫폼별 API
 
 ### Linux: epoll
 
-**Characteristics:**
-- Edge-triggered and level-triggered modes
-- O(1) performance for ready events
-- Scales to 100K+ connections
+**특징:**
+- Edge-triggered와 level-triggered 모드 지원
+- 준비된 이벤트에 대해 O(1) 성능
+- 100K+ 연결까지 확장 가능
 
-**Implementation:**
+**구현:**
 
 ```cpp
-// epoll-based server (Linux)
+// epoll 기반 서버 (Linux)
 class EpollServer {
 public:
     EpollServer() {
@@ -239,30 +239,30 @@ public:
         int listen_fd = CreateListenSocket(port);
         SetNonBlocking(listen_fd);
 
-        // Add listen socket to epoll
+        // 리슨 소켓을 epoll에 추가
         AddSocket(listen_fd, EPOLLIN | EPOLLET); // Edge-triggered
 
         constexpr int MAX_EVENTS = 1024;
         struct epoll_event events[MAX_EVENTS];
 
         while (running_) {
-            // Wait for events
+            // 이벤트 대기
             int num_events = epoll_wait(epoll_fd_, events, MAX_EVENTS, -1);
 
             for (int i = 0; i < num_events; ++i) {
                 int fd = events[i].data.fd;
 
                 if (fd == listen_fd) {
-                    // Accept new connections
+                    // 새 연결 수락
                     AcceptConnections(listen_fd);
                 } else if (events[i].events & EPOLLIN) {
-                    // Data ready to read
+                    // 읽을 데이터 준비됨
                     HandleRead(fd);
                 } else if (events[i].events & EPOLLOUT) {
-                    // Ready to write
+                    // 쓰기 준비됨
                     HandleWrite(fd);
                 } else if (events[i].events & (EPOLLHUP | EPOLLERR)) {
-                    // Connection error or closed
+                    // 연결 오류 또는 종료
                     HandleDisconnect(fd);
                 }
             }
@@ -286,7 +286,7 @@ private:
 
             if (client_fd < 0) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    // No more connections
+                    // 더 이상 연결 없음
                     break;
                 } else {
                     perror("accept");
@@ -297,7 +297,7 @@ private:
             SetNonBlocking(client_fd);
             AddSocket(client_fd, EPOLLIN | EPOLLOUT | EPOLLET);
 
-            // Create connection state
+            // 연결 상태 생성
             connections_[client_fd] = std::make_unique<Connection>(client_fd);
         }
     }
@@ -314,24 +314,24 @@ private:
 
             if (bytes < 0) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    // No more data
+                    // 더 이상 데이터 없음
                     break;
                 } else {
-                    // Error
+                    // 오류
                     HandleDisconnect(fd);
                     return;
                 }
             } else if (bytes == 0) {
-                // Connection closed
+                // 연결 종료
                 HandleDisconnect(fd);
                 return;
             }
 
-            // Process data
+            // 데이터 처리
             conn->input_buffer.append(buffer, bytes);
         }
 
-        // Process complete packets
+        // 완전한 패킷 처리
         ProcessPackets(conn.get());
     }
 
@@ -349,16 +349,16 @@ private:
 
             if (bytes < 0) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    // Would block, try later
+                    // 차단될 수 있음, 나중에 재시도
                     break;
                 } else {
-                    // Error
+                    // 오류
                     HandleDisconnect(fd);
                     return;
                 }
             }
 
-            // Remove sent data from buffer
+            // 전송된 데이터를 버퍼에서 제거
             conn->output_buffer.erase(0, bytes);
         }
     }
@@ -392,26 +392,26 @@ private:
 
 ### Windows: I/O Completion Ports (IOCP)
 
-**Characteristics:**
-- Completion-based (Proactor pattern)
-- Scales to 100K+ connections
-- Integrates with thread pool
+**특징:**
+- 완료 기반 (Proactor 패턴)
+- 100K+ 연결까지 확장 가능
+- Thread pool과 통합
 
-**Implementation:**
+**구현:**
 
 ```cpp
-// IOCP-based server (Windows)
+// IOCP 기반 서버 (Windows)
 #ifdef _WIN32
 
 class IOCPServer {
 public:
     IOCPServer(int num_threads = 0) {
-        // Create I/O completion port
+        // I/O completion port 생성
         iocp_handle_ = CreateIoCompletionPort(
             INVALID_HANDLE_VALUE,
             nullptr,
             0,
-            num_threads // 0 = number of processors
+            num_threads // 0 = 프로세서 수
         );
 
         if (!iocp_handle_) {
@@ -426,10 +426,10 @@ public:
     }
 
     void Run(uint16_t port) {
-        // Create listen socket
+        // 리슨 소켓 생성
         listen_socket_ = CreateListenSocket(port);
 
-        // Associate listen socket with IOCP
+        // 리슨 소켓을 IOCP에 연결
         CreateIoCompletionPort(
             (HANDLE)listen_socket_,
             iocp_handle_,
@@ -437,7 +437,7 @@ public:
             0
         );
 
-        // Start worker threads
+        // 워커 thread 시작
         int num_threads = std::thread::hardware_concurrency();
         for (int i = 0; i < num_threads; ++i) {
             worker_threads_.emplace_back([this]() {
@@ -445,7 +445,7 @@ public:
             });
         }
 
-        // Accept connections
+        // 연결 수락
         AcceptLoop();
     }
 
@@ -475,7 +475,7 @@ private:
             ULONG_PTR completion_key;
             LPOVERLAPPED overlapped;
 
-            // Wait for I/O completion
+            // I/O 완료 대기
             BOOL result = GetQueuedCompletionStatus(
                 iocp_handle_,
                 &bytes_transferred,
@@ -485,7 +485,7 @@ private:
             );
 
             if (!overlapped) {
-                // Shutdown signal
+                // 종료 신호
                 break;
             }
 
@@ -498,12 +498,12 @@ private:
             auto* connection = reinterpret_cast<Connection*>(completion_key);
 
             if (!result || bytes_transferred == 0) {
-                // Connection closed or error
+                // 연결 종료 또는 오류
                 HandleDisconnect(connection, io_context);
                 continue;
             }
 
-            // Handle I/O completion
+            // I/O 완료 처리
             switch (io_context->operation) {
                 case IOContext::Operation::Accept:
                     HandleAcceptComplete(io_context, bytes_transferred);
@@ -522,7 +522,7 @@ private:
 
     void AcceptLoop() {
         while (running_) {
-            // Post accept operation
+            // Accept 작업 등록
             auto* io_context = new IOContext;
             ZeroMemory(&io_context->overlapped, sizeof(OVERLAPPED));
             io_context->operation = IOContext::Operation::Accept;
@@ -541,7 +541,7 @@ private:
                 listen_socket_,
                 io_context->socket,
                 io_context->buffer,
-                0, // No initial receive
+                0, // 초기 수신 없음
                 sizeof(sockaddr_in) + 16,
                 sizeof(sockaddr_in) + 16,
                 &bytes_received,
@@ -549,22 +549,22 @@ private:
             );
 
             if (!result && WSAGetLastError() != ERROR_IO_PENDING) {
-                // Error
+                // 오류
                 closesocket(io_context->socket);
                 delete io_context;
             }
 
-            // Wait a bit before next accept
+            // 다음 accept 전에 잠시 대기
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     }
 
     void HandleAcceptComplete(IOContext* io_context, DWORD bytes_transferred) {
-        // Create connection
+        // 연결 생성
         auto connection = std::make_unique<Connection>();
         connection->socket = io_context->socket;
 
-        // Associate socket with IOCP
+        // 소켓을 IOCP에 연결
         CreateIoCompletionPort(
             (HANDLE)connection->socket,
             iocp_handle_,
@@ -574,7 +574,7 @@ private:
 
         connections_[connection->socket] = std::move(connection);
 
-        // Post initial receive
+        // 초기 수신 등록
         PostReceive(connections_[io_context->socket].get());
 
         delete io_context;
@@ -602,17 +602,17 @@ private:
         );
 
         if (result == SOCKET_ERROR && WSAGetLastError() != WSA_IO_PENDING) {
-            // Error
+            // 오류
             delete io_context;
         }
     }
 
     void HandleReceiveComplete(Connection* connection, IOContext* io_context,
                                DWORD bytes_transferred) {
-        // Process received data
+        // 수신된 데이터 처리
         ProcessData(connection, io_context->buffer, bytes_transferred);
 
-        // Post another receive
+        // 다음 수신 등록
         PostReceive(connection);
 
         delete io_context;
@@ -641,7 +641,7 @@ private:
         );
 
         if (result == SOCKET_ERROR && WSAGetLastError() != WSA_IO_PENDING) {
-            // Error
+            // 오류
             delete io_context;
         }
     }
@@ -650,7 +650,7 @@ private:
                            DWORD bytes_transferred) {
         delete io_context;
 
-        // Send next queued message if any
+        // 큐에 다음 메시지가 있으면 전송
         std::lock_guard<std::mutex> lock(connection->send_mutex);
         if (!connection->send_queue.empty()) {
             auto& data = connection->send_queue.front();
@@ -678,15 +678,15 @@ private:
 
 ### BSD/macOS: kqueue
 
-**Characteristics:**
-- Similar to epoll
-- Supports file, socket, timer, signal events
-- Efficient event notification
+**특징:**
+- epoll과 유사
+- 파일, 소켓, 타이머, 시그널 이벤트 지원
+- 효율적인 이벤트 알림
 
-**Implementation:**
+**구현:**
 
 ```cpp
-// kqueue-based server (BSD/macOS)
+// kqueue 기반 서버 (BSD/macOS)
 #ifdef __APPLE__
 
 class KqueueServer {
@@ -708,7 +708,7 @@ public:
         int listen_fd = CreateListenSocket(port);
         SetNonBlocking(listen_fd);
 
-        // Add listen socket to kqueue
+        // 리슨 소켓을 kqueue에 추가
         struct kevent event;
         EV_SET(&event, listen_fd, EVFILT_READ, EV_ADD, 0, 0, nullptr);
         kevent(kqueue_fd_, &event, 1, nullptr, 0, nullptr);
@@ -717,25 +717,25 @@ public:
         struct kevent events[MAX_EVENTS];
 
         while (running_) {
-            // Wait for events
+            // 이벤트 대기
             int num_events = kevent(kqueue_fd_, nullptr, 0, events, MAX_EVENTS, nullptr);
 
             for (int i = 0; i < num_events; ++i) {
                 int fd = events[i].ident;
 
                 if (fd == listen_fd) {
-                    // New connection
+                    // 새 연결
                     AcceptConnections(listen_fd);
                 } else if (events[i].filter == EVFILT_READ) {
-                    // Data ready to read
+                    // 읽을 데이터 준비됨
                     HandleRead(fd);
                 } else if (events[i].filter == EVFILT_WRITE) {
-                    // Ready to write
+                    // 쓰기 준비됨
                     HandleWrite(fd);
                 }
 
                 if (events[i].flags & EV_EOF) {
-                    // Connection closed
+                    // 연결 종료
                     HandleDisconnect(fd);
                 }
             }
@@ -749,7 +749,7 @@ private:
         kevent(kqueue_fd_, &event, 1, nullptr, 0, nullptr);
     }
 
-    // Similar to epoll implementation...
+    // epoll 구현과 유사...
     void AcceptConnections(int listen_fd);
     void HandleRead(int fd);
     void HandleWrite(int fd);
@@ -764,24 +764,24 @@ private:
 #endif // __APPLE__
 ```
 
-## Threading Strategies
+## Threading 전략
 
-### Strategy 1: Single I/O Thread + Game Thread
+### 전략 1: 단일 I/O Thread + Game Thread
 
 ```
 ┌──────────────┐         ┌──────────────────┐
 │  I/O Thread  │────────▶│   Game Thread    │
 │              │  Queue  │                  │
-│ • epoll/IOCP │         │ • Process packets│
-│ • Recv/Send  │◀────────│ • Update game    │
-│              │  Queue  │ • Generate output│
+│ • epoll/IOCP │         │ • 패킷 처리      │
+│ • Recv/Send  │◀────────│ • 게임 업데이트   │
+│              │  Queue  │ • 출력 생성       │
 └──────────────┘         └──────────────────┘
 
-Pros: Simple, clear separation
-Cons: I/O can bottleneck, single game thread limit
+장점: 단순함, 명확한 분리
+단점: I/O가 병목이 될 수 있음, 단일 game thread 한계
 ```
 
-### Strategy 2: Multiple I/O Threads + Game Thread
+### 전략 2: 다중 I/O Thread + Game Thread
 
 ```
 ┌─────────┐  ┌─────────┐
@@ -802,11 +802,11 @@ Cons: I/O can bottleneck, single game thread limit
      │ Game Thread  │
      └──────────────┘
 
-Pros: Scale I/O to multiple cores
-Cons: Game thread still bottleneck
+장점: 여러 코어로 I/O 확장
+단점: Game thread가 여전히 병목
 ```
 
-**Implementation:**
+**구현:**
 
 ```cpp
 class MultiIOThreadServer {
@@ -817,14 +817,14 @@ public:
     void Start() {
         running_ = true;
 
-        // Start I/O threads
+        // I/O thread 시작
         for (int i = 0; i < num_io_threads_; ++i) {
             io_threads_.emplace_back([this, i]() {
                 IOThread(i);
             });
         }
 
-        // Start game thread
+        // Game thread 시작
         game_thread_ = std::thread([this]() {
             GameThread();
         });
@@ -840,10 +840,10 @@ public:
 
 private:
     void IOThread(int thread_id) {
-        // Each I/O thread has its own epoll instance
+        // 각 I/O thread는 자체 epoll 인스턴스를 가짐
         int epoll_fd = epoll_create1(0);
 
-        // Distribute connections across I/O threads
+        // 연결을 I/O thread에 분배
         while (running_) {
             struct epoll_event events[256];
             int num_events = epoll_wait(epoll_fd, events, 256, 100);
@@ -852,12 +852,12 @@ private:
                 int fd = events[i].data.fd;
 
                 if (events[i].events & EPOLLIN) {
-                    // Read data
+                    // 데이터 읽기
                     char buffer[4096];
                     ssize_t bytes = recv(fd, buffer, sizeof(buffer), 0);
 
                     if (bytes > 0) {
-                        // Push to game thread
+                        // Game thread로 전달
                         Packet packet;
                         packet.connection_id = fd;
                         packet.data.assign(buffer, buffer + bytes);
@@ -866,12 +866,12 @@ private:
                 }
 
                 if (events[i].events & EPOLLOUT) {
-                    // Write pending data
+                    // 대기 중인 데이터 전송
                     SendPendingData(fd);
                 }
             }
 
-            // Send outgoing packets
+            // 나가는 패킷 전송
             Packet output;
             while (output_queue_.try_pop(output)) {
                 send(output.connection_id, output.data.data(), output.data.size(), 0);
@@ -886,16 +886,16 @@ private:
         auto next_tick = std::chrono::steady_clock::now();
 
         while (running_) {
-            // Process all input packets
+            // 모든 입력 패킷 처리
             Packet packet;
             while (input_queue_.try_pop(packet)) {
                 ProcessPacket(packet);
             }
 
-            // Update game
+            // 게임 업데이트
             UpdateGame(0.016f);
 
-            // Generate outputs
+            // 출력 생성
             auto outputs = GenerateOutputs();
             for (auto& output : outputs) {
                 output_queue_.push(output);
@@ -918,13 +918,13 @@ private:
 };
 ```
 
-### Strategy 3: I/O Thread Pool + Game Thread Pool
+### 전략 3: I/O Thread Pool + Game Thread Pool
 
 ```
 ┌────────────────────────────────┐
 │    I/O Thread Pool (4)         │
-│  • Distribute connections      │
-│  • Async I/O (epoll/IOCP)      │
+│  • 연결 분배                    │
+│  • 비동기 I/O (epoll/IOCP)     │
 └────────┬───────────────────────┘
          │
          ▼
@@ -935,20 +935,20 @@ private:
          ▼
 ┌────────────────────────────────┐
 │   Game Thread Pool (4)         │
-│  • Parallel zone updates       │
+│  • 병렬 zone 업데이트           │
 │  • Job system                  │
 └────────────────────────────────┘
 
-Pros: Full CPU utilization
-Cons: Complex synchronization
+장점: 전체 CPU 활용
+단점: 복잡한 동기화
 ```
 
-## Protocol Design
+## 프로토콜 설계
 
-### Binary Protocol
+### 바이너리 프로토콜
 
 ```cpp
-// Efficient binary protocol
+// 효율적인 바이너리 프로토콜
 struct PacketHeader {
     uint16_t packet_id;
     uint16_t length;
@@ -962,7 +962,7 @@ struct PlayerMovePacket {
     float vx, vy, vz;
 } __attribute__((packed));
 
-// Serialization
+// 직렬화
 std::vector<char> SerializeMove(uint32_t player_id, const Vector3& pos, const Vector3& vel) {
     PlayerMovePacket packet;
     packet.header.packet_id = PACKET_PLAYER_MOVE;
@@ -977,7 +977,7 @@ std::vector<char> SerializeMove(uint32_t player_id, const Vector3& pos, const Ve
     return buffer;
 }
 
-// Deserialization
+// 역직렬화
 void ProcessPacket(const char* data, size_t length) {
     if (length < sizeof(PacketHeader)) return;
 
@@ -993,39 +993,39 @@ void ProcessPacket(const char* data, size_t length) {
                 Vector3{move_packet->vx, move_packet->vy, move_packet->vz});
             break;
         }
-        // Other packet types...
+        // 다른 패킷 유형들...
     }
 }
 ```
 
-### Message Framing
+### 메시지 프레이밍
 
 ```cpp
-// TCP message framing (length-prefixed)
+// TCP 메시지 프레이밍 (길이 접두사 방식)
 class MessageFramer {
 public:
     void OnDataReceived(const char* data, size_t length) {
         buffer_.append(data, length);
 
         while (true) {
-            // Need at least 4 bytes for length
+            // 길이를 위해 최소 4바이트 필요
             if (buffer_.size() < 4) break;
 
-            // Read message length
+            // 메시지 길이 읽기
             uint32_t msg_length;
             memcpy(&msg_length, buffer_.data(), 4);
-            msg_length = ntohl(msg_length); // Network byte order
+            msg_length = ntohl(msg_length); // 네트워크 바이트 순서
 
-            // Check if complete message is available
+            // 완전한 메시지가 사용 가능한지 확인
             if (buffer_.size() < 4 + msg_length) break;
 
-            // Extract message
+            // 메시지 추출
             std::string message(buffer_.data() + 4, msg_length);
 
-            // Process message
+            // 메시지 처리
             OnMessageComplete(message);
 
-            // Remove from buffer
+            // 버퍼에서 제거
             buffer_.erase(0, 4 + msg_length);
         }
     }
@@ -1047,19 +1047,19 @@ private:
 };
 ```
 
-## Performance Optimization
+## 성능 최적화
 
-### 1. Zero-Copy Techniques
+### 1. Zero-Copy 기법
 
 ```cpp
-// sendfile() for zero-copy file transmission (Linux)
+// sendfile()을 사용한 zero-copy 파일 전송 (Linux)
 void SendFileZeroCopy(int socket_fd, int file_fd, size_t length) {
     off_t offset = 0;
     while (offset < length) {
         ssize_t sent = sendfile(socket_fd, file_fd, &offset, length - offset);
         if (sent < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                // Wait for socket to be ready
+                // 소켓이 준비될 때까지 대기
                 continue;
             }
             break;
@@ -1067,7 +1067,7 @@ void SendFileZeroCopy(int socket_fd, int file_fd, size_t length) {
     }
 }
 
-// splice() for zero-copy pipe-to-socket (Linux)
+// splice()를 사용한 zero-copy 파이프-소켓 전송 (Linux)
 void SpliceData(int in_fd, int out_fd, size_t length) {
     while (length > 0) {
         ssize_t spliced = splice(in_fd, nullptr, out_fd, nullptr, length, SPLICE_F_MOVE);
@@ -1077,10 +1077,10 @@ void SpliceData(int in_fd, int out_fd, size_t length) {
 }
 ```
 
-### 2. Buffer Pooling
+### 2. 버퍼 풀링
 
 ```cpp
-// Buffer pool to reduce allocations
+// 할당을 줄이기 위한 버퍼 풀
 class BufferPool {
 public:
     BufferPool(size_t buffer_size, size_t pool_size)
@@ -1113,8 +1113,8 @@ private:
     std::mutex mutex_;
 };
 
-// Usage
-BufferPool buffer_pool(4096, 1000); // 1000 buffers of 4KB each
+// 사용 예시
+BufferPool buffer_pool(4096, 1000); // 4KB 버퍼 1000개
 
 void HandleConnection(int fd) {
     auto buffer = buffer_pool.Acquire();
@@ -1124,28 +1124,28 @@ void HandleConnection(int fd) {
 }
 ```
 
-### 3. TCP Tuning
+### 3. TCP 튜닝
 
 ```cpp
-// Optimize TCP settings for game servers
+// 게임 서버를 위한 TCP 설정 최적화
 void OptimizeTCPSocket(int socket_fd) {
-    // Disable Nagle's algorithm (reduces latency)
+    // Nagle 알고리즘 비활성화 (지연 시간 감소)
     int flag = 1;
     setsockopt(socket_fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
 
-    // Set send/receive buffer sizes
+    // 송신/수신 버퍼 크기 설정
     int buffer_size = 256 * 1024; // 256 KB
     setsockopt(socket_fd, SOL_SOCKET, SO_SNDBUF, &buffer_size, sizeof(buffer_size));
     setsockopt(socket_fd, SOL_SOCKET, SO_RCVBUF, &buffer_size, sizeof(buffer_size));
 
-    // Enable TCP keepalive
+    // TCP keepalive 활성화
     flag = 1;
     setsockopt(socket_fd, SOL_SOCKET, SO_KEEPALIVE, &flag, sizeof(flag));
 
-    // Set keepalive parameters (Linux)
-    int keepalive_time = 60;      // 60 seconds
-    int keepalive_interval = 10;   // 10 seconds
-    int keepalive_probes = 3;      // 3 probes
+    // keepalive 매개변수 설정 (Linux)
+    int keepalive_time = 60;      // 60초
+    int keepalive_interval = 10;   // 10초
+    int keepalive_probes = 3;      // 3회 프로브
 
     setsockopt(socket_fd, IPPROTO_TCP, TCP_KEEPIDLE, &keepalive_time, sizeof(keepalive_time));
     setsockopt(socket_fd, IPPROTO_TCP, TCP_KEEPINTVL, &keepalive_interval, sizeof(keepalive_interval));
@@ -1153,16 +1153,16 @@ void OptimizeTCPSocket(int socket_fd) {
 }
 ```
 
-## Real-world Implementations
+## 실제 구현 사례
 
-### Nginx Architecture
+### Nginx 아키텍처
 
 ```
-Nginx Process Model
+Nginx 프로세스 모델
 ┌──────────────────────────────────┐
 │       Master Process             │
-│  • Configuration                 │
-│  • Worker management             │
+│  • 설정 관리                      │
+│  • 워커 관리                      │
 └────────┬─────────────────────────┘
          │
     ┌────┴─────┬──────┬──────┐
@@ -1176,68 +1176,68 @@ Nginx Process Model
 │   conn │ │   conn │     │   conn │
 └────────┘ └────────┘     └────────┘
 
-Each worker: Single-threaded event loop
-Connections: Distributed via SO_REUSEPORT
+각 워커: 단일 thread event loop
+연결 분배: SO_REUSEPORT 사용
 ```
 
-### Redis Architecture
+### Redis 아키텍처
 
 ```
 Redis Event Loop
 ┌──────────────────────────────────┐
-│    Single-threaded Event Loop    │
+│    단일 thread Event Loop        │
 ├──────────────────────────────────┤
 │  ┌────────────────────────────┐  │
-│  │     File Event Handler     │  │
-│  │  (Client connections)      │  │
+│  │   File Event Handler      │  │
+│  │  (클라이언트 연결)          │  │
 │  └────────────────────────────┘  │
 │  ┌────────────────────────────┐  │
-│  │     Time Event Handler     │  │
-│  │  (Periodic tasks)          │  │
+│  │   Time Event Handler      │  │
+│  │  (주기적 작업)              │  │
 │  └────────────────────────────┘  │
 │  ┌────────────────────────────┐  │
-│  │    Command Processing      │  │
-│  │  (In-memory operations)    │  │
+│  │    명령 처리                │  │
+│  │  (인메모리 연산)            │  │
 │  └────────────────────────────┘  │
 └──────────────────────────────────┘
 
-Pros: Simple, no locks, fast
-Cons: Single core only
+장점: 단순함, 락 없음, 빠름
+단점: 단일 코어만 사용
 ```
 
 ### Node.js (libuv)
 
 ```
-libuv Architecture
+libuv 아키텍처
 ┌────────────────────────────────────┐
 │         Event Loop Thread          │
 │  ┌──────────────────────────────┐  │
-│  │  1. Timers                   │  │
-│  │  2. Pending callbacks        │  │
-│  │  3. Idle, prepare            │  │
-│  │  4. Poll (I/O)               │  │
-│  │  5. Check                    │  │
-│  │  6. Close callbacks          │  │
+│  │  1. 타이머                    │  │
+│  │  2. 대기 중인 콜백            │  │
+│  │  3. Idle, prepare             │  │
+│  │  4. Poll (I/O)                │  │
+│  │  5. Check                     │  │
+│  │  6. Close 콜백                │  │
 │  └──────────────────────────────┘  │
 └────────────────────────────────────┘
          │
          ▼
 ┌────────────────────────────────────┐
 │       Thread Pool (4 threads)      │
-│  • File I/O                        │
-│  • DNS lookups                     │
-│  • CPU-intensive tasks             │
+│  • 파일 I/O                        │
+│  • DNS 조회                        │
+│  • CPU 집약적 작업                  │
 └────────────────────────────────────┘
 
-JavaScript: Single-threaded
-I/O & blocking tasks: Thread pool
+JavaScript: 단일 thread
+I/O 및 블로킹 작업: Thread pool
 ```
 
-## Conclusion
+## 결론
 
-Efficient network I/O is critical for game server performance. Modern servers use asynchronous I/O (epoll, IOCP, kqueue) to handle thousands of concurrent connections with minimal threads. The choice of threading strategy depends on game requirements: single-threaded event loops work for simple servers, while complex MMOs benefit from multiple I/O threads and game thread pools. Protocol design, TCP tuning, and zero-copy techniques further optimize performance.
+효율적인 네트워크 I/O는 게임 서버 성능에 매우 중요합니다. 현대 서버는 비동기 I/O (epoll, IOCP, kqueue)를 사용하여 최소한의 thread로 수천 개의 동시 연결을 처리합니다. Threading 전략의 선택은 게임 요구사항에 따라 달라집니다: 단일 thread event loop은 간단한 서버에 적합하고, 복잡한 MMO는 다중 I/O thread와 game thread pool의 이점을 누릴 수 있습니다. 프로토콜 설계, TCP 튜닝, 그리고 zero-copy 기법은 성능을 더욱 최적화합니다.
 
-## Further Reading
+## 추가 읽을거리
 
 - [The C10K Problem](http://www.kegel.com/c10k.html)
 - [epoll vs IOCP](https://github.com/spotify/netty-zmtp/blob/master/doc/epoll-iocp.md)
