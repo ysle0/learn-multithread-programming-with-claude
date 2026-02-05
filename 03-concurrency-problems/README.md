@@ -1,62 +1,62 @@
-# Concurrency Problems
+# 동시성 문제
 
-## Overview
+## 개요
 
-Concurrent programming introduces a class of problems that don't exist in sequential programming. These problems arise from the non-deterministic interleaving of thread execution and shared resource access. Understanding these problems is crucial for writing correct and efficient multi-threaded programs.
+동시성 프로그래밍은 순차적 프로그래밍에서는 존재하지 않는 부류의 문제를 야기합니다. 이러한 문제들은 thread 실행의 비결정적 인터리빙과 공유 자원 접근에서 발생합니다. 올바르고 효율적인 멀티스레드 프로그램을 작성하려면 이러한 문제들을 이해하는 것이 매우 중요합니다.
 
-## The Five Major Concurrency Problems
+## 다섯 가지 주요 동시성 문제
 
 ### 1. Race Condition
-When multiple threads access shared data concurrently, and at least one modifies it, without proper synchronization.
+여러 thread가 공유 데이터에 동시에 접근하고, 그 중 하나 이상이 데이터를 수정하면서 적절한 동기화가 이루어지지 않을 때 발생합니다.
 
-**Key Characteristics:**
-- Non-deterministic behavior
-- Results depend on timing
-- Difficult to reproduce
+**주요 특징:**
+- 비결정적 동작
+- 결과가 타이밍에 의존
+- 재현이 어려움
 
-**Learn More:** [01-race-condition.md](./01-race-condition.md)
+**자세히 알아보기:** [01-race-condition.md](./01-race-condition.md)
 
 ### 2. Deadlock
-When two or more threads are permanently blocked, each waiting for resources held by others.
+두 개 이상의 thread가 서로가 보유한 자원을 기다리면서 영구적으로 차단되는 상태입니다.
 
-**Key Characteristics:**
-- Complete standstill
-- Circular dependency
-- Requires intervention to resolve
+**주요 특징:**
+- 완전한 정지 상태
+- 순환 의존성
+- 해결하려면 외부 개입이 필요
 
-**Learn More:** [02-deadlock.md](./02-deadlock.md)
+**자세히 알아보기:** [02-deadlock.md](./02-deadlock.md)
 
 ### 3. Livelock
-When threads continuously change state in response to each other without making progress.
+thread들이 서로에 대한 응답으로 지속적으로 상태를 변경하지만 실질적인 진행이 이루어지지 않는 상태입니다.
 
-**Key Characteristics:**
-- Threads remain active but unproductive
-- No forward progress
-- Resource intensive
+**주요 특징:**
+- thread가 활성 상태이지만 비생산적
+- 전진이 없음
+- 자원을 많이 소비
 
-**Learn More:** [03-livelock.md](./03-livelock.md)
+**자세히 알아보기:** [03-livelock.md](./03-livelock.md)
 
 ### 4. Starvation
-When a thread is perpetually denied access to resources it needs.
+thread가 필요한 자원에 대한 접근을 영구적으로 거부당하는 상태입니다.
 
-**Key Characteristics:**
-- Unfair scheduling
-- Some threads make progress, others don't
-- Can lead to performance degradation
+**주요 특징:**
+- 불공정한 스케줄링
+- 일부 thread는 진행되지만 다른 thread는 진행되지 않음
+- 성능 저하를 유발할 수 있음
 
-**Learn More:** [04-starvation.md](./04-starvation.md)
+**자세히 알아보기:** [04-starvation.md](./04-starvation.md)
 
 ### 5. Priority Inversion
-When a high-priority thread is blocked waiting for a low-priority thread to release a resource.
+높은 우선순위의 thread가 낮은 우선순위의 thread가 자원을 해제하기를 기다리며 차단되는 상태입니다.
 
-**Key Characteristics:**
-- Violates priority semantics
-- Can cause critical failures
-- Requires priority inheritance to fix
+**주요 특징:**
+- 우선순위 의미를 위반
+- 치명적인 장애를 유발할 수 있음
+- 해결하려면 priority inheritance가 필요
 
-**Learn More:** [05-priority-inversion.md](./05-priority-inversion.md)
+**자세히 알아보기:** [05-priority-inversion.md](./05-priority-inversion.md)
 
-## Problem Comparison Matrix
+## 문제 비교 매트릭스
 
 ```
 ┌─────────────────────┬──────────────┬────────────┬─────────────┬──────────────┐
@@ -71,31 +71,31 @@ When a high-priority thread is blocked waiting for a low-priority thread to rele
 └─────────────────────┴──────────────┴────────────┴─────────────┴──────────────┘
 ```
 
-## General Prevention Strategies
+## 일반적인 예방 전략
 
-### 1. Minimize Shared State
-- Prefer message passing over shared memory
-- Use thread-local storage
-- Design for immutability
+### 1. 공유 상태 최소화
+- 공유 메모리보다 메시지 전달을 선호
+- thread-local storage 사용
+- 불변성을 고려한 설계
 
-### 2. Use Proper Synchronization
-- Locks, mutexes, semaphores
-- Atomic operations
-- Memory barriers
+### 2. 적절한 동기화 사용
+- Lock, mutex, semaphore
+- Atomic 연산
+- Memory barrier
 
-### 3. Follow Best Practices
-- Lock ordering conventions
-- Timeout mechanisms
-- Fair scheduling policies
+### 3. 모범 사례 따르기
+- Lock 순서 규약
+- Timeout 메커니즘
+- 공정한 스케줄링 정책
 
-### 4. Testing and Validation
-- Stress testing
-- Race detection tools (ThreadSanitizer, Helgrind)
-- Formal verification methods
+### 4. 테스트 및 검증
+- 스트레스 테스트
+- Race 탐지 도구 (ThreadSanitizer, Helgrind)
+- 형식 검증 방법
 
-## Common Patterns That Lead to Problems
+## 문제를 야기하는 일반적인 패턴
 
-### Pattern 1: Check-Then-Act
+### 패턴 1: Check-Then-Act
 ```c
 // WRONG: Race condition
 if (resource->available) {
@@ -111,7 +111,7 @@ if (resource->available) {
 unlock(mutex);
 ```
 
-### Pattern 2: Multiple Lock Acquisition
+### 패턴 2: 다중 Lock 획득
 ```c
 // WRONG: Potential deadlock
 lock(mutex_a);
@@ -122,7 +122,7 @@ lock(min(mutex_a, mutex_b));
 lock(max(mutex_a, mutex_b));
 ```
 
-### Pattern 3: Lock + Wait
+### 패턴 3: Lock + Wait
 ```c
 // WRONG: Can cause deadlock
 lock(mutex);
@@ -134,50 +134,50 @@ unlock(mutex);
 wait_for_event();
 ```
 
-## Tools for Detection
+## 탐지 도구
 
-### Static Analysis
-- **Clang Thread Safety Analysis**: Compile-time detection
-- **Coverity**: Commercial static analyzer
-- **Infer**: Facebook's static analyzer
+### 정적 분석
+- **Clang Thread Safety Analysis**: 컴파일 시점 탐지
+- **Coverity**: 상용 정적 분석기
+- **Infer**: Facebook의 정적 분석기
 
-### Dynamic Analysis
-- **ThreadSanitizer (TSan)**: Race condition detector
-- **Helgrind**: Valgrind's thread error detector
-- **DRD**: Data race detector
+### 동적 분석
+- **ThreadSanitizer (TSan)**: Race condition 탐지기
+- **Helgrind**: Valgrind의 thread 오류 탐지기
+- **DRD**: Data race 탐지기
 
-### Profiling Tools
-- **perf**: Linux performance profiler
-- **VTune**: Intel's performance profiler
-- **gprof**: GNU profiler
+### 프로파일링 도구
+- **perf**: Linux 성능 프로파일러
+- **VTune**: Intel의 성능 프로파일러
+- **gprof**: GNU 프로파일러
 
-## Real-World Impact
+## 실제 사례의 영향
 
-### Famous Incidents
+### 유명한 사고들
 
 1. **Therac-25 (1985-1987)**
-   - Race condition in radiation therapy machine
-   - Result: Lethal radiation overdoses
-   - Cause: Concurrent access to shared state
+   - 방사선 치료 기기의 race condition
+   - 결과: 치명적인 방사선 과다 노출
+   - 원인: 공유 상태에 대한 동시 접근
 
-2. **Northeast Blackout (2003)**
-   - Race condition in alarm system
-   - Result: 50 million people without power
-   - Cause: Unprotected shared data structure
+2. **미국 북동부 대정전 (2003)**
+   - 경보 시스템의 race condition
+   - 결과: 5천만 명이 전력 공급을 받지 못함
+   - 원인: 보호되지 않은 공유 데이터 구조
 
 3. **Mars Pathfinder (1997)**
-   - Priority inversion problem
-   - Result: System resets on Mars
-   - Cause: Low-priority thread blocking high-priority thread
+   - Priority inversion 문제
+   - 결과: 화성에서 시스템 리셋 발생
+   - 원인: 낮은 우선순위의 thread가 높은 우선순위의 thread를 차단
 
 4. **Knight Capital (2012)**
-   - Race condition in trading software
-   - Result: $440 million loss in 45 minutes
-   - Cause: Concurrent modification of order state
+   - 거래 소프트웨어의 race condition
+   - 결과: 45분 만에 4억 4천만 달러 손실
+   - 원인: 주문 상태의 동시 수정
 
-## Testing Strategies
+## 테스트 전략
 
-### 1. Stress Testing
+### 1. 스트레스 테스트
 ```bash
 # Run with maximum threads
 ./program --threads=1000 --iterations=10000000
@@ -186,7 +186,7 @@ wait_for_event();
 stress --cpu 8 --timeout 60s & ./program
 ```
 
-### 2. Race Detection
+### 2. Race 탐지
 ```bash
 # Compile with ThreadSanitizer
 gcc -fsanitize=thread -g program.c -o program
@@ -195,7 +195,7 @@ gcc -fsanitize=thread -g program.c -o program
 valgrind --tool=helgrind ./program
 ```
 
-### 3. Deterministic Testing
+### 3. 결정적 테스트
 ```c
 // Use barriers to force specific interleavings
 pthread_barrier_t barrier;
@@ -210,46 +210,46 @@ pthread_barrier_wait(&barrier);  // Sync point
 critical_section_2();
 ```
 
-## Learning Path
+## 학습 경로
 
-1. **Start Here**: Understand race conditions thoroughly
-2. **Build Foundation**: Learn about deadlocks and prevention
-3. **Advanced Topics**: Study livelock and starvation
-4. **Real-Time Systems**: Master priority inversion
+1. **여기서 시작**: Race condition을 철저히 이해하기
+2. **기초 다지기**: Deadlock과 예방법 학습
+3. **심화 주제**: Livelock과 starvation 연구
+4. **실시간 시스템**: Priority inversion 마스터하기
 
-## Exercises
+## 연습 문제
 
-Each section contains practical exercises. Work through them in order:
+각 섹션에는 실습 연습 문제가 포함되어 있습니다. 순서대로 진행하세요:
 
-1. **Race Condition**: Implement a thread-safe counter
-2. **Deadlock**: Fix the dining philosophers problem
-3. **Livelock**: Resolve the hallway problem
-4. **Starvation**: Implement fair reader-writer locks
-5. **Priority Inversion**: Simulate priority inheritance
+1. **Race Condition**: thread-safe 카운터 구현
+2. **Deadlock**: 식사하는 철학자 문제 해결
+3. **Livelock**: 복도 문제 해결
+4. **Starvation**: 공정한 reader-writer lock 구현
+5. **Priority Inversion**: Priority inheritance 시뮬레이션
 
-## Additional Resources
+## 추가 자료
 
-### Books
+### 도서
 - "The Art of Multiprocessor Programming" by Herlihy & Shavit
 - "Java Concurrency in Practice" by Goetz et al.
 - "Programming with POSIX Threads" by Butenhof
 
-### Papers
+### 논문
 - "Dining Philosophers Problem" - Dijkstra (1965)
 - "Monitors: An Operating System Structuring Concept" - Hoare (1974)
 - "Priority Inheritance Protocols" - Sha, Rajkumar, Lehoczky (1990)
 
-### Online Resources
+### 온라인 자료
 - POSIX Threads Programming (LLNL Tutorial)
 - MIT 6.826: Principles of Computer Systems
 - CMU 15-410: Operating System Design
 
-## Next Steps
+## 다음 단계
 
-After completing this section, you should:
-1. Understand all five major concurrency problems
-2. Be able to identify them in code
-3. Know prevention and detection strategies
-4. Have practical experience fixing these issues
+이 섹션을 완료한 후에는 다음을 할 수 있어야 합니다:
+1. 다섯 가지 주요 동시성 문제를 모두 이해
+2. 코드에서 이러한 문제를 식별할 수 있음
+3. 예방 및 탐지 전략을 숙지
+4. 이러한 문제를 해결하는 실무 경험 보유
 
-Continue to: **04-synchronization-primitives/** to learn the tools for solving these problems.
+계속 진행: **04-synchronization-primitives/** 에서 이러한 문제를 해결하기 위한 도구를 학습합니다.

@@ -1,44 +1,44 @@
 # Concurrency Patterns
 
-## Overview
+## 개요
 
-Concurrency patterns are proven solutions to common problems encountered when designing concurrent and parallel systems. These patterns help developers write safer, more efficient, and more maintainable multithreaded code by providing well-tested approaches to coordination, communication, and resource management.
+Concurrency pattern은 concurrent 및 parallel 시스템을 설계할 때 흔히 마주치는 문제들에 대한 검증된 해결책입니다. 이러한 pattern은 조율, 통신, 자원 관리에 대해 충분히 검증된 접근 방식을 제공하여, 개발자가 더 안전하고 효율적이며 유지보수하기 쉬운 multithread 코드를 작성할 수 있도록 도와줍니다.
 
-## Why Concurrency Patterns Matter
+## Concurrency Pattern이 중요한 이유
 
-- **Reusability**: Proven solutions that work across different applications
-- **Communication**: Common vocabulary for discussing concurrent designs
-- **Efficiency**: Optimized approaches to common concurrency challenges
-- **Safety**: Patterns that help avoid race conditions, deadlocks, and other concurrency bugs
-- **Scalability**: Designs that scale effectively with increasing parallelism
+- **재사용성**: 다양한 애플리케이션에서 활용 가능한 검증된 해결책
+- **의사소통**: concurrent 설계를 논의하기 위한 공통 용어
+- **효율성**: 일반적인 concurrency 문제에 대한 최적화된 접근 방식
+- **안전성**: race condition, deadlock 및 기타 concurrency 버그를 방지하는 데 도움이 되는 pattern
+- **확장성**: 병렬 처리가 증가해도 효과적으로 확장되는 설계
 
-## Pattern Categories
+## Pattern 분류
 
-### 1. Communication Patterns
-Patterns focused on how threads communicate and exchange data:
-- **Producer-Consumer**: Decoupling producers of data from consumers
-- **Pipeline**: Processing data through multiple sequential stages
-- **Actor Model**: Message-passing between independent actors
+### 1. 통신 Pattern
+thread 간 통신과 데이터 교환 방식에 중점을 둔 pattern:
+- **Producer-Consumer**: 데이터 생산자와 소비자의 분리
+- **Pipeline**: 여러 순차적 단계를 통한 데이터 처리
+- **Actor Model**: 독립적인 actor 간의 message passing
 
-### 2. Resource Management Patterns
-Patterns for managing shared resources:
-- **Reader-Writer**: Optimizing concurrent read/write access
-- **Thread Pool**: Reusing threads to execute tasks efficiently
+### 2. 자원 관리 Pattern
+공유 자원을 관리하기 위한 pattern:
+- **Reader-Writer**: concurrent read/write 접근 최적화
+- **Thread Pool**: thread를 재사용하여 효율적으로 작업 실행
 
-### 3. Coordination Patterns
-Patterns for coordinating work across threads:
-- **Future/Promise**: Representing eventual results of asynchronous operations
-- **Fan-Out/Fan-In**: Distributing work and collecting results
+### 3. 조율 Pattern
+thread 간 작업을 조율하기 위한 pattern:
+- **Future/Promise**: 비동기 연산의 최종 결과를 표현
+- **Fan-Out/Fan-In**: 작업 분배 및 결과 수집
 
-## Patterns Covered
+## 다루는 Pattern
 
 ### 01. Producer-Consumer Pattern
 ```
 [Producers] --> [Shared Queue] --> [Consumers]
 ```
-**Use When**: You need to decouple data production from consumption, handle varying rates of production/consumption, or implement work queues.
+**사용 시점**: 데이터 생산과 소비를 분리해야 하거나, 생산/소비 속도가 다를 때, 또는 작업 큐를 구현해야 할 때 사용합니다.
 
-**Key Concepts**: Bounded buffers, blocking operations, backpressure
+**핵심 개념**: bounded buffer, blocking 연산, backpressure
 
 ### 02. Reader-Writer Pattern
 ```
@@ -46,41 +46,41 @@ Multiple Readers (concurrent)
      OR
 Single Writer (exclusive)
 ```
-**Use When**: Read operations vastly outnumber writes, or you need to optimize read throughput while ensuring write safety.
+**사용 시점**: read 연산이 write보다 훨씬 많거나, write 안전성을 보장하면서 read 처리량을 최적화해야 할 때 사용합니다.
 
-**Key Concepts**: Shared/exclusive locks, read bias vs write bias, fairness
+**핵심 개념**: shared/exclusive lock, read 편향 vs write 편향, 공정성
 
 ### 03. Thread Pool Pattern
 ```
 [Tasks] --> [Task Queue] --> [Worker Threads]
 ```
-**Use When**: Creating threads is expensive, you have many short-lived tasks, or you need to limit concurrent execution.
+**사용 시점**: thread 생성 비용이 클 때, 짧은 수명의 작업이 많을 때, 또는 동시 실행을 제한해야 할 때 사용합니다.
 
-**Key Concepts**: Work stealing, task scheduling, thread lifecycle management
+**핵심 개념**: work stealing, task scheduling, thread 수명 주기 관리
 
 ### 04. Actor Model
 ```
 [Actor A] <--messages--> [Actor B] <--messages--> [Actor C]
 ```
-**Use When**: You want to eliminate shared state, need location transparency, or are building distributed systems.
+**사용 시점**: 공유 상태를 제거하고자 할 때, 위치 투명성이 필요할 때, 또는 분산 시스템을 구축할 때 사용합니다.
 
-**Key Concepts**: Message passing, actor isolation, mailboxes
+**핵심 개념**: message passing, actor 격리, mailbox
 
 ### 05. Future/Promise Pattern
 ```
 Promise (Writer) --> Shared State <-- Future (Reader)
 ```
-**Use When**: You need to represent values computed asynchronously, chain operations, or handle async errors.
+**사용 시점**: 비동기적으로 계산되는 값을 표현해야 하거나, 연산을 연결하거나, 비동기 오류를 처리해야 할 때 사용합니다.
 
-**Key Concepts**: Deferred computation, continuation passing, async/await
+**핵심 개념**: 지연 연산, continuation passing, async/await
 
 ### 06. Pipeline Pattern
 ```
 [Stage 1] --> [Stage 2] --> [Stage 3] --> [Output]
 ```
-**Use When**: Processing can be divided into sequential stages, each stage can run concurrently, or you need stream processing.
+**사용 시점**: 처리를 순차적 단계로 나눌 수 있을 때, 각 단계가 동시에 실행될 수 있을 때, 또는 stream 처리가 필요할 때 사용합니다.
 
-**Key Concepts**: Stage parallelism, buffering between stages, backpressure
+**핵심 개념**: stage 병렬 처리, stage 간 buffering, backpressure
 
 ### 07. Fan-Out/Fan-In Pattern
 ```
@@ -88,136 +88,136 @@ Promise (Writer) --> Shared State <-- Future (Reader)
 [Input] --> --> [Worker 2] --> --> [Aggregator]
            --> [Worker 3] --
 ```
-**Use When**: A task can be split into independent subtasks, you need to aggregate results from parallel operations.
+**사용 시점**: 작업을 독립적인 하위 작업으로 분할할 수 있을 때, 병렬 연산의 결과를 집계해야 할 때 사용합니다.
 
-**Key Concepts**: Work distribution, result aggregation, synchronization
+**핵심 개념**: 작업 분배, 결과 집계, synchronization
 
-## Pattern Selection Guide
+## Pattern 선택 가이드
 
-### Choose Producer-Consumer When:
-- Data production and consumption rates differ
-- You need buffering between components
-- Decoupling producers and consumers improves design
+### Producer-Consumer를 선택해야 할 때:
+- 데이터 생산 속도와 소비 속도가 다를 때
+- 컴포넌트 간 buffering이 필요할 때
+- producer와 consumer를 분리하면 설계가 개선될 때
 
-### Choose Reader-Writer When:
-- Reads vastly outnumber writes (>90% reads)
-- Read operations can safely occur concurrently
-- Write operations need exclusive access
+### Reader-Writer를 선택해야 할 때:
+- read가 write보다 압도적으로 많을 때 (90% 이상이 read)
+- read 연산이 안전하게 동시에 수행될 수 있을 때
+- write 연산에 exclusive 접근이 필요할 때
 
-### Choose Thread Pool When:
-- You have many short-duration tasks
-- Thread creation overhead is significant
-- You need to limit resource usage
+### Thread Pool을 선택해야 할 때:
+- 짧은 시간 동안 수행되는 작업이 많을 때
+- thread 생성 오버헤드가 클 때
+- 자원 사용량을 제한해야 할 때
 
-### Choose Actor Model When:
-- You can design around message passing
-- Each component can be isolated
-- You might need distribution/location transparency
+### Actor Model을 선택해야 할 때:
+- message passing 기반으로 설계할 수 있을 때
+- 각 컴포넌트를 격리할 수 있을 때
+- 분산 처리/위치 투명성이 필요할 수 있을 때
 
-### Choose Future/Promise When:
-- Operations complete asynchronously
-- You need to compose async operations
-- Error handling must propagate through async calls
+### Future/Promise를 선택해야 할 때:
+- 연산이 비동기적으로 완료될 때
+- 비동기 연산을 조합해야 할 때
+- 오류 처리가 비동기 호출을 통해 전파되어야 할 때
 
-### Choose Pipeline When:
-- Processing consists of distinct stages
-- Stages can process different items simultaneously
-- Data flows in one direction
+### Pipeline을 선택해야 할 때:
+- 처리가 별개의 단계로 구성될 때
+- 각 단계가 서로 다른 항목을 동시에 처리할 수 있을 때
+- 데이터가 한 방향으로 흐를 때
 
-### Choose Fan-Out/Fan-In When:
-- Work can be partitioned into independent chunks
-- Results need to be aggregated
-- You want to exploit data parallelism
+### Fan-Out/Fan-In을 선택해야 할 때:
+- 작업을 독립적인 청크로 분할할 수 있을 때
+- 결과를 집계해야 할 때
+- 데이터 병렬 처리를 활용하고자 할 때
 
-## Combining Patterns
+## Pattern 조합
 
-Patterns can be combined for more complex scenarios:
+더 복잡한 시나리오를 위해 pattern을 조합할 수 있습니다:
 
-- **Thread Pool + Producer-Consumer**: Workers in a thread pool consume tasks from a queue
-- **Pipeline + Fan-Out/Fan-In**: Individual pipeline stages can fan-out for parallel processing
-- **Actor Model + Future/Promise**: Actors return futures for asynchronous request-response
-- **Thread Pool + Future/Promise**: Thread pool executes tasks that set promise values
+- **Thread Pool + Producer-Consumer**: thread pool의 worker가 큐에서 작업을 소비
+- **Pipeline + Fan-Out/Fan-In**: 개별 pipeline 단계에서 병렬 처리를 위해 fan-out 수행
+- **Actor Model + Future/Promise**: actor가 비동기 요청-응답을 위해 future를 반환
+- **Thread Pool + Future/Promise**: thread pool이 promise 값을 설정하는 작업을 실행
 
-## Common Anti-Patterns to Avoid
+## 피해야 할 일반적인 Anti-Pattern
 
-### 1. Over-Synchronization
-Using more synchronization than necessary, leading to sequential execution.
+### 1. 과도한 동기화 (Over-Synchronization)
+필요 이상의 synchronization을 사용하여 순차 실행이 되어버리는 현상.
 
-### 2. Under-Synchronization
-Insufficient synchronization leading to race conditions.
+### 2. 불충분한 동기화 (Under-Synchronization)
+synchronization이 불충분하여 race condition이 발생하는 현상.
 
 ### 3. Lock Convoy
-Threads queueing up on a lock, reducing parallelism.
+thread가 lock에 대기열을 형성하여 병렬 처리가 감소하는 현상.
 
 ### 4. Priority Inversion
-High-priority threads waiting for low-priority threads.
+높은 우선순위의 thread가 낮은 우선순위의 thread를 기다리는 현상.
 
 ### 5. Thread Exhaustion
-Creating unbounded numbers of threads.
+thread를 무제한으로 생성하는 현상.
 
-## Performance Considerations
+## 성능 고려사항
 
-### Granularity
-- **Too Coarse**: Limited parallelism, underutilized cores
-- **Too Fine**: Synchronization overhead dominates useful work
-- **Just Right**: Balance between parallelism and overhead
+### 세분화 수준 (Granularity)
+- **너무 거친 경우**: 제한된 병렬 처리, 코어 활용 부족
+- **너무 미세한 경우**: synchronization 오버헤드가 유용한 작업을 압도
+- **적절한 경우**: 병렬 처리와 오버헤드 간의 균형
 
-### Contention
-- **High Contention**: Many threads competing for same resource
-- **Solutions**: Reduce critical section size, use lock-free structures, partition data
+### 경합 (Contention)
+- **높은 경합**: 많은 thread가 동일한 자원을 두고 경쟁
+- **해결 방법**: critical section 크기 줄이기, lock-free 구조 사용, 데이터 분할
 
-### Cache Effects
-- **False Sharing**: Different threads accessing different data on same cache line
-- **Solutions**: Padding, alignment, data structure design
+### 캐시 효과 (Cache Effects)
+- **False Sharing**: 서로 다른 thread가 같은 cache line에 있는 서로 다른 데이터에 접근
+- **해결 방법**: padding, alignment, 데이터 구조 설계
 
-## Testing Concurrent Patterns
+## Concurrent Pattern 테스트
 
-### Approaches:
-1. **Stress Testing**: Run with high thread counts and loads
-2. **Race Detection**: Use tools like ThreadSanitizer
-3. **Formal Verification**: Model checking for critical sections
-4. **Performance Testing**: Measure scalability with increasing cores
+### 접근 방법:
+1. **Stress Testing**: 높은 thread 수와 부하로 실행
+2. **Race Detection**: ThreadSanitizer와 같은 도구 활용
+3. **정형 검증 (Formal Verification)**: critical section에 대한 모델 검사
+4. **성능 테스트**: 코어 수 증가에 따른 확장성 측정
 
-### Common Issues:
-- Deadlocks
-- Livelocks
-- Race conditions
-- Memory ordering bugs
-- Resource leaks
+### 일반적인 문제:
+- Deadlock
+- Livelock
+- Race condition
+- Memory ordering 버그
+- 자원 누수
 
-## Further Reading
+## 추가 학습 자료
 
-### Books
-- "Java Concurrency in Practice" by Brian Goetz (principles apply to C++)
+### 도서
+- "Java Concurrency in Practice" by Brian Goetz (원리는 C++에도 적용 가능)
 - "Concurrency in C++" by Anthony Williams
 - "The Art of Multiprocessor Programming" by Herlihy & Shavit
 
-### Papers
+### 논문
 - "Communicating Sequential Processes" by C.A.R. Hoare
 - "Actors: A Model of Concurrent Computation" by Gul Agha
 
-### Standards
-- C++11/14/17/20 concurrency features
-- ISO/IEC 14882 (C++ Standard)
+### 표준
+- C++11/14/17/20 concurrency 기능
+- ISO/IEC 14882 (C++ 표준)
 
-## Pattern Implementation Notes
+## Pattern 구현 참고사항
 
-Each pattern in this section includes:
+이 섹션의 각 pattern에는 다음이 포함되어 있습니다:
 
-1. **Conceptual Overview**: What problem does it solve?
-2. **Architecture Diagrams**: Visual representation using ASCII art
-3. **C++ Implementation**: Complete working examples
-4. **Variants**: Common variations and alternatives
-5. **Performance Analysis**: When to use, scalability characteristics
-6. **Common Pitfalls**: What to watch out for
-7. **Real-World Examples**: Where this pattern is used in practice
+1. **개념 개요**: 어떤 문제를 해결하는가?
+2. **아키텍처 다이어그램**: ASCII art를 사용한 시각적 표현
+3. **C++ 구현**: 완전히 동작하는 예제
+4. **변형**: 일반적인 변형 및 대안
+5. **성능 분석**: 사용 시점, 확장성 특성
+6. **일반적인 함정**: 주의해야 할 사항
+7. **실제 사례**: 해당 pattern이 실제로 사용되는 곳
 
-## Next Steps
+## 다음 단계
 
-1. Start with **Producer-Consumer** - the most fundamental pattern
-2. Progress through **Reader-Writer** and **Thread Pool** for resource management
-3. Explore **Actor Model** for a different concurrency paradigm
-4. Learn **Future/Promise** for async programming
-5. Study **Pipeline** and **Fan-Out/Fan-In** for complex data processing
+1. 가장 기본적인 pattern인 **Producer-Consumer**부터 시작하세요
+2. 자원 관리를 위한 **Reader-Writer**와 **Thread Pool**로 진행하세요
+3. 다른 concurrency 패러다임인 **Actor Model**을 탐구하세요
+4. 비동기 프로그래밍을 위한 **Future/Promise**를 학습하세요
+5. 복잡한 데이터 처리를 위한 **Pipeline**과 **Fan-Out/Fan-In**을 학습하세요
 
-Each pattern builds on concepts from earlier sections (synchronization primitives, memory models, lock-free programming) and demonstrates how to combine these low-level tools into high-level designs.
+각 pattern은 이전 섹션(synchronization primitive, memory model, lock-free 프로그래밍)의 개념을 기반으로 하며, 이러한 저수준 도구를 고수준 설계로 결합하는 방법을 보여줍니다.
