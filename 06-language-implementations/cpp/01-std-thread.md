@@ -1,39 +1,39 @@
-# std::thread - C++ Threading Basics
+# std::thread - C++ 스레딩 기초
 
-`std::thread` is the fundamental building block for concurrent programming in C++. Introduced in C++11, it provides a portable, RAII-compliant wrapper around OS threads.
+`std::thread`는 C++에서 동시성 프로그래밍의 기본 구성 요소입니다. C++11에서 도입되었으며, OS 스레드에 대한 이식 가능한 RAII 호환 래퍼를 제공합니다.
 
-## Table of Contents
-- [Basic Concepts](#basic-concepts)
-- [Creating Threads](#creating-threads)
-- [Thread Lifecycle](#thread-lifecycle)
-- [Passing Arguments](#passing-arguments)
-- [Thread Management](#thread-management)
-- [Comparison with Other Languages](#comparison-with-other-languages)
-- [Best Practices](#best-practices)
-- [Common Pitfalls](#common-pitfalls)
+## 목차
+- [기본 개념](#기본-개념)
+- [스레드 생성](#스레드-생성)
+- [스레드 생명주기](#스레드-생명주기)
+- [인수 전달](#인수-전달)
+- [스레드 관리](#스레드-관리)
+- [다른 언어와의 비교](#다른-언어와의-비교)
+- [모범 사례](#모범-사례)
+- [일반적인 실수](#일반적인-실수)
 
-## Basic Concepts
+## 기본 개념
 
-### What is std::thread?
+### std::thread란?
 
-`std::thread` represents a single thread of execution. Each `std::thread` object:
-- Maps to one OS thread (1:1 model)
-- Has its own stack (typically ~2MB)
-- Executes independently
-- Must be either joined or detached before destruction
+`std::thread`는 단일 실행 스레드를 나타냅니다. 각 `std::thread` 객체는:
+- 하나의 OS 스레드에 매핑됩니다 (1:1 모델)
+- 자체 스택을 가집니다 (일반적으로 ~2MB)
+- 독립적으로 실행됩니다
+- 소멸 전에 반드시 join 또는 detach 되어야 합니다
 
-### Header and Namespace
+### 헤더와 네임스페이스
 ```cpp
 #include <thread>
 #include <iostream>
 
-// In namespace std
+// std 네임스페이스에 있음
 std::thread my_thread;
 ```
 
-## Creating Threads
+## 스레드 생성
 
-### Method 1: Function Pointer
+### 방법 1: 함수 포인터
 ```cpp
 #include <thread>
 #include <iostream>
@@ -44,12 +44,12 @@ void hello() {
 
 int main() {
     std::thread t(hello);
-    t.join();  // Wait for thread to finish
+    t.join();  // 스레드 완료까지 대기
     return 0;
 }
 ```
 
-### Method 2: Lambda Function
+### 방법 2: 람다 함수
 ```cpp
 #include <thread>
 #include <iostream>
@@ -63,7 +63,7 @@ int main() {
 }
 ```
 
-### Method 3: Function Object (Functor)
+### 방법 3: 함수 객체 (펑터)
 ```cpp
 #include <thread>
 #include <iostream>
@@ -77,13 +77,13 @@ public:
 
 int main() {
     Worker w;
-    std::thread t(w);  // Copies Worker object
+    std::thread t(w);  // Worker 객체 복사
     t.join();
     return 0;
 }
 ```
 
-### Method 4: Member Function
+### 방법 4: 멤버 함수
 ```cpp
 #include <thread>
 #include <iostream>
@@ -103,26 +103,26 @@ int main() {
 }
 ```
 
-## Thread Lifecycle
+## 스레드 생명주기
 
-### States of a Thread
+### 스레드의 상태
 
 ```cpp
 #include <thread>
 #include <iostream>
 
 int main() {
-    // 1. Created (not yet representing a thread)
+    // 1. 생성됨 (아직 스레드를 나타내지 않음)
     std::thread t;
     std::cout << "Joinable: " << t.joinable() << "\n";  // false
 
-    // 2. Running
+    // 2. 실행 중
     t = std::thread([] {
         std::cout << "Working...\n";
     });
     std::cout << "Joinable: " << t.joinable() << "\n";  // true
 
-    // 3. Joined (thread finished, object no longer represents a thread)
+    // 3. 조인됨 (스레드 종료, 객체가 더 이상 스레드를 나타내지 않음)
     t.join();
     std::cout << "Joinable: " << t.joinable() << "\n";  // false
 
@@ -130,9 +130,9 @@ int main() {
 }
 ```
 
-### Join vs. Detach
+### join vs. detach
 
-#### join(): Wait for Thread Completion
+#### join(): 스레드 완료 대기
 ```cpp
 #include <thread>
 #include <iostream>
@@ -146,13 +146,13 @@ void work() {
 int main() {
     std::thread t(work);
     std::cout << "Waiting for thread...\n";
-    t.join();  // Blocks until thread finishes
+    t.join();  // 스레드가 끝날 때까지 블로킹
     std::cout << "Thread joined\n";
     return 0;
 }
 ```
 
-#### detach(): Fire and Forget
+#### detach(): 실행 후 분리
 ```cpp
 #include <thread>
 #include <iostream>
@@ -165,16 +165,16 @@ void background_work() {
 
 int main() {
     std::thread t(background_work);
-    t.detach();  // Thread continues independently
+    t.detach();  // 스레드가 독립적으로 계속 실행
 
     std::cout << "Main thread continuing...\n";
     std::this_thread::sleep_for(std::chrono::seconds(3));
     return 0;
 }
-// Note: Detached threads may not complete if main exits early!
+// 주의: main이 먼저 종료되면 분리된 스레드가 완료되지 않을 수 있음!
 ```
 
-### RAII Thread Wrapper
+### RAII 스레드 래퍼
 ```cpp
 #include <thread>
 #include <iostream>
@@ -202,13 +202,13 @@ int main() {
     });
     ThreadGuard guard(t);
 
-    // Even if exception thrown, guard ensures thread is joined
+    // 예외가 발생해도 guard가 스레드의 join을 보장
     may_throw();
     return 0;
 }
 ```
 
-### C++20 jthread: RAII Thread
+### C++20 jthread: RAII 스레드
 ```cpp
 #include <thread>
 #include <iostream>
@@ -218,15 +218,15 @@ void work() {
 }
 
 int main() {
-    std::jthread t(work);  // Automatically joins on destruction
-    // No need to explicitly join!
+    std::jthread t(work);  // 소멸 시 자동으로 join
+    // 명시적으로 join할 필요 없음!
     return 0;
 }
 ```
 
-## Passing Arguments
+## 인수 전달
 
-### By Value
+### 값으로 전달
 ```cpp
 #include <thread>
 #include <iostream>
@@ -238,13 +238,13 @@ void print_string(std::string s) {
 
 int main() {
     std::string message = "Hello";
-    std::thread t(print_string, message);  // Copies message
+    std::thread t(print_string, message);  // message 복사
     t.join();
     return 0;
 }
 ```
 
-### By Reference (with std::ref)
+### 참조로 전달 (std::ref 사용)
 ```cpp
 #include <thread>
 #include <iostream>
@@ -256,14 +256,14 @@ void increment(int& n) {
 
 int main() {
     int value = 0;
-    std::thread t(increment, std::ref(value));  // Pass by reference
+    std::thread t(increment, std::ref(value));  // 참조로 전달
     t.join();
     std::cout << "Value: " << value << "\n";  // 1
     return 0;
 }
 ```
 
-### Move Semantics
+### 이동 의미론
 ```cpp
 #include <thread>
 #include <iostream>
@@ -275,14 +275,14 @@ void process(std::unique_ptr<int> ptr) {
 
 int main() {
     auto ptr = std::make_unique<int>(42);
-    std::thread t(process, std::move(ptr));  // Move ownership to thread
-    // ptr is now nullptr
+    std::thread t(process, std::move(ptr));  // 소유권을 스레드로 이동
+    // ptr은 이제 nullptr
     t.join();
     return 0;
 }
 ```
 
-### Multiple Arguments
+### 여러 인수
 ```cpp
 #include <thread>
 #include <iostream>
@@ -300,9 +300,9 @@ int main() {
 }
 ```
 
-## Thread Management
+## 스레드 관리
 
-### Getting Thread ID
+### 스레드 ID 얻기
 ```cpp
 #include <thread>
 #include <iostream>
@@ -325,7 +325,7 @@ int main() {
 }
 ```
 
-### Hardware Concurrency
+### 하드웨어 동시성
 ```cpp
 #include <thread>
 #include <iostream>
@@ -335,7 +335,7 @@ int main() {
     unsigned int cores = std::thread::hardware_concurrency();
     std::cout << "Number of cores: " << cores << "\n";
 
-    // Create one thread per core
+    // 코어당 하나의 스레드 생성
     std::vector<std::thread> threads;
     for (unsigned int i = 0; i < cores; ++i) {
         threads.emplace_back([i] {
@@ -350,7 +350,7 @@ int main() {
 }
 ```
 
-### Sleep and Yield
+### Sleep과 Yield
 ```cpp
 #include <thread>
 #include <iostream>
@@ -359,7 +359,7 @@ int main() {
 void busy_wait() {
     for (int i = 0; i < 5; ++i) {
         std::cout << "Busy " << i << "\n";
-        std::this_thread::yield();  // Give up time slice
+        std::this_thread::yield();  // 타임 슬라이스 양보
     }
 }
 
@@ -383,7 +383,7 @@ int main() {
 }
 ```
 
-### Moving Threads
+### 스레드 이동
 ```cpp
 #include <thread>
 #include <iostream>
@@ -399,10 +399,10 @@ int main() {
         std::cout << "Thread 1\n";
     });
 
-    std::thread t2 = std::move(t1);  // t1 no longer valid
-    // t1.join();  // ERROR: t1 doesn't represent a thread
+    std::thread t2 = std::move(t1);  // t1은 더 이상 유효하지 않음
+    // t1.join();  // 에러: t1은 스레드를 나타내지 않음
 
-    std::thread t3 = create_thread();  // Move from return value
+    std::thread t3 = create_thread();  // 반환값으로부터 이동
 
     t2.join();
     t3.join();
@@ -410,15 +410,15 @@ int main() {
 }
 ```
 
-## Comparison with Other Languages
+## 다른 언어와의 비교
 
 ### C++ vs. C#
 ```cpp
-// C++: Explicit join/detach required
+// C++: 명시적 join/detach 필요
 std::thread t(work);
 t.join();
 
-// C# equivalent:
+// C# 동등 코드:
 // Thread t = new Thread(Work);
 // t.Start();
 // t.Join();
@@ -426,47 +426,47 @@ t.join();
 
 ### C++ vs. Go
 ```cpp
-// C++: Heavy OS threads
+// C++: 무거운 OS 스레드
 std::thread t(work);
 t.join();
 
-// Go: Lightweight goroutines
+// Go: 경량 goroutine
 // go work()
-// (No explicit join needed, use sync.WaitGroup)
+// (명시적 join 불필요, sync.WaitGroup 사용)
 ```
 
 ### C++ vs. JavaScript
 ```cpp
-// C++: True threading
+// C++: 실제 스레딩
 std::thread t(work);
 t.join();
 
-// JavaScript: Workers (different paradigm)
+// JavaScript: Worker (다른 패러다임)
 // const worker = new Worker('worker.js');
 // worker.postMessage('data');
 ```
 
-## Best Practices
+## 모범 사례
 
-### 1. Always Join or Detach
+### 1. 항상 join 또는 detach 하기
 ```cpp
-// GOOD: Explicit join
+// 좋음: 명시적 join
 std::thread t(work);
 t.join();
 
-// GOOD: Explicit detach
+// 좋음: 명시적 detach
 std::thread t(work);
 t.detach();
 
-// GOOD: Use jthread (C++20)
-std::jthread t(work);  // Automatically joins
+// 좋음: jthread (C++20) 사용
+std::jthread t(work);  // 자동으로 join
 
-// BAD: Neither join nor detach
+// 나쁨: join도 detach도 안 함
 std::thread t(work);
-// Destructor will call std::terminate!
+// 소멸자가 std::terminate를 호출함!
 ```
 
-### 2. Use RAII for Exception Safety
+### 2. 예외 안전을 위한 RAII 사용
 ```cpp
 class ScopedThread {
     std::thread t;
@@ -481,26 +481,26 @@ public:
 };
 ```
 
-### 3. Prefer Task-Based Over Thread-Based
+### 3. 스레드 기반보다 태스크 기반 선호
 ```cpp
-// GOOD: Task-based (easier, handles errors better)
+// 좋음: 태스크 기반 (더 쉽고, 에러 처리가 더 좋음)
 auto future = std::async(std::launch::async, work);
 future.get();
 
-// OK: Thread-based (when you need fine control)
+// 괜찮음: 스레드 기반 (세밀한 제어가 필요할 때)
 std::thread t(work);
 t.join();
 ```
 
-### 4. Limit Number of Threads
+### 4. 스레드 수 제한
 ```cpp
-// BAD: Too many threads
+// 나쁨: 스레드가 너무 많음
 for (int i = 0; i < 10000; ++i) {
     std::thread t(work);
     t.detach();
 }
 
-// GOOD: Thread pool with limited size
+// 좋음: 제한된 크기의 스레드 풀
 const unsigned int num_threads = std::thread::hardware_concurrency();
 std::vector<std::thread> pool;
 pool.reserve(num_threads);
@@ -509,9 +509,9 @@ for (unsigned int i = 0; i < num_threads; ++i) {
 }
 ```
 
-### 5. Be Careful with Thread-Local Storage
+### 5. Thread-Local Storage 사용 시 주의
 ```cpp
-thread_local int counter = 0;  // Each thread has its own copy
+thread_local int counter = 0;  // 각 스레드가 자체 복사본을 가짐
 
 void increment() {
     ++counter;
@@ -520,33 +520,33 @@ void increment() {
 }
 ```
 
-## Common Pitfalls
+## 일반적인 실수
 
-### 1. Forgetting to Join/Detach
+### 1. join/detach 잊기
 ```cpp
-// BAD: Will call std::terminate
+// 나쁨: std::terminate를 호출함
 void bad() {
     std::thread t(work);
-}  // Oops!
+}  // 이런!
 
-// GOOD
+// 좋음
 void good() {
     std::jthread t(work);
-}  // Automatically joins
+}  // 자동으로 join
 ```
 
-### 2. Accessing Destroyed Objects
+### 2. 파괴된 객체 접근
 ```cpp
-// BAD: Reference to destroyed local variable
+// 나쁨: 파괴된 지역 변수에 대한 참조
 void bad() {
     int value = 42;
     std::thread t([&] {
-        std::cout << value << "\n";  // Undefined behavior!
+        std::cout << value << "\n";  // 정의되지 않은 동작!
     });
     t.detach();
-}  // value destroyed, but thread still running
+}  // value 파괴됨, 하지만 스레드는 아직 실행 중
 
-// GOOD: Pass by value or ensure lifetime
+// 좋음: 값으로 전달하거나 수명 보장
 void good() {
     int value = 42;
     std::thread t([value] {
@@ -556,22 +556,22 @@ void good() {
 }
 ```
 
-### 3. Double Join
+### 3. 이중 join
 ```cpp
-// BAD: Can't join twice
+// 나쁨: 두 번 join할 수 없음
 std::thread t(work);
 t.join();
-t.join();  // Undefined behavior!
+t.join();  // 정의되지 않은 동작!
 
-// GOOD: Check joinable
+// 좋음: joinable 확인
 if (t.joinable()) {
     t.join();
 }
 ```
 
-### 4. Race Condition on cout
+### 4. cout에서의 경쟁 조건
 ```cpp
-// BAD: Interleaved output
+// 나쁨: 출력이 뒤섞임
 std::thread t1([] {
     std::cout << "Thread 1\n";
 });
@@ -579,7 +579,7 @@ std::thread t2([] {
     std::cout << "Thread 2\n";
 });
 
-// GOOD: Use mutex or sync
+// 좋음: mutex 또는 동기화 사용
 std::mutex cout_mutex;
 std::thread t1([&] {
     std::lock_guard lock(cout_mutex);
@@ -587,15 +587,15 @@ std::thread t1([&] {
 });
 ```
 
-### 5. Exception in Thread
+### 5. 스레드에서의 예외
 ```cpp
-// BAD: Exception terminates program
+// 나쁨: 예외가 프로그램을 종료시킴
 std::thread t([] {
-    throw std::runtime_error("Error!");  // Calls std::terminate!
+    throw std::runtime_error("Error!");  // std::terminate 호출!
 });
 t.join();
 
-// GOOD: Catch and handle
+// 좋음: 예외를 캐치하고 처리
 std::thread t([] {
     try {
         throw std::runtime_error("Error!");
@@ -606,9 +606,9 @@ std::thread t([] {
 t.join();
 ```
 
-## Internal Mechanisms
+## 내부 메커니즘
 
-### pthread/WinAPI Wrapper Structure
+### pthread/WinAPI 래퍼 구조
 
 `std::thread`는 플랫폼별 스레드 API의 얇은 래퍼입니다:
 
@@ -634,7 +634,7 @@ public:
 };
 ```
 
-### Thread Creation System Call Flow
+### 스레드 생성 시스템 콜 흐름
 
 ```
 std::thread 생성자
@@ -659,7 +659,7 @@ task_struct 할당
 TLS 영역 설정 (FS 레지스터)
 ```
 
-### Thread Stack Layout (Linux x86-64)
+### 스레드 스택 레이아웃 (Linux x86-64)
 
 ```
 High Address
@@ -690,7 +690,7 @@ High Address
 Low Address
 ```
 
-### join() Internal Implementation
+### join() 내부 구현
 
 ```cpp
 // pthread_join 내부 동작 (glibc)
@@ -732,7 +732,7 @@ int pthread_detach(pthread_t thread) {
 }
 ```
 
-### jthread Stop Token Mechanism (C++20)
+### jthread Stop Token 메커니즘 (C++20)
 
 ```cpp
 // std::jthread의 협력적 취소 메커니즘
@@ -775,7 +775,7 @@ struct __stop_state {
 };
 ```
 
-### Hardware Concurrency Detection
+### 하드웨어 동시성 감지
 
 ```cpp
 // std::thread::hardware_concurrency() 구현
@@ -797,28 +797,28 @@ unsigned int hardware_concurrency() noexcept {
 - 컨테이너/VM에서는 제한된 CPU가 아닌 호스트 CPU 수 반환할 수 있음
 - NUMA 시스템에서는 노드별 CPU 친화성 고려 필요
 
-## Performance Considerations
+## 성능 고려사항
 
-### Thread Creation Cost
-- **Time**: ~100 microseconds to create a thread
-- **Memory**: ~2MB stack space per thread
-- **Implication**: Don't create threads for trivial tasks
+### 스레드 생성 비용
+- **시간**: 스레드 생성에 ~100 마이크로초
+- **메모리**: 스레드당 ~2MB 스택 공간
+- **시사점**: 사소한 작업에 스레드를 생성하지 마세요
 
-### Context Switching
-- **Cost**: 1-10 microseconds per switch
-- **Impact**: More threads = more context switches
-- **Rule of Thumb**: Don't create more threads than CPU cores for CPU-bound tasks
+### 컨텍스트 스위칭
+- **비용**: 스위치당 1-10 마이크로초
+- **영향**: 스레드가 많을수록 컨텍스트 스위치가 더 많아짐
+- **경험 법칙**: CPU 바운드 작업에는 CPU 코어 수보다 많은 스레드를 생성하지 마세요
 
-### Optimal Thread Count
+### 최적 스레드 수
 ```cpp
-// For CPU-bound tasks
+// CPU 바운드 작업용
 unsigned int optimal = std::thread::hardware_concurrency();
 
-// For I/O-bound tasks (can be higher)
+// I/O 바운드 작업용 (더 많을 수 있음)
 unsigned int optimal = std::thread::hardware_concurrency() * 2;
 ```
 
-## Complete Example: Parallel Sum
+## 전체 예제: 병렬 합산
 ```cpp
 #include <thread>
 #include <vector>
@@ -842,7 +842,7 @@ int main() {
 
     size_t chunk_size = data_size / num_threads;
 
-    // Launch threads
+    // 스레드 시작
     for (unsigned int i = 0; i < num_threads; ++i) {
         size_t start = i * chunk_size;
         size_t end = (i == num_threads - 1) ? data_size
@@ -851,12 +851,12 @@ int main() {
                            start, end, std::ref(results[i]));
     }
 
-    // Join all threads
+    // 모든 스레드 join
     for (auto& t : threads) {
         t.join();
     }
 
-    // Combine results
+    // 결과 결합
     long long total = std::accumulate(results.begin(), results.end(), 0LL);
     std::cout << "Total sum: " << total << "\n";
 
@@ -864,13 +864,13 @@ int main() {
 }
 ```
 
-## Further Reading
+## 추가 읽기
 
 - [C++ Reference: std::thread](https://en.cppreference.com/w/cpp/thread/thread)
-- [Mutex and Lock Guard](./02-mutex-lock-guard.md)
-- [Async and Future](./05-async-future.md)
+- [Mutex와 Lock Guard](./02-mutex-lock-guard.md)
+- [Async와 Future](./05-async-future.md)
 
-## Navigation
+## 탐색
 
-- [Back to C++ Overview](./README.md)
-- Next: [Mutex and Lock Guard](./02-mutex-lock-guard.md)
+- [C++ 개요로 돌아가기](./README.md)
+- 다음: [Mutex와 Lock Guard](./02-mutex-lock-guard.md)

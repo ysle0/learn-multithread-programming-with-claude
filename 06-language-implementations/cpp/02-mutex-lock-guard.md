@@ -1,23 +1,23 @@
-# Mutex and Lock Guards in C++
+# C++의 Mutex와 Lock Guard
 
-Mutexes (mutual exclusion) are the fundamental synchronization primitive for protecting shared data from concurrent access. C++ provides RAII-based lock guards to ensure exception-safe locking.
+Mutex(상호 배제)는 공유 데이터를 동시 접근으로부터 보호하기 위한 기본 동기화 프리미티브입니다. C++는 예외 안전한 잠금을 보장하는 RAII 기반 lock guard를 제공합니다.
 
-## Table of Contents
-- [Basic Concepts](#basic-concepts)
+## 목차
+- [기본 개념](#기본-개념)
 - [std::mutex](#stdmutex)
-- [Lock Guards](#lock-guards)
+- [Lock Guard](#lock-guard)
 - [Unique Lock](#unique-lock)
 - [Shared Mutex](#shared-mutex)
-- [Other Mutex Types](#other-mutex-types)
-- [Comparison with Other Languages](#comparison-with-other-languages)
-- [Best Practices](#best-practices)
-- [Common Pitfalls](#common-pitfalls)
+- [기타 Mutex 타입](#기타-mutex-타입)
+- [다른 언어와의 비교](#다른-언어와의-비교)
+- [모범 사례](#모범-사례)
+- [일반적인 실수](#일반적인-실수)
 
-## Basic Concepts
+## 기본 개념
 
-### What is a Mutex?
+### Mutex란?
 
-A mutex ensures that only one thread can access a protected resource at a time:
+Mutex는 한 번에 하나의 스레드만 보호된 리소스에 접근할 수 있도록 보장합니다:
 ```cpp
 #include <mutex>
 #include <thread>
@@ -28,7 +28,7 @@ int counter = 0;
 
 void increment() {
     mtx.lock();
-    ++counter;  // Protected by mutex
+    ++counter;  // mutex로 보호됨
     mtx.unlock();
 }
 
@@ -37,30 +37,30 @@ int main() {
     std::thread t2(increment);
     t1.join();
     t2.join();
-    std::cout << "Counter: " << counter << "\n";  // Always 2
+    std::cout << "Counter: " << counter << "\n";  // 항상 2
     return 0;
 }
 ```
 
-### RAII Principle
+### RAII 원칙
 
-Never lock/unlock manually! Use RAII wrappers:
+절대 수동으로 lock/unlock 하지 마세요! RAII 래퍼를 사용하세요:
 ```cpp
-// BAD: Manual locking
+// 나쁨: 수동 잠금
 mtx.lock();
-do_work();  // What if this throws?
+do_work();  // 예외가 발생하면?
 mtx.unlock();
 
-// GOOD: RAII lock guard
+// 좋음: RAII lock guard
 {
     std::lock_guard<std::mutex> lock(mtx);
-    do_work();  // Lock released even if exception thrown
+    do_work();  // 예외가 발생해도 잠금 해제됨
 }
 ```
 
 ## std::mutex
 
-### Basic Usage
+### 기본 사용법
 ```cpp
 #include <mutex>
 #include <thread>
@@ -104,7 +104,7 @@ int main() {
 }
 ```
 
-### Manual Lock/Unlock (Not Recommended)
+### 수동 Lock/Unlock (권장하지 않음)
 ```cpp
 #include <mutex>
 #include <iostream>
@@ -115,10 +115,10 @@ void manual_locking() {
     mtx.lock();
     try {
         std::cout << "Critical section\n";
-        // Do work
+        // 작업 수행
         mtx.unlock();
     } catch (...) {
-        mtx.unlock();  // Must unlock in exception handler too!
+        mtx.unlock();  // 예외 핸들러에서도 unlock 해야 함!
         throw;
     }
 }
@@ -135,7 +135,7 @@ std::mutex mtx;
 void try_lock_example() {
     if (mtx.try_lock()) {
         std::cout << "Lock acquired\n";
-        // Do work
+        // 작업 수행
         mtx.unlock();
     } else {
         std::cout << "Lock not available, doing other work\n";
@@ -151,11 +151,11 @@ int main() {
 }
 ```
 
-## Lock Guards
+## Lock Guard
 
 ### std::lock_guard (C++11)
 
-Simplest RAII lock - acquires on construction, releases on destruction:
+가장 간단한 RAII 잠금 - 생성 시 획득, 소멸 시 해제:
 ```cpp
 #include <mutex>
 #include <thread>
@@ -166,7 +166,7 @@ std::mutex mtx;
 void safe_print(const std::string& msg) {
     std::lock_guard<std::mutex> lock(mtx);
     std::cout << msg << "\n";
-}  // Lock automatically released
+}  // 잠금 자동 해제
 
 int main() {
     std::thread t1(safe_print, "Thread 1");
@@ -179,7 +179,7 @@ int main() {
 
 ### std::scoped_lock (C++17)
 
-Can lock multiple mutexes atomically (prevents deadlock):
+여러 mutex를 원자적으로 잠글 수 있습니다 (데드락 방지):
 ```cpp
 #include <mutex>
 #include <thread>
@@ -189,7 +189,7 @@ std::mutex mtx1, mtx2;
 int resource1 = 0, resource2 = 0;
 
 void transfer_v1() {
-    // BAD: Can deadlock
+    // 나쁨: 데드락 발생 가능
     std::lock_guard<std::mutex> lock1(mtx1);
     std::lock_guard<std::mutex> lock2(mtx2);
     ++resource1;
@@ -197,7 +197,7 @@ void transfer_v1() {
 }
 
 void transfer_v2() {
-    // GOOD: Atomic locking, no deadlock
+    // 좋음: 원자적 잠금, 데드락 없음
     std::scoped_lock lock(mtx1, mtx2);
     ++resource1;
     --resource2;
@@ -214,7 +214,7 @@ int main() {
 }
 ```
 
-### Locking Multiple Mutexes
+### 여러 Mutex 잠그기
 ```cpp
 #include <mutex>
 #include <thread>
@@ -227,7 +227,7 @@ public:
     BankAccount(double initial) : balance(initial) {}
 
     friend void transfer(BankAccount& from, BankAccount& to, double amount) {
-        // Lock both mutexes without deadlock
+        // 데드락 없이 두 mutex 잠금
         std::scoped_lock lock(from.mtx, to.mtx);
         from.balance -= amount;
         to.balance += amount;
@@ -256,7 +256,7 @@ int main() {
 
 ### std::unique_lock (C++11)
 
-More flexible than `lock_guard`, allows deferred locking, try-lock, timed locks:
+`lock_guard`보다 유연하며, 지연 잠금, try-lock, 시간 제한 잠금을 지원합니다:
 ```cpp
 #include <mutex>
 #include <thread>
@@ -266,20 +266,20 @@ std::mutex mtx;
 
 void deferred_lock_example() {
     std::unique_lock<std::mutex> lock(mtx, std::defer_lock);
-    // Mutex not locked yet
+    // 아직 mutex가 잠기지 않음
 
-    // Do some work without lock
+    // 잠금 없이 작업 수행
     std::cout << "Work without lock\n";
 
-    // Now lock
+    // 이제 잠금
     lock.lock();
     std::cout << "Work with lock\n";
     lock.unlock();
 
-    // Can lock again
+    // 다시 잠금 가능
     lock.lock();
     std::cout << "More work with lock\n";
-}  // Automatically unlocked if still locked
+}  // 아직 잠겨있으면 자동으로 unlock
 
 int main() {
     std::thread t(deferred_lock_example);
@@ -288,7 +288,7 @@ int main() {
 }
 ```
 
-### Timed Locking
+### 시간 제한 잠금
 ```cpp
 #include <mutex>
 #include <thread>
@@ -302,7 +302,7 @@ void try_lock_for_example() {
 
     if (lock.try_lock_for(std::chrono::milliseconds(100))) {
         std::cout << "Lock acquired within 100ms\n";
-        // Do work
+        // 작업 수행
     } else {
         std::cout << "Timeout: couldn't acquire lock\n";
     }
@@ -317,7 +317,7 @@ int main() {
 }
 ```
 
-### Manual Lock/Unlock with Unique Lock
+### Unique Lock으로 수동 Lock/Unlock
 ```cpp
 #include <mutex>
 #include <iostream>
@@ -328,19 +328,19 @@ void flexible_locking() {
     std::unique_lock<std::mutex> lock(mtx);
 
     std::cout << "Locked\n";
-    // Do some work
+    // 작업 수행
 
     lock.unlock();
     std::cout << "Unlocked, doing other work\n";
-    // Do work without lock
+    // 잠금 없이 작업 수행
 
     lock.lock();
     std::cout << "Locked again\n";
-    // More work with lock
+    // 잠금이 필요한 추가 작업
 }
 ```
 
-### Moving Unique Locks
+### Unique Lock 이동
 ```cpp
 #include <mutex>
 #include <iostream>
@@ -349,7 +349,7 @@ std::mutex mtx;
 
 std::unique_lock<std::mutex> get_lock() {
     std::unique_lock<std::mutex> lock(mtx);
-    return lock;  // Move semantics
+    return lock;  // 이동 의미론
 }
 
 void use_lock() {
@@ -358,7 +358,7 @@ void use_lock() {
 }
 ```
 
-### Condition Variable Compatibility
+### Condition Variable 호환성
 ```cpp
 #include <mutex>
 #include <condition_variable>
@@ -372,16 +372,16 @@ std::queue<int> queue;
 void consumer() {
     std::unique_lock<std::mutex> lock(mtx);
     cv.wait(lock, [] { return !queue.empty(); });
-    // Process queue
+    // 큐 처리
 }
-// Note: condition_variable requires unique_lock, not lock_guard
+// 참고: condition_variable은 lock_guard가 아닌 unique_lock이 필요
 ```
 
 ## Shared Mutex
 
 ### std::shared_mutex (C++17)
 
-Reader-writer lock: multiple readers OR one writer:
+Reader-Writer 잠금: 여러 Reader 또는 하나의 Writer:
 ```cpp
 #include <shared_mutex>
 #include <thread>
@@ -393,13 +393,13 @@ class ThreadSafeCounter {
     int value = 0;
 
 public:
-    // Multiple readers can call this simultaneously
+    // 여러 reader가 동시에 호출 가능
     int read() const {
         std::shared_lock<std::shared_mutex> lock(mtx);
         return value;
     }
 
-    // Only one writer allowed
+    // writer는 하나만 허용
     void increment() {
         std::unique_lock<std::shared_mutex> lock(mtx);
         ++value;
@@ -415,7 +415,7 @@ int main() {
     ThreadSafeCounter counter;
     std::vector<std::thread> threads;
 
-    // Many readers
+    // 다수의 reader
     for (int i = 0; i < 10; ++i) {
         threads.emplace_back([&counter] {
             for (int j = 0; j < 100; ++j) {
@@ -424,7 +424,7 @@ int main() {
         });
     }
 
-    // Few writers
+    // 소수의 writer
     for (int i = 0; i < 2; ++i) {
         threads.emplace_back([&counter] {
             for (int j = 0; j < 50; ++j) {
@@ -442,7 +442,7 @@ int main() {
 }
 ```
 
-### Read-Write Lock Example
+### Read-Write Lock 예제
 ```cpp
 #include <shared_mutex>
 #include <map>
@@ -454,20 +454,20 @@ class ThreadSafeMap {
     std::map<std::string, int> data;
 
 public:
-    // Read operation - many threads can read simultaneously
+    // 읽기 연산 - 여러 스레드가 동시에 읽기 가능
     int get(const std::string& key) const {
         std::shared_lock<std::shared_mutex> lock(mtx);
         auto it = data.find(key);
         return it != data.end() ? it->second : 0;
     }
 
-    // Write operation - exclusive access
+    // 쓰기 연산 - 배타적 접근
     void set(const std::string& key, int value) {
         std::unique_lock<std::shared_mutex> lock(mtx);
         data[key] = value;
     }
 
-    // Write operation - exclusive access
+    // 쓰기 연산 - 배타적 접근
     void remove(const std::string& key) {
         std::unique_lock<std::shared_mutex> lock(mtx);
         data.erase(key);
@@ -475,11 +475,11 @@ public:
 };
 ```
 
-## Other Mutex Types
+## 기타 Mutex 타입
 
 ### std::recursive_mutex
 
-Allows same thread to lock multiple times:
+같은 스레드가 여러 번 잠글 수 있습니다:
 ```cpp
 #include <mutex>
 #include <iostream>
@@ -496,7 +496,7 @@ class RecursiveCounter {
 public:
     void increment() {
         std::lock_guard<std::recursive_mutex> lock(mtx);
-        increment_internal();  // Same thread locks again - OK
+        increment_internal();  // 같은 스레드가 다시 잠금 - OK
     }
 
     int get() {
@@ -515,7 +515,7 @@ int main() {
 
 ### std::timed_mutex
 
-Supports timeout operations:
+타임아웃 연산을 지원합니다:
 ```cpp
 #include <mutex>
 #include <thread>
@@ -545,7 +545,7 @@ int main() {
 }
 ```
 
-## Comparison with Other Languages
+## 다른 언어와의 비교
 
 ### C++ vs. C#
 ```cpp
@@ -553,13 +553,13 @@ int main() {
 std::mutex mtx;
 {
     std::lock_guard<std::mutex> lock(mtx);
-    // Critical section
+    // 임계 영역
 }
 
-// C# equivalent:
+// C# 동등 코드:
 // private object lockObj = new object();
 // lock (lockObj) {
-//     // Critical section
+//     // 임계 영역
 // }
 ```
 
@@ -568,51 +568,51 @@ std::mutex mtx;
 // C++
 std::mutex mtx;
 mtx.lock();
-// Critical section
+// 임계 영역
 mtx.unlock();
 
-// Go equivalent:
+// Go 동등 코드:
 // var mu sync.Mutex
 // mu.Lock()
-// // Critical section
+// // 임계 영역
 // mu.Unlock()
 ```
 
 ### C++ vs. JavaScript
 ```cpp
-// C++ has real mutexes
+// C++는 실제 mutex를 가짐
 std::mutex mtx;
 
-// JavaScript has no equivalent (single-threaded main execution)
-// For Workers, use Atomics.wait/notify with SharedArrayBuffer
+// JavaScript에는 동등한 것이 없음 (단일 스레드 메인 실행)
+// Worker의 경우 SharedArrayBuffer와 함께 Atomics.wait/notify 사용
 ```
 
-## Best Practices
+## 모범 사례
 
-### 1. Always Use RAII Guards
+### 1. 항상 RAII Guard 사용
 ```cpp
-// GOOD: Automatic unlock
+// 좋음: 자동 unlock
 {
     std::lock_guard<std::mutex> lock(mtx);
     critical_section();
 }
 
-// BAD: Manual unlock
+// 나쁨: 수동 unlock
 mtx.lock();
 critical_section();
 mtx.unlock();
 ```
 
-### 2. Keep Critical Sections Small
+### 2. 임계 영역 최소화
 ```cpp
-// BAD: Long critical section
+// 나쁨: 긴 임계 영역
 {
     std::lock_guard<std::mutex> lock(mtx);
-    expensive_computation();  // Don't hold lock during this!
+    expensive_computation();  // 이 동안 잠금을 유지하지 마세요!
     shared_data = result;
 }
 
-// GOOD: Minimal critical section
+// 좋음: 최소한의 임계 영역
 auto result = expensive_computation();
 {
     std::lock_guard<std::mutex> lock(mtx);
@@ -620,11 +620,11 @@ auto result = expensive_computation();
 }
 ```
 
-### 3. Lock Ordering to Prevent Deadlock
+### 3. 데드락 방지를 위한 잠금 순서
 ```cpp
-// GOOD: Always lock in same order
+// 좋음: 항상 같은 순서로 잠금
 void transfer(Account& from, Account& to, double amount) {
-    // Lock lower address first
+    // 낮은 주소 먼저 잠금
     std::mutex* first = &from.mtx < &to.mtx ? &from.mtx : &to.mtx;
     std::mutex* second = &from.mtx < &to.mtx ? &to.mtx : &from.mtx;
 
@@ -635,7 +635,7 @@ void transfer(Account& from, Account& to, double amount) {
     to.balance += amount;
 }
 
-// BETTER: Use scoped_lock
+// 더 좋음: scoped_lock 사용
 void transfer(Account& from, Account& to, double amount) {
     std::scoped_lock lock(from.mtx, to.mtx);
     from.balance -= amount;
@@ -643,20 +643,20 @@ void transfer(Account& from, Account& to, double amount) {
 }
 ```
 
-### 4. Use Shared Mutex for Read-Heavy Workloads
+### 4. 읽기 위주 워크로드에는 Shared Mutex 사용
 ```cpp
 class Cache {
     mutable std::shared_mutex mtx;
     std::map<std::string, std::string> data;
 
 public:
-    // Many readers - use shared lock
+    // 다수의 reader - shared lock 사용
     std::string get(const std::string& key) const {
         std::shared_lock lock(mtx);
         return data.at(key);
     }
 
-    // Few writers - use unique lock
+    // 소수의 writer - unique lock 사용
     void set(const std::string& key, const std::string& value) {
         std::unique_lock lock(mtx);
         data[key] = value;
@@ -664,29 +664,29 @@ public:
 };
 ```
 
-### 5. Avoid Recursive Mutexes When Possible
+### 5. 가능하면 재귀 Mutex 피하기
 ```cpp
-// BAD: Using recursive mutex to paper over design issues
+// 나쁨: 설계 문제를 가리기 위해 재귀 mutex 사용
 class BadDesign {
     std::recursive_mutex mtx;
 
     void foo() {
         std::lock_guard lock(mtx);
-        bar();  // Locks again
+        bar();  // 다시 잠금
     }
 
     void bar() {
         std::lock_guard lock(mtx);
-        // Work
+        // 작업
     }
 };
 
-// GOOD: Refactor to avoid recursion
+// 좋음: 재귀를 피하도록 리팩터링
 class GoodDesign {
     std::mutex mtx;
 
     void bar_internal() {
-        // Work (assumes lock held)
+        // 작업 (잠금이 유지되고 있다고 가정)
     }
 
 public:
@@ -702,18 +702,18 @@ public:
 };
 ```
 
-## Common Pitfalls
+## 일반적인 실수
 
-### 1. Forgetting to Lock
+### 1. 잠금 잊기
 ```cpp
-// BAD: No synchronization
+// 나쁨: 동기화 없음
 class UnsafeCounter {
     int value = 0;
 public:
-    void increment() { ++value; }  // Race condition!
+    void increment() { ++value; }  // 경쟁 조건!
 };
 
-// GOOD
+// 좋음
 class SafeCounter {
     std::mutex mtx;
     int value = 0;
@@ -725,9 +725,9 @@ public:
 };
 ```
 
-### 2. Deadlock with Multiple Locks
+### 2. 여러 잠금으로 인한 데드락
 ```cpp
-// BAD: Can deadlock
+// 나쁨: 데드락 발생 가능
 std::mutex m1, m2;
 
 void thread1() {
@@ -736,29 +736,29 @@ void thread1() {
 }
 
 void thread2() {
-    std::lock_guard lock2(m2);  // Reversed order!
+    std::lock_guard lock2(m2);  // 순서가 반대!
     std::lock_guard lock1(m1);
 }
 
-// GOOD: Use scoped_lock
+// 좋음: scoped_lock 사용
 void thread1() {
     std::scoped_lock lock(m1, m2);
 }
 
 void thread2() {
-    std::scoped_lock lock(m1, m2);  // Order doesn't matter
+    std::scoped_lock lock(m1, m2);  // 순서는 중요하지 않음
 }
 ```
 
-### 3. Locking Too Much
+### 3. 너무 많이 잠그기
 ```cpp
-// BAD: Holding lock while doing I/O
+// 나쁨: I/O 중에 잠금 유지
 {
     std::lock_guard lock(mtx);
-    std::cout << shared_data << "\n";  // I/O with lock!
+    std::cout << shared_data << "\n";  // 잠금 상태로 I/O!
 }
 
-// GOOD: Copy data, release lock, then do I/O
+// 좋음: 데이터 복사, 잠금 해제 후 I/O
 std::string data_copy;
 {
     std::lock_guard lock(mtx);
@@ -767,9 +767,9 @@ std::string data_copy;
 std::cout << data_copy << "\n";
 ```
 
-### 4. Not Protecting All Access
+### 4. 모든 접근을 보호하지 않음
 ```cpp
-// BAD: Inconsistent protection
+// 나쁨: 일관되지 않은 보호
 class BadCache {
     std::mutex mtx;
     std::map<int, int> data;
@@ -781,14 +781,14 @@ public:
     }
 
     int get(int key) {
-        return data[key];  // Forgot to lock!
+        return data[key];  // 잠금을 잊었음!
     }
 };
 ```
 
-### 5. Returning References to Protected Data
+### 5. 보호된 데이터에 대한 참조 반환
 ```cpp
-// BAD: Exposes protected data
+// 나쁨: 보호된 데이터를 노출
 class BadContainer {
     std::mutex mtx;
     std::vector<int> data;
@@ -796,11 +796,11 @@ class BadContainer {
 public:
     std::vector<int>& get_data() {
         std::lock_guard lock(mtx);
-        return data;  // Lock released but reference escapes!
+        return data;  // 잠금이 해제되었지만 참조가 탈출!
     }
 };
 
-// GOOD: Return a copy
+// 좋음: 복사본 반환
 class GoodContainer {
     std::mutex mtx;
     std::vector<int> data;
@@ -808,14 +808,14 @@ class GoodContainer {
 public:
     std::vector<int> get_data() {
         std::lock_guard lock(mtx);
-        return data;  // Copy
+        return data;  // 복사
     }
 };
 ```
 
-## Internal Mechanisms
+## 내부 메커니즘
 
-### std::mutex Futex Implementation (Linux/glibc)
+### std::mutex Futex 구현 (Linux/glibc)
 
 ```cpp
 // pthread_mutex 내부 구조 (glibc NPTL)
@@ -823,7 +823,7 @@ struct __pthread_mutex_s {
     int __lock;           // 0: unlocked, 1: locked, 2: contended
     unsigned int __count; // recursive lock count
     int __owner;          // owning thread ID (for recursive/errorcheck)
-    // ... additional fields for robustness, priority, etc.
+    // ... 견고성, 우선순위 등의 추가 필드
 };
 ```
 
@@ -943,7 +943,7 @@ public:
 };
 ```
 
-### scoped_lock Deadlock Avoidance Algorithm
+### scoped_lock 데드락 회피 알고리즘
 
 `std::scoped_lock`은 여러 뮤텍스를 데드락 없이 잠급니다:
 
@@ -983,7 +983,7 @@ lock(B) 시도...               lock(A) 시도...
 (순환하며 재시도, 결국 한 쪽이 성공)
 ```
 
-### shared_mutex Reader-Writer Implementation
+### shared_mutex Reader-Writer 구현
 
 ```cpp
 // libstdc++ shared_mutex 상태
@@ -1012,7 +1012,7 @@ class shared_mutex {
 };
 ```
 
-### Recursive Mutex Counter Overflow
+### Recursive Mutex 카운터 오버플로우
 
 ```cpp
 // recursive_mutex의 재귀 횟수 제한
@@ -1032,16 +1032,16 @@ class recursive_mutex {
 };
 ```
 
-## Performance Considerations
+## 성능 고려사항
 
-### Lock Overhead
-- **Uncontended lock**: ~25 nanoseconds
-- **Contended lock**: Can be 1000x slower (microseconds)
-- **Context switch**: 1-10 microseconds
+### 잠금 오버헤드
+- **비경합 잠금**: ~25 나노초
+- **경합 잠금**: 1000배 더 느릴 수 있음 (마이크로초)
+- **컨텍스트 스위치**: 1-10 마이크로초
 
-### Lock Granularity
+### 잠금 세분화
 ```cpp
-// Fine-grained: More parallelism, more overhead
+// 세분화됨: 더 많은 병렬성, 더 많은 오버헤드
 class FineGrained {
     std::mutex mtx1, mtx2;
     int data1, data2;
@@ -1058,7 +1058,7 @@ public:
     }
 };
 
-// Coarse-grained: Less overhead, less parallelism
+// 조분화됨: 더 적은 오버헤드, 더 적은 병렬성
 class CoarseGrained {
     std::mutex mtx;
     int data1, data2;
@@ -1076,7 +1076,7 @@ public:
 };
 ```
 
-## Complete Example: Thread-Safe Queue
+## 전체 예제: 스레드 안전 큐
 ```cpp
 #include <mutex>
 #include <queue>
@@ -1123,7 +1123,7 @@ public:
 int main() {
     ThreadSafeQueue<int> queue;
 
-    // Producer
+    // 생산자
     std::thread producer([&queue] {
         for (int i = 0; i < 10; ++i) {
             queue.push(i);
@@ -1131,7 +1131,7 @@ int main() {
         }
     });
 
-    // Consumer
+    // 소비자
     std::thread consumer([&queue] {
         for (int i = 0; i < 10; ++i) {
             int value;
@@ -1146,14 +1146,14 @@ int main() {
 }
 ```
 
-## Further Reading
+## 추가 읽기
 
 - [C++ Reference: std::mutex](https://en.cppreference.com/w/cpp/thread/mutex)
 - [C++ Reference: std::lock_guard](https://en.cppreference.com/w/cpp/thread/lock_guard)
-- [Condition Variables](./04-condition-variable.md)
+- [Condition Variable](./04-condition-variable.md)
 
-## Navigation
+## 탐색
 
-- [Back to C++ Overview](./README.md)
-- Previous: [std::thread](./01-std-thread.md)
-- Next: [Atomic Operations](./03-atomic.md)
+- [C++ 개요로 돌아가기](./README.md)
+- 이전: [std::thread](./01-std-thread.md)
+- 다음: [Atomic 연산](./03-atomic.md)

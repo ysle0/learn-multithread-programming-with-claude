@@ -1,20 +1,20 @@
-# Game Server Applications
+# 게임 서버 애플리케이션
 
-## Overview
+## 개요
 
-Game servers are specialized network applications that manage multiplayer game sessions, handle player connections, synchronize game state, and ensure fair gameplay. Understanding multithreading and concurrency is crucial for building high-performance, scalable game servers that can handle thousands of concurrent players.
+게임 서버는 멀티플레이어 게임 세션을 관리하고, 플레이어 연결을 처리하며, 게임 상태를 동기화하고, 공정한 게임플레이를 보장하는 특수한 네트워크 애플리케이션입니다. 수천 명의 동시 접속 플레이어를 처리할 수 있는 고성능, 확장 가능한 게임 서버를 구축하려면 멀티스레딩과 동시성에 대한 이해가 필수적입니다.
 
-## Table of Contents
+## 목차
 
-1. [Real-time Game Servers](01-realtime-game-server.md) - MMO, MOBA, FPS architectures
-2. [Non-real-time Servers](02-non-realtime-server.md) - Web servers, REST APIs
-3. [MMO Architecture](03-mmo-architecture.md) - Sharding, world partitioning
-4. [Game Loop Threading](04-game-loop-threading.md) - Game loop and multithreading
-5. [Networking Threading](05-networking-threading.md) - Networking I/O and threading
+1. [실시간 게임 서버](01-realtime-game-server.md) - MMO, MOBA, FPS 아키텍처
+2. [비실시간 서버](02-non-realtime-server.md) - 웹 서버, REST API
+3. [MMO 아키텍처](03-mmo-architecture.md) - sharding, 월드 파티셔닝
+4. [Game Loop 스레딩](04-game-loop-threading.md) - game loop와 멀티스레딩
+5. [네트워킹 스레딩](05-networking-threading.md) - 네트워킹 I/O와 스레딩
 
-## Game Server Architecture Patterns
+## 게임 서버 아키텍처 패턴
 
-### High-Level Architecture
+### 상위 수준 아키텍처
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -56,9 +56,9 @@ Game servers are specialized network applications that manage multiplayer game s
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## Threading Models Comparison
+## 스레딩 모델 비교
 
-### 1. Single-Threaded Event Loop
+### 1. 단일 스레드 event loop
 ```
 ┌──────────────────────────────────┐
 │     Main Thread (Event Loop)     │
@@ -69,9 +69,9 @@ Game servers are specialized network applications that manage multiplayer game s
 │ • Timer Events                   │
 └──────────────────────────────────┘
 
-Pros: Simple, no synchronization
-Cons: Limited CPU utilization
-Use Case: Small-scale games, turn-based
+장점: 단순함, 동기화 불필요
+단점: 제한된 CPU 활용
+사용 사례: 소규모 게임, 턴 기반
 ```
 
 ### 2. Thread-per-Connection
@@ -85,12 +85,12 @@ Use Case: Small-scale games, turn-based
 │ • State     │  │ • State     │  │ • State     │
 └─────────────┘  └─────────────┘  └─────────────┘
 
-Pros: Simple concurrency model
-Cons: Thread overhead, doesn't scale
-Use Case: Legacy servers, < 1000 players
+장점: 단순한 동시성 모델
+단점: 스레드 오버헤드, 확장성 부족
+사용 사례: 레거시 서버, 1000명 미만 플레이어
 ```
 
-### 3. Thread Pool Architecture
+### 3. Thread Pool 아키텍처
 ```
 ┌───────────────────────────────────────────────────┐
 │            Network I/O Thread Pool                │
@@ -110,12 +110,12 @@ Use Case: Legacy servers, < 1000 players
 │ (Logic) │  │ (Logic) │  │ (Logic) │  │ (Logic) │
 └─────────┘  └─────────┘  └─────────┘  └─────────┘
 
-Pros: Good CPU utilization, scalable
-Cons: Complex synchronization
-Use Case: Modern game servers
+장점: 우수한 CPU 활용, 확장 가능
+단점: 복잡한 동기화
+사용 사례: 현대 게임 서버
 ```
 
-### 4. Actor Model
+### 4. Actor 모델
 ```
 ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
 │   Actor 1   │  │   Actor 2   │  │   Actor N   │
@@ -133,12 +133,12 @@ Use Case: Modern game servers
             │    (Thread Pool)       │
             └───────────────────────┘
 
-Pros: Isolation, fault tolerance
-Cons: Message passing overhead
-Use Case: Erlang/Elixir servers, distributed systems
+장점: 격리성, 내결함성
+단점: 메시지 전달 오버헤드
+사용 사례: Erlang/Elixir 서버, 분산 시스템
 ```
 
-### 5. Data-Oriented Design (ECS)
+### 5. 데이터 지향 설계 (ECS)
 ```
 ┌────────────────────────────────────────────────┐
 │              Component Arrays                  │
@@ -155,38 +155,38 @@ Use Case: Erlang/Elixir servers, distributed systems
 │  (Thread 1)  │ │  (Thread 2)  │ │  (Thread 3)  │
 └──────────────┘ └──────────────┘ └──────────────┘
 
-Pros: Cache-friendly, parallel processing
-Cons: Complex architecture
-Use Case: High-performance simulations
+장점: 캐시 친화적, 병렬 처리
+단점: 복잡한 아키텍처
+사용 사례: 고성능 시뮬레이션
 ```
 
-## Performance Characteristics
+## 성능 특성
 
-| Architecture        | Scalability | Latency | Throughput | Complexity |
+| 아키텍처            | 확장성      | 지연 시간   | 처리량     | 복잡도     |
 |---------------------|-------------|---------|------------|------------|
-| Single-threaded     | ★☆☆☆☆       | ★★★★★   | ★☆☆☆☆      | ★★★★★      |
+| 단일 스레드          | ★☆☆☆☆       | ★★★★★   | ★☆☆☆☆      | ★★★★★      |
 | Thread-per-conn     | ★★☆☆☆       | ★★★☆☆   | ★★☆☆☆      | ★★★☆☆      |
 | Thread Pool         | ★★★★☆       | ★★★★☆   | ★★★★☆      | ★★★☆☆      |
-| Actor Model         | ★★★★★       | ★★★☆☆   | ★★★★☆      | ★★☆☆☆      |
+| Actor 모델          | ★★★★★       | ★★★☆☆   | ★★★★☆      | ★★☆☆☆      |
 | ECS                 | ★★★★★       | ★★★★★   | ★★★★★      | ★★☆☆☆      |
 
-## Game Server Types
+## 게임 서버 유형
 
-### Real-time Game Servers
-- **FPS (First-Person Shooter)**: High tick rate (60-128 Hz), low latency critical
-- **MOBA (Multiplayer Online Battle Arena)**: 20-30 Hz tick rate, deterministic simulation
-- **MMO (Massively Multiplayer Online)**: Variable tick rates, zone-based updates
-- **Racing Games**: High-frequency physics updates, client prediction
+### 실시간 게임 서버
+- **FPS (1인칭 슈팅)**: 높은 tick rate (60-128 Hz), 낮은 지연 시간 필수
+- **MOBA (멀티플레이어 온라인 배틀 아레나)**: 20-30 Hz tick rate, 결정론적 시뮬레이션
+- **MMO (대규모 다중 접속 온라인)**: 가변 tick rate, zone 기반 업데이트
+- **레이싱 게임**: 고빈도 물리 업데이트, 클라이언트 예측
 
-### Non-real-time Servers
-- **Turn-based Strategy**: Event-driven, no strict timing requirements
-- **Card Games**: Request-response model, lobby systems
-- **Social Games**: Web-based, REST APIs, stateless services
-- **Async Multiplayer**: Delayed turns, mailbox systems
+### 비실시간 서버
+- **턴 기반 전략**: 이벤트 기반, 엄격한 타이밍 요구 없음
+- **카드 게임**: 요청-응답 모델, 로비 시스템
+- **소셜 게임**: 웹 기반, REST API, stateless 서비스
+- **비동기 멀티플레이어**: 지연된 턴, mailbox 시스템
 
-## Key Performance Metrics
+## 핵심 성능 지표
 
-### Latency Targets
+### 지연 시간 목표
 
 ```
 Game Type            | Target Latency | Acceptable Range
@@ -198,7 +198,7 @@ MMO (Social)         | < 100ms        | 100-300ms
 Turn-based           | < 200ms        | 200-1000ms
 ```
 
-### Tick Rate vs Player Count
+### Tick Rate 대 플레이어 수
 
 ```
             │
@@ -222,43 +222,43 @@ Turn-based           | < 200ms        | 200-1000ms
                       Concurrent Players
 ```
 
-## Threading Best Practices
+## 스레딩 모범 사례
 
-### 1. Separate I/O from Game Logic
+### 1. I/O와 게임 로직 분리
 ```cpp
-// Good: Separate I/O thread from game logic
+// 좋은 예: I/O 스레드와 게임 로직 분리
 class GameServer {
     std::thread io_thread_;
     std::thread game_thread_;
 
     void IOThread() {
         while (running_) {
-            // Handle network I/O
+            // 네트워크 I/O 처리
             PollNetworkEvents();
 
-            // Push events to game thread
+            // 이벤트를 게임 스레드로 전달
             game_queue_.push(events);
         }
     }
 
     void GameThread() {
         while (running_) {
-            // Process events from I/O
+            // I/O에서 온 이벤트 처리
             ProcessEvents(game_queue_.pop());
 
-            // Update game state
+            // 게임 상태 업데이트
             UpdateGameLogic(delta_time);
 
-            // Prepare network updates
+            // 네트워크 업데이트 준비
             PrepareNetworkUpdates();
         }
     }
 };
 ```
 
-### 2. Use Lock-free Data Structures
+### 2. Lock-free 자료 구조 사용
 ```cpp
-// Lock-free queue for inter-thread communication
+// 스레드 간 통신을 위한 lock-free 큐
 template<typename T>
 class LockFreeQueue {
     std::atomic<Node*> head_;
@@ -269,13 +269,13 @@ public:
     bool try_pop(T& value);
 };
 
-// Usage
+// 사용 예시
 LockFreeQueue<NetworkEvent> event_queue_;
 ```
 
-### 3. Minimize Synchronization Points
+### 3. 동기화 지점 최소화
 ```cpp
-// Bad: Frequent locking
+// 나쁜 예: 빈번한 잠금
 void ProcessPlayers() {
     for (auto& player : players_) {
         std::lock_guard<std::mutex> lock(player.mutex);
@@ -283,16 +283,16 @@ void ProcessPlayers() {
     }
 }
 
-// Good: Batch updates, single lock
+// 좋은 예: 일괄 업데이트, 단일 잠금
 void ProcessPlayers() {
     std::vector<PlayerUpdate> updates;
 
-    // Collect updates without locks
+    // 잠금 없이 업데이트 수집
     for (auto& player : players_) {
         updates.push_back(player.PrepareUpdate());
     }
 
-    // Apply updates with single lock
+    // 단일 잠금으로 업데이트 적용
     std::lock_guard<std::mutex> lock(world_mutex_);
     for (auto& update : updates) {
         ApplyUpdate(update);
@@ -300,18 +300,18 @@ void ProcessPlayers() {
 }
 ```
 
-### 4. Use Thread-local Storage
+### 4. Thread-local Storage 사용
 ```cpp
-// Thread-local random number generator
+// 스레드 로컬 난수 생성기
 thread_local std::mt19937 rng(std::random_device{}());
 
-// Thread-local memory pools
+// 스레드 로컬 메모리 풀
 thread_local MemoryPool<1024> pool;
 ```
 
-## Scaling Strategies
+## 확장 전략
 
-### Horizontal Scaling
+### 수평 확장
 ```
 ┌─────────────────────────────────────────────────┐
 │            Load Balancer (DNS/Nginx)            │
@@ -330,16 +330,16 @@ thread_local MemoryPool<1024> pool;
                     └─────────────────────────────┘
 ```
 
-### Vertical Scaling (Multi-core Optimization)
+### 수직 확장 (멀티코어 최적화)
 ```cpp
-// Utilize all CPU cores
+// 모든 CPU 코어 활용
 void OptimizeForMultiCore() {
     unsigned int num_threads = std::thread::hardware_concurrency();
 
-    // I/O threads (1-2 per network interface)
+    // I/O 스레드 (네트워크 인터페이스당 1-2개)
     size_t io_threads = 2;
 
-    // Game logic threads (remaining cores)
+    // 게임 로직 스레드 (나머지 코어)
     size_t logic_threads = num_threads - io_threads;
 
     ThreadPool io_pool(io_threads);
@@ -347,7 +347,7 @@ void OptimizeForMultiCore() {
 }
 ```
 
-### Zone-based Partitioning
+### Zone 기반 파티셔닝
 ```
 World Map (MMO)
 ┌──────────────┬──────────────┬──────────────┐
@@ -362,43 +362,43 @@ World Map (MMO)
 └──────────────┴──────────────┴──────────────┘
 ```
 
-## Common Challenges
+## 일반적인 과제
 
-### 1. State Synchronization
-- **Problem**: Keeping game state consistent across multiple threads/servers
-- **Solutions**:
-  - Event sourcing
+### 1. 상태 동기화
+- **문제**: 여러 스레드/서버 간 게임 상태 일관성 유지
+- **해결책**:
+  - 이벤트 소싱
   - CQRS (Command Query Responsibility Segregation)
-  - Operational transforms
-  - Deterministic lockstep
+  - 연산 변환
+  - 결정론적 lockstep
 
-### 2. Latency Compensation
-- **Problem**: Network latency causes inconsistent player experience
-- **Solutions**:
-  - Client-side prediction
-  - Server reconciliation
-  - Lag compensation
-  - Interest management
+### 2. 지연 보상
+- **문제**: 네트워크 지연으로 인한 일관되지 않은 플레이어 경험
+- **해결책**:
+  - 클라이언트 측 예측
+  - 서버 조정
+  - 지연 보상
+  - 관심 영역 관리
 
-### 3. Load Balancing
-- **Problem**: Uneven distribution of players/zones
-- **Solutions**:
-  - Dynamic zone splitting/merging
-  - Player migration
-  - Instancing
+### 3. 부하 분산
+- **문제**: 플레이어/zone의 불균등 분배
+- **해결책**:
+  - 동적 zone 분할/병합
+  - 플레이어 마이그레이션
+  - 인스턴싱
   - Consistent hashing
 
-### 4. Deadlock Prevention
-- **Problem**: Multiple threads waiting on each other
-- **Solutions**:
-  - Lock ordering
-  - Timeouts
-  - Lock-free algorithms
-  - Actor model (no shared state)
+### 4. 데드락 방지
+- **문제**: 여러 스레드가 서로를 기다리는 상태
+- **해결책**:
+  - 잠금 순서 지정
+  - 타임아웃
+  - Lock-free 알고리즘
+  - Actor 모델 (공유 상태 없음)
 
-## Technology Stack Examples
+## 기술 스택 예시
 
-### C++ Stack (High-performance)
+### C++ 스택 (고성능)
 ```
 ┌─────────────────────────────────────┐
 │ Networking: Boost.Asio, libuv      │
@@ -409,7 +409,7 @@ World Map (MMO)
 └─────────────────────────────────────┘
 ```
 
-### Rust Stack (Safe concurrency)
+### Rust 스택 (안전한 동시성)
 ```
 ┌─────────────────────────────────────┐
 │ Networking: Tokio, async-std       │
@@ -419,7 +419,7 @@ World Map (MMO)
 └─────────────────────────────────────┘
 ```
 
-### Go Stack (Scalability)
+### Go 스택 (확장성)
 ```
 ┌─────────────────────────────────────┐
 │ Networking: net/http, gRPC         │
@@ -429,7 +429,7 @@ World Map (MMO)
 └─────────────────────────────────────┘
 ```
 
-### Elixir/Erlang Stack (Distributed)
+### Elixir/Erlang 스택 (분산)
 ```
 ┌─────────────────────────────────────┐
 │ Framework: Phoenix, Cowboy         │
@@ -439,69 +439,69 @@ World Map (MMO)
 └─────────────────────────────────────┘
 ```
 
-## Real-world Examples
+## 실제 사례
 
-### Riot Games (League of Legends)
-- Deterministic simulation
+### Riot Games (리그 오브 레전드)
+- 결정론적 시뮬레이션
 - 30 Hz tick rate
-- Regional data centers
-- Microservices architecture
+- 지역 데이터 센터
+- 마이크로서비스 아키텍처
 
-### Blizzard (World of Warcraft)
-- Zone-based world servers
+### Blizzard (월드 오브 워크래프트)
+- Zone 기반 월드 서버
 - Realm sharding
-- Phasing technology
-- Cross-realm technology
+- 페이징 기술
+- Cross-realm 기술
 
-### Epic Games (Fortnite)
-- 30 Hz tick rate (increased from 20 Hz)
-- Replication graph for interest management
-- Dedicated server model
-- Cloud-based scaling (AWS)
+### Epic Games (포트나이트)
+- 30 Hz tick rate (20 Hz에서 증가)
+- 관심 영역 관리를 위한 Replication graph
+- 전용 서버 모델
+- 클라우드 기반 확장 (AWS)
 
 ### Valve (CS:GO)
 - 64-128 Hz tick rate
-- Source engine dedicated servers
-- Lag compensation
-- Client-side prediction
+- Source 엔진 전용 서버
+- 지연 보상
+- 클라이언트 측 예측
 
-## Learning Path
+## 학습 경로
 
-1. **Fundamentals** (Weeks 1-2)
-   - Basic networking (TCP/UDP)
-   - Threading basics
-   - Event loops
+1. **기초** (1-2주차)
+   - 기본 네트워킹 (TCP/UDP)
+   - 스레딩 기초
+   - Event loop
 
-2. **Intermediate** (Weeks 3-6)
-   - Async I/O (IOCP, epoll)
-   - Lock-free programming
-   - Game loop design
-   - State replication
+2. **중급** (3-6주차)
+   - 비동기 I/O (IOCP, epoll)
+   - Lock-free 프로그래밍
+   - Game loop 설계
+   - 상태 복제
 
-3. **Advanced** (Weeks 7-12)
-   - Distributed systems
-   - Sharding strategies
-   - Performance optimization
-   - Fault tolerance
+3. **고급** (7-12주차)
+   - 분산 시스템
+   - Sharding 전략
+   - 성능 최적화
+   - 내결함성
 
-4. **Expert** (Months 4-6)
-   - Custom protocols
-   - Large-scale architecture
-   - Advanced physics simulation
-   - Anti-cheat systems
+4. **전문가** (4-6개월차)
+   - 커스텀 프로토콜
+   - 대규모 아키텍처
+   - 고급 물리 시뮬레이션
+   - 안티 치트 시스템
 
-## References
+## 참고 자료
 
-- [Gaffer on Games](https://gafferongames.com/) - Networking and game physics
-- [Game Programming Patterns](https://gameprogrammingpatterns.com/) - Design patterns
-- [Beej's Guide to Network Programming](https://beej.us/guide/bgnet/) - Network fundamentals
-- [1500 Archers on a 28.8](https://www.gamedeveloper.com/programming/1500-archers-on-a-28-8-examining-network-code-in-age-of-empires) - Age of Empires networking
-- [I Shot You First](https://technology.riotgames.com/) - Riot Games engineering blog
+- [Gaffer on Games](https://gafferongames.com/) - 네트워킹과 게임 물리
+- [Game Programming Patterns](https://gameprogrammingpatterns.com/) - 디자인 패턴
+- [Beej's Guide to Network Programming](https://beej.us/guide/bgnet/) - 네트워크 기초
+- [1500 Archers on a 28.8](https://www.gamedeveloper.com/programming/1500-archers-on-a-28-8-examining-network-code-in-age-of-empires) - 에이지 오브 엠파이어 네트워킹
+- [I Shot You First](https://technology.riotgames.com/) - Riot Games 엔지니어링 블로그
 
-## Next Steps
+## 다음 단계
 
-- Dive into [Real-time Game Servers](01-realtime-game-server.md) for FPS/MOBA/MMO architectures
-- Learn about [Non-real-time Servers](02-non-realtime-server.md) for web-based games
-- Explore [MMO Architecture](03-mmo-architecture.md) for large-scale multiplayer
-- Study [Game Loop Threading](04-game-loop-threading.md) for core engine design
-- Master [Networking Threading](05-networking-threading.md) for high-performance I/O
+- [실시간 게임 서버](01-realtime-game-server.md)에서 FPS/MOBA/MMO 아키텍처 살펴보기
+- [비실시간 서버](02-non-realtime-server.md)에서 웹 기반 게임 알아보기
+- [MMO 아키텍처](03-mmo-architecture.md)에서 대규모 멀티플레이어 탐구하기
+- [Game Loop 스레딩](04-game-loop-threading.md)에서 핵심 엔진 설계 학습하기
+- [네트워킹 스레딩](05-networking-threading.md)에서 고성능 I/O 마스터하기

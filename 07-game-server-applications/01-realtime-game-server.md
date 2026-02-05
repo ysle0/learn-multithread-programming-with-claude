@@ -1,29 +1,29 @@
-# Real-time Game Servers
+# 실시간 게임 서버
 
-## Overview
+## 개요
 
-Real-time game servers are the backbone of competitive multiplayer games like FPS, MOBA, and MMO titles. They require low latency, high tick rates, and deterministic simulation to provide fair and responsive gameplay. This document covers the architecture, threading models, and implementation strategies for building high-performance real-time game servers.
+실시간 게임 서버는 FPS, MOBA, MMO와 같은 경쟁 멀티플레이어 게임의 핵심입니다. 공정하고 반응성 있는 게임플레이를 제공하기 위해 낮은 지연 시간, 높은 tick rate, 결정론적 시뮬레이션이 필요합니다. 이 문서에서는 고성능 실시간 게임 서버를 구축하기 위한 아키텍처, 스레딩 모델 및 구현 전략을 다룹니다.
 
-## Table of Contents
+## 목차
 
-1. [Server Types](#server-types)
-2. [Threading Architecture](#threading-architecture)
-3. [Tick Rate and Simulation](#tick-rate-and-simulation)
-4. [Network Synchronization](#network-synchronization)
-5. [Performance Optimization](#performance-optimization)
-6. [Case Studies](#case-studies)
+1. [서버 유형](#서버-유형)
+2. [스레딩 아키텍처](#스레딩-아키텍처)
+3. [Tick Rate와 시뮬레이션](#tick-rate와-시뮬레이션)
+4. [네트워크 동기화](#네트워크-동기화)
+5. [성능 최적화](#성능-최적화)
+6. [사례 연구](#사례-연구)
 
-## Server Types
+## 서버 유형
 
-### FPS (First-Person Shooter)
+### FPS (1인칭 슈팅)
 
-**Characteristics:**
-- High tick rate (60-128 Hz)
-- Low latency critical (< 20ms desirable)
-- Fast-paced action requires precise hit detection
-- Client-side prediction with server reconciliation
+**특성:**
+- 높은 tick rate (60-128 Hz)
+- 낮은 지연 시간 필수 (20ms 미만 권장)
+- 빠른 액션에 정밀한 피격 판정 필요
+- 클라이언트 측 예측과 서버 조정
 
-**Architecture:**
+**아키텍처:**
 ```
 ┌────────────────────────────────────────────────┐
 │         FPS Server Architecture                │
@@ -66,27 +66,27 @@ Max Players: 32-64
 Latency Target: < 20ms
 ```
 
-**Implementation Example:**
+**구현 예시:**
 
 ```cpp
-// FPS Server - High tick rate simulation
+// FPS 서버 - 높은 tick rate 시뮬레이션
 class FPSGameServer {
 public:
     FPSGameServer(int tick_rate = 128)
         : tick_rate_(tick_rate),
-          tick_duration_(1000000 / tick_rate),  // microseconds
+          tick_duration_(1000000 / tick_rate),  // 마이크로초
           running_(false) {}
 
     void Start() {
         running_ = true;
 
-        // Start network I/O thread
+        // 네트워크 I/O 스레드 시작
         network_thread_ = std::thread(&FPSGameServer::NetworkThread, this);
 
-        // Start main simulation thread
+        // 메인 시뮬레이션 스레드 시작
         simulation_thread_ = std::thread(&FPSGameServer::SimulationThread, this);
 
-        // Start replication thread
+        // 복제 스레드 시작
         replication_thread_ = std::thread(&FPSGameServer::ReplicationThread, this);
     }
 
@@ -100,13 +100,13 @@ public:
 private:
     void NetworkThread() {
         while (running_) {
-            // Receive packets from clients
+            // 클라이언트로부터 패킷 수신
             ReceivePackets();
 
-            // Send outgoing packets
+            // 송신 패킷 전송
             SendPackets();
 
-            // Small sleep to prevent busy waiting
+            // 바쁜 대기를 방지하기 위한 짧은 sleep
             std::this_thread::sleep_for(std::chrono::microseconds(100));
         }
     }
@@ -120,34 +120,34 @@ private:
         while (running_) {
             auto tick_start = clock::now();
 
-            // Process all pending inputs
+            // 대기 중인 모든 입력 처리
             ProcessInputs(tick_number);
 
-            // Update physics
+            // 물리 업데이트
             UpdatePhysics(tick_duration_.count() / 1000000.0f);
 
-            // Update game logic
+            // 게임 로직 업데이트
             UpdateGameLogic();
 
-            // AI updates
+            // AI 업데이트
             UpdateAI();
 
-            // Create snapshot for this tick
+            // 이 tick의 스냅샷 생성
             CreateSnapshot(tick_number);
 
             tick_number++;
 
-            // Sleep until next tick
+            // 다음 tick까지 sleep
             next_tick += tick_duration_;
             std::this_thread::sleep_until(next_tick);
 
-            // Measure actual tick time
+            // 실제 tick 시간 측정
             auto tick_end = clock::now();
             auto tick_time = std::chrono::duration_cast<std::chrono::microseconds>(
                 tick_end - tick_start);
 
             if (tick_time > tick_duration_) {
-                // Server is lagging!
+                // 서버가 지연되고 있음!
                 LogWarning("Tick overrun: " + std::to_string(tick_time.count()) + "us");
             }
         }
@@ -155,53 +155,53 @@ private:
 
     void ReplicationThread() {
         while (running_) {
-            // Get latest snapshot
+            // 최신 스냅샷 가져오기
             auto snapshot = snapshot_queue_.pop();
 
-            // For each connected player
+            // 연결된 각 플레이어에 대해
             for (auto& [player_id, connection] : connections_) {
-                // Calculate delta from last acknowledged snapshot
+                // 마지막으로 확인된 스냅샷과의 차이 계산
                 auto delta = CalculateDelta(player_id, snapshot);
 
-                // Compress and send
+                // 압축 및 전송
                 auto packet = CompressSnapshot(delta);
                 outgoing_queue_.push({connection, packet});
             }
 
-            // Wait for next snapshot
-            std::this_thread::sleep_for(std::chrono::milliseconds(15)); // ~60 Hz updates
+            // 다음 스냅샷 대기
+            std::this_thread::sleep_for(std::chrono::milliseconds(15)); // ~60 Hz 업데이트
         }
     }
 
     void ProcessInputs(uint32_t tick_number) {
-        // Process all inputs in the queue
+        // 큐의 모든 입력 처리
         PlayerInput input;
         while (input_queue_.try_pop(input)) {
-            // Validate input
+            // 입력 유효성 검사
             if (!ValidateInput(input)) continue;
 
-            // Apply input to player
+            // 플레이어에 입력 적용
             auto& player = players_[input.player_id];
             player.ApplyInput(input, tick_number);
         }
     }
 
     void UpdatePhysics(float delta_time) {
-        // Update projectiles
+        // 발사체 업데이트
         for (auto& projectile : projectiles_) {
             projectile.position += projectile.velocity * delta_time;
 
-            // Check collisions
+            // 충돌 검사
             if (CheckCollision(projectile)) {
                 HandleHit(projectile);
             }
         }
 
-        // Update player positions
+        // 플레이어 위치 업데이트
         for (auto& [id, player] : players_) {
             player.UpdateMovement(delta_time);
 
-            // Server-side hit validation
+            // 서버 측 피격 유효성 검사
             if (player.IsShooting()) {
                 ValidateShot(player);
             }
@@ -209,17 +209,17 @@ private:
     }
 
     void UpdateGameLogic() {
-        // Update health, ammo, weapons, etc.
+        // 체력, 탄약, 무기 등 업데이트
         for (auto& [id, player] : players_) {
             player.UpdateLogic();
 
-            // Check if player died
+            // 플레이어 사망 확인
             if (player.health <= 0 && player.alive) {
                 HandlePlayerDeath(id);
             }
         }
 
-        // Update game mode specific logic
+        // 게임 모드별 로직 업데이트
         UpdateGameMode();
     }
 
@@ -228,7 +228,7 @@ private:
         snapshot.tick_number = tick_number;
         snapshot.timestamp = GetCurrentTime();
 
-        // Capture all entity states
+        // 모든 엔티티 상태 캡처
         for (const auto& [id, player] : players_) {
             snapshot.player_states.push_back(player.GetState());
         }
@@ -237,19 +237,19 @@ private:
             snapshot.projectile_states.push_back(projectile.GetState());
         }
 
-        // Push to replication thread
+        // 복제 스레드로 전달
         snapshot_queue_.push(std::move(snapshot));
     }
 
-    // Lag compensation for hit detection
+    // 피격 판정을 위한 지연 보상
     bool ValidateShot(const Player& shooter) {
-        // Rewind world state to shooter's view time
+        // 사격자의 시점 시간으로 월드 상태 되감기
         uint32_t rewind_tick = shooter.last_acknowledged_tick;
 
-        // Get historical world state
+        // 과거 월드 상태 가져오기
         auto past_state = GetHistoricalState(rewind_tick);
 
-        // Perform ray cast in rewound state
+        // 되감은 상태에서 레이캐스트 수행
         RaycastResult hit = past_state.Raycast(
             shooter.position,
             shooter.aim_direction,
@@ -257,9 +257,9 @@ private:
         );
 
         if (hit.entity_type == EntityType::Player) {
-            // Validate hit is reasonable (anti-cheat)
+            // 피격이 합리적인지 검증 (안티 치트)
             if (ValidateHitReason(shooter, hit)) {
-                // Apply damage in current state
+                // 현재 상태에서 데미지 적용
                 ApplyDamage(hit.entity_id, shooter.weapon_damage);
                 return true;
             }
@@ -273,36 +273,36 @@ private:
     std::chrono::microseconds tick_duration_;
     std::atomic<bool> running_;
 
-    // Threading
+    // 스레딩
     std::thread network_thread_;
     std::thread simulation_thread_;
     std::thread replication_thread_;
 
-    // Lock-free queues
+    // Lock-free 큐
     LockFreeQueue<PlayerInput> input_queue_;
     LockFreeQueue<Snapshot> snapshot_queue_;
     LockFreeQueue<OutgoingPacket> outgoing_queue_;
 
-    // Game state
+    // 게임 상태
     std::unordered_map<uint32_t, Player> players_;
     std::vector<Projectile> projectiles_;
     std::unordered_map<uint32_t, Connection> connections_;
 
-    // Historical states for lag compensation (circular buffer)
+    // 지연 보상을 위한 과거 상태 (순환 버퍼)
     std::array<Snapshot, 256> historical_states_;
     uint8_t history_index_ = 0;
 };
 ```
 
-### MOBA (Multiplayer Online Battle Arena)
+### MOBA (멀티플레이어 온라인 배틀 아레나)
 
-**Characteristics:**
-- Medium tick rate (20-30 Hz)
-- Deterministic simulation crucial
-- 10 players typical (5v5)
-- Complex game logic (abilities, items, AI)
+**특성:**
+- 중간 tick rate (20-30 Hz)
+- 결정론적 시뮬레이션 필수
+- 일반적으로 10명의 플레이어 (5v5)
+- 복잡한 게임 로직 (스킬, 아이템, AI)
 
-**Architecture:**
+**아키텍처:**
 ```
 ┌────────────────────────────────────────────────┐
 │           MOBA Server Architecture              │
@@ -343,10 +343,10 @@ Max Players: 10
 Latency Target: < 50ms
 ```
 
-**Implementation Example:**
+**구현 예시:**
 
 ```cpp
-// MOBA Server - Deterministic lockstep simulation
+// MOBA 서버 - 결정론적 lockstep 시뮬레이션
 class MOBAGameServer {
 public:
     MOBAGameServer() : tick_rate_(30), running_(false) {}
@@ -354,15 +354,15 @@ public:
     void Start() {
         running_ = true;
 
-        // Main simulation thread (deterministic)
+        // 메인 시뮬레이션 스레드 (결정론적)
         simulation_thread_ = std::thread(&MOBAGameServer::SimulationThread, this);
 
-        // Worker threads for parallel processing
+        // 병렬 처리를 위한 워커 스레드
         for (int i = 0; i < 4; ++i) {
             worker_threads_.emplace_back(&MOBAGameServer::WorkerThread, this);
         }
 
-        // Network I/O thread
+        // 네트워크 I/O 스레드
         network_thread_ = std::thread(&MOBAGameServer::NetworkThread, this);
     }
 
@@ -387,10 +387,10 @@ private:
         while (running_) {
             auto tick_start = std::chrono::steady_clock::now();
 
-            // 1. Collect all commands for this tick
+            // 1. 이 tick의 모든 명령 수집
             std::vector<Command> commands = CollectCommands(tick_number);
 
-            // 2. Sort commands deterministically (by player ID, then timestamp)
+            // 2. 결정론적으로 명령 정렬 (플레이어 ID, 타임스탬프 순)
             std::sort(commands.begin(), commands.end(),
                 [](const Command& a, const Command& b) {
                     if (a.player_id != b.player_id)
@@ -398,38 +398,38 @@ private:
                     return a.timestamp < b.timestamp;
                 });
 
-            // 3. Validate and execute commands (DETERMINISTIC ORDER)
+            // 3. 명령 검증 및 실행 (결정론적 순서)
             for (const auto& cmd : commands) {
                 if (ValidateCommand(cmd)) {
                     ExecuteCommand(cmd);
                 }
             }
 
-            // 4. Update abilities and cooldowns
+            // 4. 스킬과 쿨다운 업데이트
             UpdateAbilities(tick_duration.count() / 1000.0f);
 
-            // 5. Update AI (minions, jungle, towers)
+            // 5. AI 업데이트 (미니언, 정글, 타워)
             UpdateAI(tick_duration.count() / 1000.0f);
 
-            // 6. Update physics and movement (deterministic)
+            // 6. 물리 및 이동 업데이트 (결정론적)
             UpdatePhysics(tick_duration.count() / 1000.0f);
 
-            // 7. Calculate damage and apply effects
+            // 7. 데미지 계산 및 효과 적용
             ProcessCombat();
 
-            // 8. Update game state (gold, XP, items)
+            // 8. 게임 상태 업데이트 (골드, 경험치, 아이템)
             UpdateGameState();
 
-            // 9. Broadcast state changes to clients
+            // 9. 클라이언트에 상태 변경 방송
             BroadcastStateChanges(tick_number);
 
             tick_number++;
 
-            // Sleep until next tick
+            // 다음 tick까지 sleep
             next_tick += tick_duration;
             std::this_thread::sleep_until(next_tick);
 
-            // Monitor tick performance
+            // tick 성능 모니터링
             auto tick_time = std::chrono::steady_clock::now() - tick_start;
             if (tick_time > tick_duration) {
                 LogWarning("Tick overrun: " +
@@ -454,26 +454,26 @@ private:
                 work_queue_.pop();
                 lock.unlock();
 
-                // Process work
+                // 작업 처리
                 work();
             }
         }
     }
 
     void UpdateAbilities(float delta_time) {
-        // Dispatch ability updates to worker threads
+        // 워커 스레드에 스킬 업데이트 분배
         for (auto& [id, hero] : heroes_) {
             SubmitWork([&hero, delta_time]() {
                 hero.UpdateAbilities(delta_time);
             });
         }
 
-        // Wait for all ability updates
+        // 모든 스킬 업데이트 완료 대기
         WaitForWorkCompletion();
     }
 
     void UpdateAI(float delta_time) {
-        // Update minion AI in parallel
+        // 미니언 AI를 병렬로 업데이트
         SubmitWork([this, delta_time]() {
             UpdateMinionWave(LaneType::Top, delta_time);
         });
@@ -494,7 +494,7 @@ private:
     }
 
     void ProcessCombat() {
-        // Collect all damage events from abilities, attacks, etc.
+        // 스킬, 공격 등에서 모든 데미지 이벤트 수집
         std::vector<DamageEvent> damage_events;
 
         for (auto& [id, hero] : heroes_) {
@@ -502,13 +502,13 @@ private:
             damage_events.insert(damage_events.end(), events.begin(), events.end());
         }
 
-        // Sort damage events deterministically
+        // 결정론적으로 데미지 이벤트 정렬
         std::sort(damage_events.begin(), damage_events.end(),
             [](const DamageEvent& a, const DamageEvent& b) {
                 return a.timestamp < b.timestamp;
             });
 
-        // Apply damage in deterministic order
+        // 결정론적 순서로 데미지 적용
         for (const auto& event : damage_events) {
             ApplyDamage(event);
         }
@@ -536,33 +536,33 @@ private:
     void ExecuteCastAbilityCommand(const Command& cmd) {
         auto& hero = heroes_[cmd.player_id];
 
-        // Check if ability is available
+        // 스킬 사용 가능 여부 확인
         if (!hero.CanCastAbility(cmd.ability_index)) {
-            return; // Cooldown or insufficient mana
+            return; // 쿨다운 또는 마나 부족
         }
 
-        // Get ability
+        // 스킬 가져오기
         auto& ability = hero.GetAbility(cmd.ability_index);
 
-        // Validate targeting
+        // 타겟팅 검증
         if (!ability.ValidateTarget(cmd.target_position, cmd.target_entity_id)) {
             return;
         }
 
-        // Cast ability
+        // 스킬 시전
         ability.Cast(cmd.target_position, cmd.target_entity_id);
 
-        // Deduct mana and start cooldown
+        // 마나 소모 및 쿨다운 시작
         hero.ConsumeMana(ability.GetManaCost());
         ability.StartCooldown();
 
-        // Create ability effect (projectile, area of effect, etc.)
+        // 스킬 효과 생성 (투사체, 범위 효과 등)
         CreateAbilityEffect(hero, ability, cmd);
     }
 
-    // Deterministic physics update
+    // 결정론적 물리 업데이트
     void UpdatePhysics(float delta_time) {
-        // Update all entity positions
+        // 모든 엔티티 위치 업데이트
         for (auto& [id, hero] : heroes_) {
             UpdateEntityPhysics(hero, delta_time);
         }
@@ -574,7 +574,7 @@ private:
         for (auto& projectile : projectiles_) {
             projectile.position += projectile.velocity * delta_time;
 
-            // Check collision
+            // 충돌 검사
             if (CheckProjectileCollision(projectile)) {
                 HandleProjectileHit(projectile);
             }
@@ -583,15 +583,15 @@ private:
 
     void UpdateEntityPhysics(Entity& entity, float delta_time) {
         if (entity.has_movement_target) {
-            // Calculate direction to target
+            // 목표까지의 방향 계산
             glm::vec3 direction = glm::normalize(
                 entity.movement_target - entity.position
             );
 
-            // Move towards target
+            // 목표를 향해 이동
             glm::vec3 displacement = direction * entity.movement_speed * delta_time;
 
-            // Check if we reached target
+            // 목표에 도달했는지 확인
             if (glm::length(displacement) >= glm::length(entity.movement_target - entity.position)) {
                 entity.position = entity.movement_target;
                 entity.has_movement_target = false;
@@ -602,27 +602,27 @@ private:
     }
 
     void BroadcastStateChanges(uint32_t tick_number) {
-        // Create state update packet
+        // 상태 업데이트 패킷 생성
         StateUpdate update;
         update.tick_number = tick_number;
 
-        // Add hero states
+        // 영웅 상태 추가
         for (const auto& [id, hero] : heroes_) {
             update.hero_states.push_back(hero.GetState());
         }
 
-        // Add minion states (only changed minions)
+        // 미니언 상태 추가 (변경된 미니언만)
         for (const auto& minion : minions_) {
             if (minion.state_changed) {
                 update.minion_states.push_back(minion.GetState());
             }
         }
 
-        // Add events (kills, assists, gold, etc.)
+        // 이벤트 추가 (킬, 어시스트, 골드 등)
         update.events = std::move(pending_events_);
         pending_events_.clear();
 
-        // Send to all connected clients
+        // 연결된 모든 클라이언트에 전송
         for (auto& [player_id, connection] : connections_) {
             SendStateUpdate(connection, update);
         }
@@ -648,38 +648,38 @@ private:
     int tick_rate_;
     std::atomic<bool> running_;
 
-    // Threading
+    // 스레딩
     std::thread simulation_thread_;
     std::vector<std::thread> worker_threads_;
     std::thread network_thread_;
 
-    // Work queue for parallel processing
+    // 병렬 처리를 위한 작업 큐
     std::queue<std::function<void()>> work_queue_;
     std::mutex work_mutex_;
     std::condition_variable work_available_;
     std::condition_variable work_completed_;
     std::atomic<int> pending_work_{0};
 
-    // Game state
+    // 게임 상태
     std::unordered_map<uint32_t, Hero> heroes_;
     std::vector<Minion> minions_;
     std::vector<Projectile> projectiles_;
     std::vector<GameEvent> pending_events_;
 
-    // Network
+    // 네트워크
     std::unordered_map<uint32_t, Connection> connections_;
 };
 ```
 
-### MMO (Massively Multiplayer Online)
+### MMO (대규모 다중 접속 온라인)
 
-**Characteristics:**
-- Variable tick rate (5-30 Hz depending on area)
-- Zone-based architecture
-- Hundreds to thousands of concurrent players per server
-- Interest management crucial
+**특성:**
+- 가변 tick rate (지역에 따라 5-30 Hz)
+- Zone 기반 아키텍처
+- 서버당 수백에서 수천 명의 동시 접속 플레이어
+- 관심 영역 관리 필수
 
-**Architecture:**
+**아키텍처:**
 ```
 ┌────────────────────────────────────────────────────────┐
 │              MMO Server Architecture                    │
@@ -721,10 +721,10 @@ Max Players per Zone: 100-500
 Latency Target: < 100ms
 ```
 
-**Implementation Example:**
+**구현 예시:**
 
 ```cpp
-// MMO Server - Zone-based architecture with interest management
+// MMO 서버 - 관심 영역 관리를 포함한 zone 기반 아키텍처
 class MMOZoneServer {
 public:
     MMOZoneServer(ZoneConfig config)
@@ -735,24 +735,24 @@ public:
     void Start() {
         running_ = true;
 
-        // Main zone simulation thread
+        // 메인 zone 시뮬레이션 스레드
         simulation_thread_ = std::thread(&MMOZoneServer::SimulationThread, this);
 
-        // Interest management thread
+        // 관심 영역 관리 스레드
         interest_thread_ = std::thread(&MMOZoneServer::InterestManagementThread, this);
 
-        // Database I/O thread pool
+        // 데이터베이스 I/O thread pool
         for (int i = 0; i < 2; ++i) {
             db_threads_.emplace_back(&MMOZoneServer::DatabaseThread, this);
         }
 
-        // Network I/O thread
+        // 네트워크 I/O 스레드
         network_thread_ = std::thread(&MMOZoneServer::NetworkThread, this);
     }
 
     void Stop() {
         running_ = false;
-        // Join all threads...
+        // 모든 스레드 join...
     }
 
 private:
@@ -761,22 +761,22 @@ private:
         auto next_tick = std::chrono::steady_clock::now();
 
         while (running_) {
-            // Process player actions
+            // 플레이어 액션 처리
             ProcessPlayerActions();
 
-            // Update NPCs and monsters
+            // NPC와 몬스터 업데이트
             UpdateNPCs();
 
-            // Update combat
+            // 전투 업데이트
             UpdateCombat();
 
-            // Update world events (spawns, despawns, etc.)
+            // 월드 이벤트 업데이트 (스폰, 디스폰 등)
             UpdateWorldEvents();
 
-            // Process movement
+            // 이동 처리
             UpdateMovement();
 
-            // Update spatial index
+            // 공간 인덱스 업데이트
             UpdateSpatialIndex();
 
             next_tick += tick_duration;
@@ -785,17 +785,17 @@ private:
     }
 
     void InterestManagementThread() {
-        // Runs at lower frequency than simulation (e.g., 10 Hz)
+        // 시뮬레이션보다 낮은 빈도로 실행 (예: 10 Hz)
         auto update_interval = std::chrono::milliseconds(100);
         auto next_update = std::chrono::steady_clock::now();
 
         while (running_) {
-            // Update visibility sets for all players
+            // 모든 플레이어의 가시성 세트 업데이트
             for (auto& [id, player] : players_) {
                 UpdatePlayerVisibility(player);
             }
 
-            // Send state updates based on priority
+            // 우선순위 기반 상태 업데이트 전송
             SendPrioritizedUpdates();
 
             next_update += update_interval;
@@ -804,13 +804,13 @@ private:
     }
 
     void UpdatePlayerVisibility(Player& player) {
-        // Query spatial index for nearby entities
+        // 공간 인덱스에서 근처 엔티티 조회
         auto visible_entities = spatial_index_.QueryRadius(
             player.position,
             player.visibility_radius
         );
 
-        // Calculate interest level for each entity
+        // 각 엔티티에 대한 관심도 계산
         std::vector<InterestEntry> interests;
         for (auto entity_id : visible_entities) {
             float distance = glm::distance(
@@ -818,39 +818,39 @@ private:
                 GetEntityPosition(entity_id)
             );
 
-            // Calculate priority based on distance and entity type
+            // 거리와 엔티티 유형에 따른 우선순위 계산
             float priority = CalculateInterestPriority(distance, entity_id);
 
             interests.push_back({entity_id, priority});
         }
 
-        // Sort by priority
+        // 우선순위로 정렬
         std::sort(interests.begin(), interests.end(),
             [](const InterestEntry& a, const InterestEntry& b) {
                 return a.priority > b.priority;
             });
 
-        // Limit to top N entities
+        // 상위 N개 엔티티로 제한
         if (interests.size() > config_.max_visible_entities) {
             interests.resize(config_.max_visible_entities);
         }
 
-        // Update player's interest set
+        // 플레이어의 관심 세트 업데이트
         player.interest_set = std::move(interests);
     }
 
     float CalculateInterestPriority(float distance, EntityID entity_id) {
-        // Base priority on distance (closer = higher priority)
+        // 거리 기반 기본 우선순위 (가까울수록 높은 우선순위)
         float priority = 1.0f / (1.0f + distance);
 
-        // Boost priority for certain entity types
+        // 특정 엔티티 유형에 대해 우선순위 가중치
         auto entity_type = GetEntityType(entity_id);
         switch (entity_type) {
             case EntityType::Player:
-                priority *= 2.0f;  // Other players are important
+                priority *= 2.0f;  // 다른 플레이어는 중요함
                 break;
             case EntityType::Boss:
-                priority *= 3.0f;  // Bosses are very important
+                priority *= 3.0f;  // 보스는 매우 중요함
                 break;
             case EntityType::QuestNPC:
                 priority *= 1.5f;
@@ -867,7 +867,7 @@ private:
             StateUpdate update;
             update.player_id = player_id;
 
-            // Add entities based on priority and bandwidth budget
+            // 우선순위와 대역폭 예산에 따라 엔티티 추가
             size_t bandwidth_budget = config_.max_update_size_bytes;
 
             for (const auto& interest : player.interest_set) {
@@ -875,17 +875,17 @@ private:
                 size_t state_size = entity_state.GetSize();
 
                 if (state_size > bandwidth_budget) {
-                    break;  // Budget exhausted
+                    break;  // 예산 소진
                 }
 
-                // Check if state changed since last update
+                // 마지막 업데이트 이후 상태가 변경되었는지 확인
                 if (HasStateChanged(player_id, interest.entity_id)) {
                     update.entity_states.push_back(entity_state);
                     bandwidth_budget -= state_size;
                 }
             }
 
-            // Send update to player
+            // 플레이어에게 업데이트 전송
             if (!update.entity_states.empty()) {
                 SendUpdate(player.connection, update);
             }
@@ -893,20 +893,20 @@ private:
     }
 
     void UpdateSpatialIndex() {
-        // Rebuild spatial index (could be optimized with incremental updates)
+        // 공간 인덱스 재구축 (점진적 업데이트로 최적화 가능)
         spatial_index_.Clear();
 
-        // Add all players
+        // 모든 플레이어 추가
         for (const auto& [id, player] : players_) {
             spatial_index_.Insert(id, player.position);
         }
 
-        // Add all NPCs
+        // 모든 NPC 추가
         for (const auto& npc : npcs_) {
             spatial_index_.Insert(npc.id, npc.position);
         }
 
-        // Add all monsters
+        // 모든 몬스터 추가
         for (const auto& monster : monsters_) {
             spatial_index_.Insert(monster.id, monster.position);
         }
@@ -917,27 +917,27 @@ private:
     int tick_rate_;
     std::atomic<bool> running_;
 
-    // Threading
+    // 스레딩
     std::thread simulation_thread_;
     std::thread interest_thread_;
     std::vector<std::thread> db_threads_;
     std::thread network_thread_;
 
-    // Game state
+    // 게임 상태
     std::unordered_map<uint32_t, Player> players_;
     std::vector<NPC> npcs_;
     std::vector<Monster> monsters_;
 
-    // Spatial indexing
+    // 공간 인덱싱
     SpatialHashGrid spatial_index_;
 };
 ```
 
-## Performance Optimization
+## 성능 최적화
 
-### 1. Lock-free Communication
+### 1. Lock-free 통신
 ```cpp
-// Use SPSC queue for inter-thread communication
+// 스레드 간 통신을 위한 SPSC 큐 사용
 template<typename T>
 class SPSCQueue {
     std::vector<T> buffer_;
@@ -955,7 +955,7 @@ public:
         size_t next_write = (write + 1) % capacity_;
 
         if (next_write == read_pos_.load(std::memory_order_acquire)) {
-            return false;  // Queue full
+            return false;  // 큐 가득 참
         }
 
         buffer_[write] = std::move(value);
@@ -967,7 +967,7 @@ public:
         size_t read = read_pos_.load(std::memory_order_relaxed);
 
         if (read == write_pos_.load(std::memory_order_acquire)) {
-            return false;  // Queue empty
+            return false;  // 큐 비어 있음
         }
 
         value = std::move(buffer_[read]);
@@ -977,9 +977,9 @@ public:
 };
 ```
 
-### 2. Object Pooling
+### 2. 오브젝트 풀링
 ```cpp
-// Object pool for frequently allocated/deallocated objects
+// 빈번하게 할당/해제되는 객체를 위한 오브젝트 풀
 template<typename T>
 class ObjectPool {
     std::vector<std::unique_ptr<T>> pool_;
@@ -997,7 +997,7 @@ public:
     T* Acquire() {
         std::lock_guard<std::mutex> lock(mutex_);
         if (pool_.empty()) {
-            return new T();  // Fallback to heap allocation
+            return new T();  // 힙 할당으로 폴백
         }
         auto obj = pool_.back().release();
         pool_.pop_back();
@@ -1005,13 +1005,13 @@ public:
     }
 
     void Release(T* obj) {
-        obj->Reset();  // Reset object state
+        obj->Reset();  // 객체 상태 초기화
         std::lock_guard<std::mutex> lock(mutex_);
         pool_.push_back(std::unique_ptr<T>(obj));
     }
 };
 
-// Usage
+// 사용 예시
 ObjectPool<Projectile> projectile_pool(1000);
 
 void SpawnProjectile() {
@@ -1025,9 +1025,9 @@ void DestroyProjectile(Projectile* proj) {
 }
 ```
 
-### 3. Batch Processing
+### 3. 일괄 처리
 ```cpp
-// Process events in batches to reduce overhead
+// 오버헤드를 줄이기 위해 이벤트를 일괄 처리
 void ProcessNetworkEvents() {
     constexpr size_t BATCH_SIZE = 64;
     std::array<NetworkEvent, BATCH_SIZE> batch;
@@ -1035,7 +1035,7 @@ void ProcessNetworkEvents() {
     while (true) {
         size_t count = 0;
 
-        // Collect batch
+        // 배치 수집
         while (count < BATCH_SIZE) {
             NetworkEvent event;
             if (!event_queue_.try_pop(event)) {
@@ -1046,7 +1046,7 @@ void ProcessNetworkEvents() {
 
         if (count == 0) break;
 
-        // Process batch
+        // 배치 처리
         for (size_t i = 0; i < count; ++i) {
             ProcessEvent(batch[i]);
         }
@@ -1054,56 +1054,56 @@ void ProcessNetworkEvents() {
 }
 ```
 
-## Case Studies
+## 사례 연구
 
 ### Counter-Strike: Global Offensive (CS:GO)
 
-**Architecture:**
-- Dedicated server model
-- 64 Hz or 128 Hz tick rate
-- Source Engine
-- Client-side prediction with server reconciliation
-- Lag compensation for hit detection
+**아키텍처:**
+- 전용 서버 모델
+- 64 Hz 또는 128 Hz tick rate
+- Source 엔진
+- 클라이언트 측 예측과 서버 조정
+- 피격 판정을 위한 지연 보상
 
-**Key Techniques:**
-- Command buffering
-- Delta compression
-- Priority-based entity updates
-- Historical state snapshots for lag compensation
+**핵심 기법:**
+- 명령 버퍼링
+- 델타 압축
+- 우선순위 기반 엔티티 업데이트
+- 지연 보상을 위한 과거 상태 스냅샷
 
-### League of Legends
+### 리그 오브 레전드
 
-**Architecture:**
-- Deterministic lockstep simulation
+**아키텍처:**
+- 결정론적 lockstep 시뮬레이션
 - 30 Hz tick rate
-- Regional data centers
-- Microservices for auxiliary features
+- 지역 데이터 센터
+- 보조 기능을 위한 마이크로서비스
 
-**Key Techniques:**
-- Command pattern for all player actions
-- Predictable simulation order
-- State rollback for reconnection
-- Spectator delay (3 minutes) for cheating prevention
+**핵심 기법:**
+- 모든 플레이어 액션에 대한 Command 패턴
+- 예측 가능한 시뮬레이션 순서
+- 재접속을 위한 상태 롤백
+- 부정 방지를 위한 관전자 딜레이 (3분)
 
-### World of Warcraft (Classic)
+### 월드 오브 워크래프트 (클래식)
 
-**Architecture:**
-- Zone-based world servers
-- ~50ms spell batching window
-- Approximately 10-20 Hz effective tick rate
-- Phasing technology for instancing
+**아키텍처:**
+- Zone 기반 월드 서버
+- ~50ms 스펠 일괄 처리 윈도우
+- 약 10-20 Hz 유효 tick rate
+- 인스턴싱을 위한 페이징 기술
 
-**Key Techniques:**
-- Interest management (visibility bubbles)
-- Database sharding
-- Cross-realm technology
-- Load balancing via layering
+**핵심 기법:**
+- 관심 영역 관리 (가시성 버블)
+- 데이터베이스 sharding
+- Cross-realm 기술
+- 레이어링을 통한 부하 분산
 
-## Conclusion
+## 결론
 
-Real-time game servers require careful consideration of threading models, tick rates, and network synchronization strategies. The choice of architecture depends on the game genre, player count, and performance requirements. Modern game servers often use hybrid approaches, combining multiple threading patterns to achieve optimal performance and scalability.
+실시간 게임 서버는 스레딩 모델, tick rate, 네트워크 동기화 전략에 대한 신중한 고려가 필요합니다. 아키텍처 선택은 게임 장르, 플레이어 수, 성능 요구사항에 따라 달라집니다. 현대 게임 서버는 최적의 성능과 확장성을 달성하기 위해 여러 스레딩 패턴을 결합한 하이브리드 접근 방식을 자주 사용합니다.
 
-## Further Reading
+## 추가 참고 자료
 
 - [Gaffer on Games - State Synchronization](https://gafferongames.com/post/state_synchronization/)
 - [Valve Developer Wiki - Source Multiplayer Networking](https://developer.valvesoftware.com/wiki/Source_Multiplayer_Networking)

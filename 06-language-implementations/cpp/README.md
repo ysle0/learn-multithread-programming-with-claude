@@ -1,226 +1,226 @@
-# C++ Concurrency
+# C++ 동시성
 
-C++ provides low-level, high-performance concurrency primitives starting with C++11. The language follows a "zero-overhead abstraction" philosophy, giving you maximum control while providing safe, modern abstractions.
+C++는 C++11부터 저수준, 고성능 동시성 프리미티브를 제공합니다. 이 언어는 "제로 오버헤드 추상화" 철학을 따르며, 안전하고 현대적인 추상화를 제공하면서 최대한의 제어권을 줍니다.
 
-## Overview
+## 개요
 
-C++ concurrency evolved significantly:
-- **C++11**: Introduced threading library, atomics, memory model
-- **C++14**: Minor improvements and bug fixes
-- **C++17**: Parallel algorithms
-- **C++20**: Coroutines, semaphores, barriers, latches, jthread
-- **C++23**: Further improvements to synchronization primitives
+C++ 동시성은 크게 발전해 왔습니다:
+- **C++11**: 스레딩 라이브러리, atomic, 메모리 모델 도입
+- **C++14**: 소규모 개선 및 버그 수정
+- **C++17**: 병렬 알고리즘
+- **C++20**: 코루틴, 세마포어, 배리어, 래치, jthread
+- **C++23**: 동기화 프리미티브의 추가 개선
 
-## Core Components
+## 핵심 구성 요소
 
 ### 1. [std::thread](./01-std-thread.md)
-- Creating and managing OS threads
-- Thread lifecycle and joining
-- Passing arguments to threads
-- Thread IDs and hardware concurrency
+- OS 스레드 생성 및 관리
+- 스레드 생명주기와 조인
+- 스레드에 인수 전달
+- 스레드 ID와 하드웨어 동시성
 
-### 2. [Mutex and Lock Guard](./02-mutex-lock-guard.md)
-- `std::mutex` for mutual exclusion
-- RAII lock guards (`std::lock_guard`, `std::unique_lock`)
-- Shared mutexes for reader-writer scenarios
-- Recursive and timed mutexes
+### 2. [Mutex와 Lock Guard](./02-mutex-lock-guard.md)
+- 상호 배제를 위한 `std::mutex`
+- RAII 락 가드 (`std::lock_guard`, `std::unique_lock`)
+- Reader-Writer 시나리오를 위한 공유 뮤텍스
+- 재귀 및 시간 제한 뮤텍스
 
-### 3. [Atomic Operations](./03-atomic.md)
-- `std::atomic<T>` for lock-free programming
-- Memory ordering and synchronization
-- Compare-and-swap operations
-- Atomic smart pointers (C++20)
+### 3. [Atomic 연산](./03-atomic.md)
+- Lock-Free 프로그래밍을 위한 `std::atomic<T>`
+- 메모리 순서와 동기화
+- Compare-and-Swap 연산
+- Atomic 스마트 포인터 (C++20)
 
-### 4. [Condition Variables](./04-condition-variable.md)
-- Waiting for conditions to become true
-- Producer-consumer patterns
-- Spurious wakeups and predicate loops
-- Notify one vs. notify all
+### 4. [Condition Variable](./04-condition-variable.md)
+- 조건이 참이 될 때까지 대기
+- 생산자-소비자 패턴
+- 가짜 깨어남(Spurious Wakeup)과 조건 루프
+- notify_one vs. notify_all
 
-### 5. [Async and Future](./05-async-future.md)
-- Task-based parallelism with `std::async`
-- `std::future` and `std::promise`
-- Launch policies (async vs. deferred)
-- Shared futures and packaged tasks
+### 5. [Async와 Future](./05-async-future.md)
+- `std::async`를 이용한 태스크 기반 병렬처리
+- `std::future`와 `std::promise`
+- 실행 정책 (async vs. deferred)
+- shared_future와 packaged_task
 
-## Quick Comparison with Other Languages
+## 다른 언어와의 비교
 
-| Feature | C++ | Comparison |
+| 기능 | C++ | 비교 |
 |---------|-----|------------|
-| **Thread Creation** | `std::thread` | Similar to C# `Thread`, heavier than Go goroutines |
-| **Async Pattern** | `std::async` + `std::future` | Less ergonomic than C# `async/await` or JS Promises |
-| **Message Passing** | No built-in | Unlike Go channels; use libraries or manual queues |
-| **Memory Model** | Well-defined (C++11) | Most explicit and low-level of all four languages |
-| **Safety** | Manual, error-prone | Less safe than C#/Go/JS; requires careful programming |
+| **스레드 생성** | `std::thread` | C# `Thread`와 유사, Go goroutine보다 무거움 |
+| **비동기 패턴** | `std::async` + `std::future` | C# `async/await`나 JS Promise보다 사용이 덜 편리함 |
+| **메시지 전달** | 내장 기능 없음 | Go 채널과 다름; 라이브러리 또는 수동 큐 사용 |
+| **메모리 모델** | 잘 정의됨 (C++11) | 네 언어 중 가장 명시적이고 저수준 |
+| **안전성** | 수동, 오류 발생 가능성 높음 | C#/Go/JS보다 덜 안전; 세심한 프로그래밍 필요 |
 
-## Key Principles
+## 핵심 원칙
 
 ### 1. RAII (Resource Acquisition Is Initialization)
 ```cpp
 {
     std::lock_guard<std::mutex> lock(mutex);
-    // Critical section - lock automatically released when scope ends
+    // 임계 영역 - 스코프가 끝나면 자동으로 잠금 해제
 }
 ```
 
-### 2. Zero-Overhead Abstraction
-C++ threading primitives compile to efficient machine code with minimal runtime overhead.
+### 2. 제로 오버헤드 추상화
+C++ 스레딩 프리미티브는 최소한의 런타임 오버헤드로 효율적인 기계어 코드로 컴파일됩니다.
 
-### 3. Explicit Memory Ordering
-You control exactly how memory operations are synchronized:
+### 3. 명시적 메모리 순서
+메모리 연산의 동기화 방식을 정확히 제어할 수 있습니다:
 ```cpp
 atomic_var.store(value, std::memory_order_release);
 auto val = atomic_var.load(std::memory_order_acquire);
 ```
 
-## Common Patterns
+## 일반적인 패턴
 
-### Thread-Safe Singleton
+### 스레드 안전 싱글턴
 ```cpp
 class Singleton {
     static Singleton& getInstance() {
-        static Singleton instance;  // Thread-safe in C++11+
+        static Singleton instance;  // C++11 이상에서 스레드 안전
         return instance;
     }
 };
 ```
 
-### Scoped Locking
+### 범위 기반 잠금
 ```cpp
 std::mutex m1, m2;
 {
-    std::scoped_lock lock(m1, m2);  // C++17: locks both, avoids deadlock
-    // Critical section
+    std::scoped_lock lock(m1, m2);  // C++17: 두 뮤텍스를 잠그며 데드락 방지
+    // 임계 영역
 }
 ```
 
-## Best Practices
+## 모범 사례
 
-1. **Prefer High-Level Abstractions**: Use `std::async` over manual threads when possible
-2. **Use RAII**: Always use lock guards, never lock/unlock manually
-3. **Avoid Shared State**: Minimize sharing between threads
-4. **Const Correctness**: Const data can be safely shared
-5. **Use Atomics Carefully**: Understand memory ordering before using relaxed atomics
-6. **Document Thread Safety**: Mark which functions are thread-safe
-7. **Prefer Value Semantics**: Pass by value with move semantics when possible
+1. **고수준 추상화 선호**: 가능하면 수동 스레드 대신 `std::async` 사용
+2. **RAII 사용**: 항상 lock guard를 사용하고, 수동으로 lock/unlock 하지 않기
+3. **공유 상태 피하기**: 스레드 간 공유를 최소화
+4. **const 정확성**: const 데이터는 안전하게 공유 가능
+5. **Atomic 신중하게 사용**: relaxed atomic을 사용하기 전에 메모리 순서를 이해하기
+6. **스레드 안전성 문서화**: 어떤 함수가 스레드 안전한지 표시
+7. **값 의미론 선호**: 가능하면 이동 의미론과 함께 값으로 전달
 
-## Common Pitfalls
+## 일반적인 실수
 
-### 1. Forgetting to Join or Detach
+### 1. join 또는 detach 잊기
 ```cpp
-// BAD: Thread destructor will call std::terminate
+// 나쁨: 스레드 소멸자가 std::terminate를 호출함
 void bad_example() {
-    std::thread t([] { /* work */ });
-}  // Oops! Didn't join or detach
+    std::thread t([] { /* 작업 */ });
+}  // 이런! join이나 detach를 안 했음
 
-// GOOD: Use jthread (C++20) or ensure join/detach
+// 좋음: jthread (C++20) 사용 또는 join/detach 보장
 void good_example() {
-    std::jthread t([] { /* work */ });
-}  // Automatically joins
+    std::jthread t([] { /* 작업 */ });
+}  // 자동으로 join
 ```
 
-### 2. Deadlock with Multiple Mutexes
+### 2. 여러 Mutex로 인한 데드락
 ```cpp
-// BAD: Can deadlock
+// 나쁨: 데드락 발생 가능
 mutex1.lock();
 mutex2.lock();
 
-// GOOD: Use scoped_lock
+// 좋음: scoped_lock 사용
 std::scoped_lock lock(mutex1, mutex2);
 ```
 
-### 3. Data Races with Shared Data
+### 3. 공유 데이터의 데이터 경쟁
 ```cpp
-// BAD: Data race
+// 나쁨: 데이터 경쟁
 int counter = 0;
 std::thread t1([&] { ++counter; });
 std::thread t2([&] { ++counter; });
 
-// GOOD: Use atomic or mutex
+// 좋음: atomic 또는 mutex 사용
 std::atomic<int> counter{0};
 std::thread t1([&] { ++counter; });
 std::thread t2([&] { ++counter; });
 ```
 
-### 4. Exception Safety
+### 4. 예외 안전성
 ```cpp
-// BAD: Lock not released if exception thrown
+// 나쁨: 예외 발생 시 잠금이 해제되지 않음
 mutex.lock();
-might_throw();  // Lock never released!
+might_throw();  // 잠금이 영원히 해제되지 않음!
 mutex.unlock();
 
-// GOOD: Use RAII
+// 좋음: RAII 사용
 {
     std::lock_guard lock(mutex);
-    might_throw();  // Lock released even if exception thrown
+    might_throw();  // 예외가 발생해도 잠금 해제됨
 }
 ```
 
-### 5. Spurious Wakeups with Condition Variables
+### 5. Condition Variable의 가짜 깨어남
 ```cpp
-// BAD: Might wake up when condition isn't met
+// 나쁨: 조건이 충족되지 않았는데 깨어날 수 있음
 cv.wait(lock);
 process_data();
 
-// GOOD: Use predicate
+// 좋음: 조건 서술어 사용
 cv.wait(lock, [] { return data_ready; });
 process_data();
 ```
 
-## Performance Considerations
+## 성능 고려사항
 
-### Thread Creation Overhead
-- Creating a thread: ~100 microseconds
-- Context switch: ~1-10 microseconds
-- Memory overhead: ~2MB per thread (stack size)
+### 스레드 생성 오버헤드
+- 스레드 생성: ~100 마이크로초
+- 컨텍스트 스위치: ~1-10 마이크로초
+- 메모리 오버헤드: 스레드당 ~2MB (스택 크기)
 
-**Implication**: Don't create threads for short-lived tasks; use thread pools.
+**시사점**: 단기 작업을 위해 스레드를 생성하지 말고 스레드 풀을 사용하세요.
 
-### Lock Contention
-- Uncontended lock: ~25 nanoseconds
-- Contended lock: Can be 1000x slower
+### 잠금 경합
+- 비경합 잠금: ~25 나노초
+- 경합 잠금: 1000배 더 느릴 수 있음
 
-**Implication**: Minimize time in critical sections.
+**시사점**: 임계 영역에서의 시간을 최소화하세요.
 
 ### False Sharing
 ```cpp
-// BAD: False sharing - counters on same cache line
+// 나쁨: False sharing - 카운터들이 같은 캐시 라인에 있음
 struct Counters {
     std::atomic<int> counter1;
     std::atomic<int> counter2;
 };
 
-// GOOD: Prevent false sharing with alignment
+// 좋음: 정렬로 False sharing 방지
 struct Counters {
     alignas(64) std::atomic<int> counter1;
     alignas(64) std::atomic<int> counter2;
 };
 ```
 
-## Modern C++ Features (C++20 and Beyond)
+## 현대 C++ 기능 (C++20 이후)
 
-### jthread (Joinable Thread)
+### jthread (조인 가능 스레드)
 ```cpp
 std::jthread t([] {
-    // Work
-});  // Automatically joins on destruction
+    // 작업
+});  // 소멸 시 자동으로 join
 ```
 
-### Semaphores
+### 세마포어
 ```cpp
-std::counting_semaphore<10> sem(3);  // Max count 10, initial count 3
-sem.acquire();  // Decrement
-sem.release();  // Increment
+std::counting_semaphore<10> sem(3);  // 최대 카운트 10, 초기 카운트 3
+sem.acquire();  // 감소
+sem.release();  // 증가
 ```
 
-### Barriers and Latches
+### 배리어와 래치
 ```cpp
 std::barrier sync_point(num_threads);
-// Each thread:
-sync_point.arrive_and_wait();  // Synchronize all threads
+// 각 스레드:
+sync_point.arrive_and_wait();  // 모든 스레드 동기화
 ```
 
-### Coroutines (C++20)
+### 코루틴 (C++20)
 ```cpp
 Task<int> async_computation() {
     co_await some_async_operation();
@@ -228,17 +228,17 @@ Task<int> async_computation() {
 }
 ```
 
-## Recommended Libraries
+## 권장 라이브러리
 
-While C++ standard library is powerful, these libraries can help:
+C++ 표준 라이브러리는 강력하지만, 다음 라이브러리가 도움이 될 수 있습니다:
 
-- **Intel TBB**: Thread building blocks for parallel algorithms
-- **Boost.Thread**: Extended threading utilities
-- **Boost.Asio**: Async I/O and networking
-- **folly**: Facebook's C++ library with concurrent data structures
-- **libcds**: Lock-free data structures
+- **Intel TBB**: 병렬 알고리즘을 위한 스레드 빌딩 블록
+- **Boost.Thread**: 확장된 스레딩 유틸리티
+- **Boost.Asio**: 비동기 I/O 및 네트워킹
+- **folly**: 동시성 데이터 구조를 포함한 Facebook의 C++ 라이브러리
+- **libcds**: Lock-Free 데이터 구조
 
-## Tools and Debugging
+## 도구 및 디버깅
 
 ### Thread Sanitizer
 ```bash
@@ -251,36 +251,36 @@ g++ -fsanitize=thread -g program.cpp
 valgrind --tool=helgrind ./program
 ```
 
-### GDB Threading Commands
+### GDB 스레딩 명령어
 ```
-info threads          # List all threads
-thread <n>            # Switch to thread n
-thread apply all bt   # Backtrace of all threads
+info threads          # 모든 스레드 목록 표시
+thread <n>            # 스레드 n으로 전환
+thread apply all bt   # 모든 스레드의 백트레이스
 ```
 
-## Compiler Support
+## 컴파일러 지원
 
-| Feature | GCC | Clang | MSVC |
+| 기능 | GCC | Clang | MSVC |
 |---------|-----|-------|------|
 | C++11 threads | 4.8+ | 3.3+ | VS2012+ |
-| C++17 parallel algorithms | 9+ | Not fully | VS2017+ |
+| C++17 병렬 알고리즘 | 9+ | 완전하지 않음 | VS2017+ |
 | C++20 jthread | 10+ | 14+ | VS2019 16.9+ |
 | C++20 semaphore | 11+ | 11+ | VS2019 16.10+ |
-| C++20 coroutines | 10+ | 5+ | VS2019+ |
+| C++20 코루틴 | 10+ | 5+ | VS2019+ |
 
-## Further Reading
+## 추가 읽기
 
 - **C++ Concurrency in Action** by Anthony Williams (2nd edition)
 - **C++ High Performance** by Björn Andrist and Viktor Sehr
 - CppReference: https://en.cppreference.com/w/cpp/thread
 - ISO C++ Papers: https://isocpp.org/std/status
 
-## Navigation
+## 탐색
 
-- [Back to Language Implementations](../)
-- Next Topics:
+- [언어 구현으로 돌아가기](../)
+- 다음 주제:
   - [std::thread](./01-std-thread.md)
-  - [Mutex and Lock Guard](./02-mutex-lock-guard.md)
-  - [Atomic Operations](./03-atomic.md)
-  - [Condition Variables](./04-condition-variable.md)
-  - [Async and Future](./05-async-future.md)
+  - [Mutex와 Lock Guard](./02-mutex-lock-guard.md)
+  - [Atomic 연산](./03-atomic.md)
+  - [Condition Variable](./04-condition-variable.md)
+  - [Async와 Future](./05-async-future.md)
