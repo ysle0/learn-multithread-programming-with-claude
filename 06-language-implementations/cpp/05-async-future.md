@@ -1,22 +1,22 @@
-# Async and Future in C++
+# C++의 Async와 Future
 
-`std::async` and `std::future` provide a high-level, task-based approach to concurrency, allowing you to focus on what to compute rather than how to manage threads.
+`std::async`와 `std::future`는 동시성에 대한 고수준 태스크 기반 접근 방식을 제공하여, 스레드를 관리하는 방법보다 무엇을 계산할지에 집중할 수 있게 합니다.
 
-## Table of Contents
-- [Basic Concepts](#basic-concepts)
+## 목차
+- [기본 개념](#기본-개념)
 - [std::async](#stdasync)
 - [std::future](#stdfuture)
 - [std::promise](#stdpromise)
 - [std::packaged_task](#stdpackaged_task)
-- [Comparison with Other Languages](#comparison-with-other-languages)
-- [Best Practices](#best-practices)
-- [Common Pitfalls](#common-pitfalls)
+- [다른 언어와의 비교](#다른-언어와의-비교)
+- [모범 사례](#모범-사례)
+- [일반적인 실수](#일반적인-실수)
 
-## Basic Concepts
+## 기본 개념
 
-### What is std::async?
+### std::async란?
 
-`std::async` runs a function asynchronously and returns a `std::future` for the result:
+`std::async`는 함수를 비동기적으로 실행하고 결과에 대한 `std::future`를 반환합니다:
 
 ```cpp
 #include <future>
@@ -27,32 +27,32 @@ int compute() {
 }
 
 int main() {
-    // Launch async task
+    // 비동기 태스크 실행
     std::future<int> result = std::async(compute);
 
-    // Do other work...
+    // 다른 작업 수행...
 
-    // Get result (blocks if not ready)
+    // 결과 가져오기 (준비되지 않았으면 블로킹)
     std::cout << "Result: " << result.get() << "\n";
     return 0;
 }
 ```
 
-### Task-Based vs. Thread-Based
+### 태스크 기반 vs. 스레드 기반
 
 ```cpp
-// Thread-based (low-level)
+// 스레드 기반 (저수준)
 std::thread t(compute);
 t.join();
 
-// Task-based (high-level)
+// 태스크 기반 (고수준)
 auto future = std::async(compute);
 auto result = future.get();
 ```
 
 ## std::async
 
-### Launch Policies
+### 실행 정책
 
 ```cpp
 #include <future>
@@ -67,13 +67,13 @@ int work() {
 int main() {
     std::cout << "Main thread ID: " << std::this_thread::get_id() << "\n";
 
-    // Guaranteed async execution (new thread)
+    // 비동기 실행 보장 (새 스레드)
     auto f1 = std::async(std::launch::async, work);
 
-    // Deferred execution (runs on get())
+    // 지연 실행 (get() 호출 시 실행)
     auto f2 = std::async(std::launch::deferred, work);
 
-    // Implementation chooses (default)
+    // 구현이 선택 (기본값)
     auto f3 = std::async(work);
 
     std::cout << "Getting f1: " << f1.get() << "\n";
@@ -84,7 +84,7 @@ int main() {
 }
 ```
 
-### Passing Arguments
+### 인수 전달
 
 ```cpp
 #include <future>
@@ -102,11 +102,11 @@ void print_message(const std::string& msg, int count) {
 }
 
 int main() {
-    // Arguments passed to function
+    // 함수에 인수 전달
     auto future1 = std::async(add, 5, 3);
     std::cout << "Sum: " << future1.get() << "\n";
 
-    // Reference wrapper for references
+    // 참조에 대한 참조 래퍼
     std::string msg = "Hello";
     auto future2 = std::async(print_message, std::cref(msg), 3);
     future2.wait();
@@ -115,7 +115,7 @@ int main() {
 }
 ```
 
-### Lambda Functions
+### 람다 함수
 
 ```cpp
 #include <future>
@@ -124,12 +124,12 @@ int main() {
 int main() {
     int x = 10;
 
-    // Capture by value
+    // 값으로 캡처
     auto f1 = std::async([x] {
         return x * 2;
     });
 
-    // Capture by reference
+    // 참조로 캡처
     auto f2 = std::async([&x] {
         x += 5;
         return x;
@@ -143,7 +143,7 @@ int main() {
 }
 ```
 
-### Member Functions
+### 멤버 함수
 
 ```cpp
 #include <future>
@@ -163,11 +163,11 @@ public:
 int main() {
     Calculator calc;
 
-    // Non-const member function
+    // 비-const 멤버 함수
     auto f1 = std::async(&Calculator::multiply, &calc, 5, 3);
     std::cout << "Multiply: " << f1.get() << "\n";
 
-    // Const member function
+    // const 멤버 함수
     auto f2 = std::async(&Calculator::add, &calc, 5, 3);
     std::cout << "Add: " << f2.get() << "\n";
 
@@ -175,7 +175,7 @@ int main() {
 }
 ```
 
-### Exception Handling
+### 예외 처리
 
 ```cpp
 #include <future>
@@ -193,7 +193,7 @@ int main() {
     auto future = std::async(may_throw, true);
 
     try {
-        int result = future.get();  // Exception re-thrown here
+        int result = future.get();  // 여기서 예외가 다시 던져짐
         std::cout << "Result: " << result << "\n";
     } catch (const std::exception& e) {
         std::cout << "Caught: " << e.what() << "\n";
@@ -205,7 +205,7 @@ int main() {
 
 ## std::future
 
-### Basic Operations
+### 기본 연산
 
 ```cpp
 #include <future>
@@ -221,23 +221,23 @@ int long_computation() {
 int main() {
     auto future = std::async(std::launch::async, long_computation);
 
-    // Check if result is ready
+    // 결과가 준비되었는지 확인
     while (future.wait_for(std::chrono::milliseconds(500))
            != std::future_status::ready) {
         std::cout << "Still waiting...\n";
     }
 
-    // Get result (blocks if not ready)
+    // 결과 가져오기 (준비되지 않았으면 블로킹)
     std::cout << "Result: " << future.get() << "\n";
 
-    // Can only call get() once!
-    // future.get();  // Undefined behavior
+    // get()은 한 번만 호출 가능!
+    // future.get();  // 정의되지 않은 동작
 
     return 0;
 }
 ```
 
-### wait() and wait_for()
+### wait()과 wait_for()
 
 ```cpp
 #include <future>
@@ -252,11 +252,11 @@ int compute() {
 int main() {
     auto future = std::async(std::launch::async, compute);
 
-    // Wait without getting result
+    // 결과를 가져오지 않고 대기
     future.wait();
     std::cout << "Computation finished\n";
 
-    // Timed wait
+    // 시간 제한 대기
     auto status = future.wait_for(std::chrono::milliseconds(100));
 
     if (status == std::future_status::ready) {
@@ -271,7 +271,7 @@ int main() {
 }
 ```
 
-### valid() Check
+### valid() 확인
 
 ```cpp
 #include <future>
@@ -288,7 +288,7 @@ int main() {
     int result = future1.get();
     std::cout << "future1 valid: " << future1.valid() << "\n";  // false
 
-    std::future<int> future2;  // Default constructed
+    std::future<int> future2;  // 기본 생성
     std::cout << "future2 valid: " << future2.valid() << "\n";  // false
 
     return 0;
@@ -297,7 +297,7 @@ int main() {
 
 ## std::promise
 
-### Basic Usage
+### 기본 사용법
 
 ```cpp
 #include <future>
@@ -305,10 +305,10 @@ int main() {
 #include <iostream>
 
 void compute_value(std::promise<int> promise) {
-    // Do some work
+    // 작업 수행
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
-    // Set the result
+    // 결과 설정
     promise.set_value(42);
 }
 
@@ -326,7 +326,7 @@ int main() {
 }
 ```
 
-### Promise with Exception
+### 예외가 있는 Promise
 
 ```cpp
 #include <future>
@@ -362,7 +362,7 @@ int main() {
 }
 ```
 
-### Multiple Waiters with shared_future
+### shared_future로 다중 대기자
 
 ```cpp
 #include <future>
@@ -374,7 +374,7 @@ int main() {
     std::promise<int> promise;
     std::shared_future<int> shared_future = promise.get_future();
 
-    // Multiple threads can wait on shared_future
+    // 여러 스레드가 shared_future를 대기할 수 있음
     std::vector<std::thread> threads;
     for (int i = 0; i < 3; ++i) {
         threads.emplace_back([shared_future, i] {
@@ -383,7 +383,7 @@ int main() {
         });
     }
 
-    // Set value once
+    // 한 번만 값 설정
     promise.set_value(42);
 
     for (auto& t : threads) {
@@ -396,7 +396,7 @@ int main() {
 
 ## std::packaged_task
 
-### Basic Usage
+### 기본 사용법
 
 ```cpp
 #include <future>
@@ -408,16 +408,16 @@ int multiply(int a, int b) {
 }
 
 int main() {
-    // Create packaged task
+    // packaged_task 생성
     std::packaged_task<int(int, int)> task(multiply);
 
-    // Get future
+    // future 가져오기
     std::future<int> future = task.get_future();
 
-    // Run task in thread
+    // 스레드에서 태스크 실행
     std::thread t(std::move(task), 5, 3);
 
-    // Get result
+    // 결과 가져오기
     std::cout << "Result: " << future.get() << "\n";
 
     t.join();
@@ -425,7 +425,7 @@ int main() {
 }
 ```
 
-### Task Queue Example
+### 태스크 큐 예제
 
 ```cpp
 #include <future>
@@ -502,7 +502,7 @@ int main() {
 }
 ```
 
-## Comparison with Other Languages
+## 다른 언어와의 비교
 
 ### C++ vs. C#
 ```cpp
@@ -510,7 +510,7 @@ int main() {
 auto future = std::async([] { return 42; });
 int result = future.get();
 
-// C# equivalent:
+// C# 동등 코드:
 // Task<int> task = Task.Run(() => 42);
 // int result = await task;
 ```
@@ -521,8 +521,8 @@ int result = future.get();
 auto future = std::async(compute);
 auto result = future.get();
 
-// Go doesn't have futures
-// Use channels instead:
+// Go에는 future가 없음
+// 대신 채널 사용:
 // ch := make(chan int)
 // go func() { ch <- compute() }()
 // result := <-ch
@@ -541,18 +541,18 @@ auto result = future.get();
 // const result = await promise;
 ```
 
-## Best Practices
+## 모범 사례
 
-### 1. Prefer std::async Over Manual Threads
+### 1. 수동 스레드보다 std::async 선호
 
 ```cpp
-// GOOD: Task-based
+// 좋음: 태스크 기반
 auto future = std::async([] {
     return expensive_computation();
 });
 auto result = future.get();
 
-// LESS GOOD: Thread-based (more boilerplate)
+// 덜 좋음: 스레드 기반 (더 많은 보일러플레이트)
 int result;
 std::thread t([&result] {
     result = expensive_computation();
@@ -560,39 +560,39 @@ std::thread t([&result] {
 t.join();
 ```
 
-### 2. Specify Launch Policy When Needed
+### 2. 필요한 경우 실행 정책 지정
 
 ```cpp
-// GOOD: Explicit async (guaranteed new thread)
+// 좋음: 명시적 async (새 스레드 보장)
 auto future = std::async(std::launch::async, compute);
 
-// GOOD: Deferred when you want lazy evaluation
+// 좋음: 지연 평가가 필요할 때 deferred
 auto future = std::async(std::launch::deferred, compute);
 
-// OK: Let implementation choose (default)
+// 괜찮음: 구현이 선택하도록 함 (기본값)
 auto future = std::async(compute);
 ```
 
-### 3. Don't Ignore Returned Futures
+### 3. 반환된 Future를 무시하지 않기
 
 ```cpp
-// BAD: Future destroyed immediately, blocks in destructor!
+// 나쁨: future가 즉시 파괴되고, 소멸자에서 블로킹!
 std::async(std::launch::async, [] {
     expensive_work();
-});  // Blocks here!
+});  // 여기서 블로킹!
 
-// GOOD: Keep future if you want true async
+// 좋음: 진정한 비동기를 원하면 future를 유지
 auto future = std::async(std::launch::async, [] {
     expensive_work();
 });
-// Do other work...
+// 다른 작업 수행...
 future.wait();
 ```
 
-### 4. Use shared_future for Multiple Waiters
+### 4. 다중 대기자에는 shared_future 사용
 
 ```cpp
-// GOOD: Multiple threads can wait
+// 좋음: 여러 스레드가 대기 가능
 std::promise<int> promise;
 std::shared_future<int> sf = promise.get_future();
 
@@ -604,10 +604,10 @@ t1.join();
 t2.join();
 ```
 
-### 5. Handle Exceptions Properly
+### 5. 예외를 올바르게 처리
 
 ```cpp
-// GOOD: Exceptions propagated through future
+// 좋음: 예외가 future를 통해 전파됨
 auto future = std::async([] {
     if (error_condition) {
         throw std::runtime_error("Error");
@@ -622,90 +622,90 @@ try {
 }
 ```
 
-## Common Pitfalls
+## 일반적인 실수
 
-### 1. Blocking in Future Destructor
+### 1. Future 소멸자에서의 블로킹
 
 ```cpp
-// BAD: Blocks in destructor if async policy used!
+// 나쁨: async 정책이 사용된 경우 소멸자에서 블로킹!
 {
     std::async(std::launch::async, long_running_task);
-}  // Blocks here waiting for task!
+}  // 태스크를 기다리며 여기서 블로킹!
 
-// GOOD: Keep future alive or use deferred
+// 좋음: future를 유지하거나 deferred 사용
 {
     auto future = std::async(std::launch::async, long_running_task);
-    // Do other work...
+    // 다른 작업 수행...
     future.wait();
 }
 ```
 
-### 2. Calling get() Multiple Times
+### 2. get()을 여러 번 호출
 
 ```cpp
-// BAD: Can only call get() once
+// 나쁨: get()은 한 번만 호출 가능
 auto future = std::async(compute);
 int r1 = future.get();  // OK
-int r2 = future.get();  // Undefined behavior!
+int r2 = future.get();  // 정의되지 않은 동작!
 
-// GOOD: Store result
+// 좋음: 결과를 저장
 auto future = std::async(compute);
 int result = future.get();
-// Use result multiple times
+// result를 여러 번 사용
 ```
 
-### 3. Not Checking valid()
+### 3. valid() 미확인
 
 ```cpp
-// BAD: Operating on invalid future
-std::future<int> future;  // Default constructed
-int result = future.get();  // Undefined behavior!
+// 나쁨: 유효하지 않은 future에 대한 연산
+std::future<int> future;  // 기본 생성
+int result = future.get();  // 정의되지 않은 동작!
 
-// GOOD: Check validity
+// 좋음: 유효성 확인
 if (future.valid()) {
     int result = future.get();
 }
 ```
 
-### 4. Dangling References with Deferred
+### 4. Deferred에서의 댕글링 참조
 
 ```cpp
-// BAD: Dangling reference with deferred execution
+// 나쁨: deferred 실행에서의 댕글링 참조
 int compute_with_local() {
     int local_var = 42;
     auto future = std::async(std::launch::deferred, [&] {
-        return local_var;  // Captures by reference
+        return local_var;  // 참조로 캡처
     });
-    return future.get();  // OK, still in scope
+    return future.get();  // OK, 아직 스코프 안에 있음
 }
 
 int bad_example() {
     int local_var = 42;
     auto future = std::async(std::launch::deferred, [&] {
-        return local_var;  // Captures by reference
+        return local_var;  // 참조로 캡처
     });
-    // future returned, local_var destroyed
+    // future가 반환되고, local_var 파괴됨
     return 0;
-}  // Later get() will access destroyed variable!
+}  // 나중에 get()이 파괴된 변수에 접근!
 
-// GOOD: Capture by value
+// 좋음: 값으로 캡처
 auto future = std::async(std::launch::deferred, [local_var] {
     return local_var;
 });
 ```
 
-### 5. Race Condition with Promise
+### 5. Promise에서의 경쟁 조건
 
 ```cpp
-// BAD: Promise destroyed before value retrieved
+// 나쁨: 값이 검색되기 전에 promise가 파괴됨
 std::future<int> bad_promise() {
     std::promise<int> promise;
     std::future<int> future = promise.get_future();
     promise.set_value(42);
-    return future;  // Promise destroyed, but future still valid? Depends on timing
+    return future;  // promise가 파괴됨, 하지만 future는 여전히 유효? 타이밍에 따라 다름
 }
 
-// GOOD: Ensure promise lives long enough
+// 좋음: promise가 충분히 오래 살도록 보장
 std::future<int> good_promise() {
     auto promise = std::make_shared<std::promise<int>>();
     std::future<int> future = promise->get_future();
@@ -718,9 +718,9 @@ std::future<int> good_promise() {
 }
 ```
 
-## Internal Mechanisms
+## 내부 메커니즘
 
-### Shared State Architecture
+### 공유 상태 아키텍처
 
 `std::future`와 `std::promise`는 공유 상태(Shared State)를 통해 통신합니다:
 
@@ -822,7 +822,7 @@ future<result_type> async(launch policy, F&& f, Args&&... args) {
 }
 ```
 
-### Future Destructor Blocking Issue
+### Future 소멸자 블로킹 문제
 
 ```cpp
 // async(launch::async)로 생성된 future의 소멸자는 블로킹!
@@ -862,7 +862,7 @@ std::thread([]{ long_running_work(); }).detach();
 // 주의: 예외 전파 없음, 결과 받을 수 없음
 ```
 
-### Deferred Execution Mechanism
+### Deferred 실행 메커니즘
 
 ```cpp
 // deferred 상태: 함수와 인수를 저장
@@ -889,7 +889,7 @@ T get() {
 }
 ```
 
-### shared_future Copy Semantics
+### shared_future 복사 의미론
 
 ```cpp
 // future는 이동만 가능, shared_future는 복사 가능
@@ -912,7 +912,7 @@ shared_future<int> sf = f.share();  // future 무효화
 // 이후 sf 복사 가능
 ```
 
-### wait_for Status Detection
+### wait_for 상태 감지
 
 ```cpp
 // wait_for의 반환값으로 상태 확인
@@ -935,7 +935,7 @@ while (f.wait_for(100ms) == future_status::timeout) {
 }
 ```
 
-### packaged_task Internal State
+### packaged_task 내부 상태
 
 ```cpp
 // packaged_task = callable + shared_state
@@ -964,37 +964,37 @@ public:
 };
 ```
 
-## Performance Considerations
+## 성능 고려사항
 
-### Overhead of std::async
+### std::async의 오버헤드
 
 ```cpp
-// std::async overhead:
-// - Thread creation (if launch::async): ~100 μs
-// - Future/promise setup: ~1 μs
-// - get() call: negligible if ready
+// std::async 오버헤드:
+// - 스레드 생성 (launch::async인 경우): ~100 us
+// - Future/promise 설정: ~1 us
+// - get() 호출: 준비된 경우 무시할 수 있음
 
-// For small tasks, overhead may dominate
-auto f = std::async([] { return 1 + 1; });  // Overhead >> work
+// 작은 태스크의 경우, 오버헤드가 작업보다 클 수 있음
+auto f = std::async([] { return 1 + 1; });  // 오버헤드 >> 작업
 
-// Use for tasks that take > 100 μs
+// 100 us 이상 걸리는 태스크에 사용
 auto f = std::async([] {
     return expensive_computation();  // OK
 });
 ```
 
-### Thread Pool Alternative
+### 스레드 풀 대안
 
 ```cpp
-// For many small tasks, consider thread pool
-// std::async may create too many threads
+// 작은 태스크가 많은 경우, 스레드 풀을 고려
+// std::async는 너무 많은 스레드를 생성할 수 있음
 
-// Better: Reuse threads
-// (C++ doesn't have built-in thread pool,
-//  but you can implement one with packaged_task)
+// 더 좋음: 스레드 재사용
+// (C++에는 내장 스레드 풀이 없지만,
+//  packaged_task로 구현할 수 있음)
 ```
 
-## Complete Example: Parallel Computation
+## 전체 예제: 병렬 계산
 
 ```cpp
 #include <future>
@@ -1003,7 +1003,7 @@ auto f = std::async([] {
 #include <numeric>
 #include <algorithm>
 
-// Compute sum of range
+// 범위의 합계 계산
 long long partial_sum(std::vector<int>::iterator begin,
                      std::vector<int>::iterator end) {
     return std::accumulate(begin, end, 0LL);
@@ -1018,7 +1018,7 @@ int main() {
 
     size_t chunk_size = data_size / num_threads;
 
-    // Launch async tasks
+    // 비동기 태스크 실행
     for (unsigned int i = 0; i < num_threads; ++i) {
         auto begin = data.begin() + i * chunk_size;
         auto end = (i == num_threads - 1) ? data.end()
@@ -1028,7 +1028,7 @@ int main() {
                                     partial_sum, begin, end));
     }
 
-    // Collect results
+    // 결과 수집
     long long total = 0;
     for (auto& future : futures) {
         total += future.get();
@@ -1039,7 +1039,7 @@ int main() {
 }
 ```
 
-## Complete Example: Pipeline with Futures
+## 전체 예제: Future를 사용한 파이프라인
 
 ```cpp
 #include <future>
@@ -1062,7 +1062,7 @@ int main() {
     std::vector<int> inputs = {1, 2, 3, 4, 5};
     std::vector<std::future<int>> results;
 
-    // Launch pipeline for each input
+    // 각 입력에 대해 파이프라인 실행
     for (int input : inputs) {
         auto future = std::async(std::launch::async, [input] {
             int result = stage1(input);
@@ -1073,7 +1073,7 @@ int main() {
         results.push_back(std::move(future));
     }
 
-    // Collect results
+    // 결과 수집
     for (size_t i = 0; i < results.size(); ++i) {
         std::cout << "Input " << inputs[i]
                   << " -> Result: " << results[i].get() << "\n";
@@ -1083,15 +1083,15 @@ int main() {
 }
 ```
 
-## Further Reading
+## 추가 읽기
 
 - [C++ Reference: std::async](https://en.cppreference.com/w/cpp/thread/async)
 - [C++ Reference: std::future](https://en.cppreference.com/w/cpp/thread/future)
 - [C++ Reference: std::promise](https://en.cppreference.com/w/cpp/thread/promise)
 - [std::thread](./01-std-thread.md)
 
-## Navigation
+## 탐색
 
-- [Back to C++ Overview](./README.md)
-- Previous: [Condition Variables](./04-condition-variable.md)
-- [Back to Language Implementations](../)
+- [C++ 개요로 돌아가기](./README.md)
+- 이전: [Condition Variable](./04-condition-variable.md)
+- [언어 구현으로 돌아가기](../)

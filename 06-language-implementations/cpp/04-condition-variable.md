@@ -1,24 +1,24 @@
-# Condition Variables in C++
+# C++의 Condition Variable
 
-Condition variables allow threads to wait for certain conditions to become true, enabling efficient communication and synchronization between threads without busy-waiting.
+Condition variable은 스레드가 특정 조건이 참이 될 때까지 대기할 수 있게 하여, 바쁜 대기(busy-waiting) 없이 스레드 간의 효율적인 통신과 동기화를 가능하게 합니다.
 
-## Table of Contents
-- [Basic Concepts](#basic-concepts)
+## 목차
+- [기본 개념](#기본-개념)
 - [std::condition_variable](#stdcondition_variable)
-- [Wait Operations](#wait-operations)
-- [Notify Operations](#notify-operations)
-- [Common Patterns](#common-patterns)
-- [Comparison with Other Languages](#comparison-with-other-languages)
-- [Best Practices](#best-practices)
-- [Common Pitfalls](#common-pitfalls)
+- [대기 연산](#대기-연산)
+- [알림 연산](#알림-연산)
+- [일반적인 패턴](#일반적인-패턴)
+- [다른 언어와의 비교](#다른-언어와의-비교)
+- [모범 사례](#모범-사례)
+- [일반적인 실수](#일반적인-실수)
 
-## Basic Concepts
+## 기본 개념
 
-### What is a Condition Variable?
+### Condition Variable이란?
 
-A condition variable allows threads to:
-1. **Wait** for a condition to become true (blocks thread)
-2. **Signal** when condition changes (wakes waiting threads)
+Condition variable은 스레드가 다음을 할 수 있게 합니다:
+1. 조건이 참이 될 때까지 **대기** (스레드 블로킹)
+2. 조건이 변경되었을 때 **신호** 보내기 (대기 중인 스레드 깨우기)
 
 ```cpp
 #include <mutex>
@@ -32,7 +32,7 @@ bool ready = false;
 
 void wait_for_signal() {
     std::unique_lock<std::mutex> lock(mtx);
-    cv.wait(lock, [] { return ready; });  // Wait until ready is true
+    cv.wait(lock, [] { return ready; });  // ready가 true가 될 때까지 대기
     std::cout << "Proceeding!\n";
 }
 
@@ -41,7 +41,7 @@ void send_signal() {
         std::lock_guard<std::mutex> lock(mtx);
         ready = true;
     }
-    cv.notify_one();  // Wake one waiting thread
+    cv.notify_one();  // 대기 중인 스레드 하나를 깨움
 }
 
 int main() {
@@ -53,26 +53,26 @@ int main() {
 }
 ```
 
-### Why Use Condition Variables?
+### Condition Variable을 사용하는 이유
 
-**Without CV (Busy Waiting - BAD):**
+**CV 없이 (바쁜 대기 - 나쁨):**
 ```cpp
-// BAD: Wastes CPU
+// 나쁨: CPU를 낭비
 while (!ready) {
-    std::this_thread::yield();  // Still busy-waiting
+    std::this_thread::yield();  // 여전히 바쁜 대기
 }
 ```
 
-**With CV (Efficient - GOOD):**
+**CV 사용 (효율적 - 좋음):**
 ```cpp
-// GOOD: Thread sleeps until notified
+// 좋음: 알림을 받을 때까지 스레드가 sleep
 std::unique_lock<std::mutex> lock(mtx);
 cv.wait(lock, [] { return ready; });
 ```
 
 ## std::condition_variable
 
-### Basic Structure
+### 기본 구조
 
 ```cpp
 #include <mutex>
@@ -85,27 +85,27 @@ bool condition = false;
 void waiter() {
     std::unique_lock<std::mutex> lock(mtx);
     cv.wait(lock, [] { return condition; });
-    // Condition is now true, lock is held
+    // 조건이 이제 true이고, 잠금이 유지됨
 }
 
 void notifier() {
     {
         std::lock_guard<std::mutex> lock(mtx);
         condition = true;
-    }  // Release lock before notify
+    }  // notify 전에 잠금 해제
     cv.notify_one();
 }
 ```
 
-### Requirements
+### 요구사항
 
-1. Must use `std::unique_lock` (not `std::lock_guard`)
-2. Must protect condition with mutex
-3. Must use predicate to avoid spurious wakeups
+1. `std::unique_lock`을 사용해야 함 (`std::lock_guard` 아님)
+2. 조건을 mutex로 보호해야 함
+3. 가짜 깨어남을 피하기 위해 서술어를 사용해야 함
 
-## Wait Operations
+## 대기 연산
 
-### wait() with Predicate
+### 서술어가 있는 wait()
 
 ```cpp
 #include <mutex>
@@ -121,10 +121,10 @@ bool ready = false;
 void consumer() {
     std::unique_lock<std::mutex> lock(mtx);
 
-    // Wait until ready is true
+    // ready가 true가 될 때까지 대기
     cv.wait(lock, [] { return ready; });
 
-    // Now we can use data safely
+    // 이제 data를 안전하게 사용할 수 있음
     std::cout << "Data: " << data << "\n";
 }
 
@@ -146,7 +146,7 @@ int main() {
 }
 ```
 
-### wait() without Predicate (Manual Loop)
+### 서술어 없는 wait() (수동 루프)
 
 ```cpp
 #include <mutex>
@@ -159,16 +159,16 @@ bool ready = false;
 void wait_manual() {
     std::unique_lock<std::mutex> lock(mtx);
 
-    // Must loop to handle spurious wakeups
+    // 가짜 깨어남을 처리하기 위해 루프 필요
     while (!ready) {
-        cv.wait(lock);  // Releases lock and sleeps
-    }                   // Reacquires lock when woken
+        cv.wait(lock);  // 잠금을 해제하고 sleep
+    }                   // 깨어날 때 잠금을 다시 획득
 
-    // ready is now true
+    // ready가 이제 true
 }
 ```
 
-### wait_for() - Timed Wait
+### wait_for() - 시간 제한 대기
 
 ```cpp
 #include <mutex>
@@ -193,13 +193,13 @@ void wait_with_timeout() {
 
 int main() {
     std::thread t(wait_with_timeout);
-    // Don't signal, let it timeout
+    // 신호를 보내지 않고, 타임아웃되게 함
     t.join();
     return 0;
 }
 ```
 
-### wait_until() - Wait Until Time Point
+### wait_until() - 특정 시점까지 대기
 
 ```cpp
 #include <mutex>
@@ -225,9 +225,9 @@ void wait_until_deadline() {
 }
 ```
 
-## Notify Operations
+## 알림 연산
 
-### notify_one() - Wake One Thread
+### notify_one() - 스레드 하나 깨우기
 
 ```cpp
 #include <mutex>
@@ -256,10 +256,10 @@ int main() {
         ready = true;
     }
 
-    cv.notify_one();  // Only one thread wakes
+    cv.notify_one();  // 스레드 하나만 깨어남
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    cv.notify_one();  // Wake the second thread
+    cv.notify_one();  // 두 번째 스레드 깨우기
 
     t1.join();
     t2.join();
@@ -267,7 +267,7 @@ int main() {
 }
 ```
 
-### notify_all() - Wake All Threads
+### notify_all() - 모든 스레드 깨우기
 
 ```cpp
 #include <mutex>
@@ -299,7 +299,7 @@ int main() {
         ready = true;
     }
 
-    cv.notify_all();  // Wake all waiting threads
+    cv.notify_all();  // 모든 대기 중인 스레드 깨우기
 
     for (auto& t : threads) {
         t.join();
@@ -308,25 +308,25 @@ int main() {
 }
 ```
 
-### When to Use notify_one vs. notify_all
+### notify_one vs. notify_all 사용 시점
 
 ```cpp
-// Use notify_one when:
-// - Only one thread should process the event
-// - Example: Work queue with multiple workers
+// notify_one 사용 시점:
+// - 하나의 스레드만 이벤트를 처리해야 할 때
+// - 예: 여러 워커가 있는 작업 큐
 
-cv.notify_one();  // Wake one worker
+cv.notify_one();  // 워커 하나만 깨우기
 
-// Use notify_all when:
-// - All threads should respond to the event
-// - Example: Barrier synchronization
+// notify_all 사용 시점:
+// - 모든 스레드가 이벤트에 반응해야 할 때
+// - 예: 배리어 동기화
 
-cv.notify_all();  // Wake all threads
+cv.notify_all();  // 모든 스레드 깨우기
 ```
 
-## Common Patterns
+## 일반적인 패턴
 
-### Producer-Consumer Queue
+### 생산자-소비자 큐
 
 ```cpp
 #include <mutex>
@@ -356,7 +356,7 @@ public:
         cv.wait(lock, [this] { return !queue.empty() || done; });
 
         if (queue.empty()) {
-            return false;  // Queue is done
+            return false;  // 큐 종료
         }
 
         value = std::move(queue.front());
@@ -376,7 +376,7 @@ public:
 int main() {
     BlockingQueue<int> queue;
 
-    // Producer
+    // 생산자
     std::thread producer([&queue] {
         for (int i = 0; i < 10; ++i) {
             queue.push(i);
@@ -385,7 +385,7 @@ int main() {
         queue.finish();
     });
 
-    // Consumer
+    // 소비자
     std::thread consumer([&queue] {
         int value;
         while (queue.pop(value)) {
@@ -399,7 +399,7 @@ int main() {
 }
 ```
 
-### Barrier Synchronization
+### 배리어 동기화
 
 ```cpp
 #include <mutex>
@@ -434,10 +434,10 @@ public:
 
 void worker(int id, Barrier& barrier) {
     std::cout << "Thread " << id << " phase 1\n";
-    barrier.wait();  // Synchronize
+    barrier.wait();  // 동기화
 
     std::cout << "Thread " << id << " phase 2\n";
-    barrier.wait();  // Synchronize again
+    barrier.wait();  // 다시 동기화
 
     std::cout << "Thread " << id << " done\n";
 }
@@ -458,7 +458,7 @@ int main() {
 }
 ```
 
-### Thread Pool with Condition Variable
+### Condition Variable을 사용한 스레드 풀
 
 ```cpp
 #include <mutex>
@@ -536,7 +536,7 @@ int main() {
 }
 ```
 
-### Event Signaling
+### 이벤트 시그널링
 
 ```cpp
 #include <mutex>
@@ -587,7 +587,7 @@ int main() {
 }
 ```
 
-## Comparison with Other Languages
+## 다른 언어와의 비교
 
 ### C++ vs. C#
 ```cpp
@@ -597,7 +597,7 @@ std::condition_variable cv;
 std::unique_lock<std::mutex> lock(mtx);
 cv.wait(lock, [] { return ready; });
 
-// C# equivalent:
+// C# 동등 코드:
 // object lockObj = new object();
 // lock (lockObj) {
 //     while (!ready) {
@@ -612,41 +612,41 @@ cv.wait(lock, [] { return ready; });
 std::condition_variable cv;
 cv.wait(lock, [] { return ready; });
 
-// Go - Channels (different paradigm)
+// Go - 채널 (다른 패러다임)
 // <-readyChan
 ```
 
 ### C++ vs. JavaScript
 ```cpp
-// C++ has condition variables
+// C++는 condition variable을 가짐
 std::condition_variable cv;
 
-// JavaScript doesn't have condition variables
-// (single-threaded main execution)
-// Use Promises for async coordination
+// JavaScript에는 condition variable이 없음
+// (단일 스레드 메인 실행)
+// 비동기 조정에는 Promise 사용
 ```
 
-## Best Practices
+## 모범 사례
 
-### 1. Always Use a Predicate
+### 1. 항상 서술어 사용
 
 ```cpp
-// BAD: Spurious wakeup not handled
+// 나쁨: 가짜 깨어남을 처리하지 않음
 cv.wait(lock);
-// May wake up even if condition isn't true!
+// 조건이 true가 아닌데 깨어날 수 있음!
 
-// GOOD: Predicate handles spurious wakeups
+// 좋음: 서술어가 가짜 깨어남을 처리
 cv.wait(lock, [] { return ready; });
 ```
 
-### 2. Protect Condition with Mutex
+### 2. Mutex로 조건 보호
 
 ```cpp
-// BAD: Condition not protected
+// 나쁨: 조건이 보호되지 않음
 ready = true;
-cv.notify_one();  // Race condition!
+cv.notify_one();  // 경쟁 조건!
 
-// GOOD: Condition protected by mutex
+// 좋음: mutex로 조건 보호
 {
     std::lock_guard<std::mutex> lock(mtx);
     ready = true;
@@ -654,17 +654,17 @@ cv.notify_one();  // Race condition!
 cv.notify_one();
 ```
 
-### 3. Notify Outside Lock (When Possible)
+### 3. 가능하면 잠금 바깥에서 알림
 
 ```cpp
-// GOOD: Notify after releasing lock
+// 좋음: 잠금 해제 후 알림
 {
     std::lock_guard<std::mutex> lock(mtx);
     ready = true;
-}  // Lock released
-cv.notify_one();  // Then notify
+}  // 잠금 해제
+cv.notify_one();  // 그 다음 알림
 
-// ALSO OK: Notify inside lock (but less efficient)
+// 괜찮음: 잠금 안에서 알림 (하지만 덜 효율적)
 {
     std::lock_guard<std::mutex> lock(mtx);
     ready = true;
@@ -672,74 +672,74 @@ cv.notify_one();  // Then notify
 }
 ```
 
-### 4. Use unique_lock, Not lock_guard
+### 4. lock_guard가 아닌 unique_lock 사용
 
 ```cpp
-// REQUIRED: cv.wait needs unique_lock
+// 필수: cv.wait는 unique_lock이 필요
 std::unique_lock<std::mutex> lock(mtx);
 cv.wait(lock, [] { return ready; });
 
-// WON'T COMPILE: lock_guard doesn't support unlock/lock
+// 컴파일 안 됨: lock_guard는 unlock/lock을 지원하지 않음
 // std::lock_guard<std::mutex> lock(mtx);
-// cv.wait(lock, [] { return ready; });  // ERROR
+// cv.wait(lock, [] { return ready; });  // 에러
 ```
 
-### 5. Avoid Busy-Waiting
+### 5. 바쁜 대기 피하기
 
 ```cpp
-// BAD: Busy-waiting
+// 나쁨: 바쁜 대기
 while (!ready) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 }
 
-// GOOD: Use condition variable
+// 좋음: condition variable 사용
 std::unique_lock<std::mutex> lock(mtx);
 cv.wait(lock, [] { return ready; });
 ```
 
-## Common Pitfalls
+## 일반적인 실수
 
-### 1. Spurious Wakeups
+### 1. 가짜 깨어남
 
 ```cpp
-// BAD: Assumes wakeup means condition is true
+// 나쁨: 깨어남이 곧 조건이 true라고 가정
 {
     std::unique_lock<std::mutex> lock(mtx);
-    cv.wait(lock);  // Might wake spuriously!
-    // ready might still be false
+    cv.wait(lock);  // 가짜로 깨어날 수 있음!
+    // ready가 여전히 false일 수 있음
 }
 
-// GOOD: Check condition in loop/predicate
+// 좋음: 루프/서술어로 조건 확인
 {
     std::unique_lock<std::mutex> lock(mtx);
     cv.wait(lock, [] { return ready; });
-    // ready is guaranteed true
+    // ready가 true임이 보장됨
 }
 ```
 
-### 2. Lost Wakeup
+### 2. 놓친 깨어남
 
 ```cpp
-// BAD: Notify before wait
+// 나쁨: 대기 전에 알림
 void thread1() {
     ready = true;
-    cv.notify_one();  // Sent before anyone waiting!
+    cv.notify_one();  // 아무도 대기하지 않는데 보냄!
 }
 
 void thread2() {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     std::unique_lock<std::mutex> lock(mtx);
-    cv.wait(lock, [] { return ready; });  // Might have missed signal
+    cv.wait(lock, [] { return ready; });  // 신호를 놓쳤을 수 있음
 }
 
-// GOOD: Use proper synchronization
-// The predicate (ready) ensures correctness even if notify happens first
+// 좋음: 적절한 동기화 사용
+// 서술어(ready)가 알림이 먼저 발생해도 정확성을 보장
 ```
 
-### 3. Deadlock with notify_one
+### 3. notify_one으로 인한 데드락
 
 ```cpp
-// SUBTLE: All threads might be waiting for different conditions
+// 미묘함: 모든 스레드가 다른 조건을 대기할 수 있음
 std::condition_variable cv;
 bool cond1 = false, cond2 = false;
 
@@ -755,59 +755,59 @@ void thread2() {
 
 void notifier() {
     cond1 = true;
-    cv.notify_one();  // Might wake thread2, which goes back to sleep!
+    cv.notify_one();  // thread2를 깨울 수 있고, thread2는 다시 sleep!
 }
 
-// SOLUTION: Use notify_all or separate condition variables
+// 해결책: notify_all 사용 또는 별도의 condition variable 사용
 ```
 
-### 4. Not Holding Lock When Checking Condition
+### 4. 조건 확인 시 잠금 미보유
 
 ```cpp
-// BAD: Race condition
-if (ready) {  // Checked without lock!
+// 나쁨: 경쟁 조건
+if (ready) {  // 잠금 없이 확인!
     std::unique_lock<std::mutex> lock(mtx);
     cv.wait(lock, [] { return ready; });
 }
 
-// GOOD: Check condition with lock held
+// 좋음: 잠금을 유지한 채 조건 확인
 {
     std::unique_lock<std::mutex> lock(mtx);
     cv.wait(lock, [] { return ready; });
 }
 ```
 
-### 5. Exception Safety
+### 5. 예외 안전성
 
 ```cpp
-// BAD: Lock not released if exception thrown
+// 나쁨: 예외 발생 시 잠금이 해제되지 않음
 std::unique_lock<std::mutex> lock(mtx);
-might_throw();  // Lock held if this throws!
+might_throw();  // 예외 발생 시 잠금 유지!
 cv.wait(lock, [] { return ready; });
 
-// GOOD: RAII ensures lock released
+// 좋음: RAII가 잠금 해제를 보장
 {
     std::unique_lock<std::mutex> lock(mtx);
     try {
         might_throw();
     } catch (...) {
-        // Lock automatically released
+        // 잠금이 자동으로 해제됨
         throw;
     }
     cv.wait(lock, [] { return ready; });
 }
 
-// BETTER: Just rely on RAII
+// 더 좋음: RAII에 의존
 {
     std::unique_lock<std::mutex> lock(mtx);
-    might_throw();  // Lock released on exception
+    might_throw();  // 예외 시 잠금 해제됨
     cv.wait(lock, [] { return ready; });
 }
 ```
 
-## Internal Mechanisms
+## 내부 메커니즘
 
-### Futex-Based Implementation (Linux)
+### Futex 기반 구현 (Linux)
 
 `std::condition_variable`은 내부적으로 pthread_cond_t를 사용하며, 이는 futex 기반입니다:
 
@@ -972,38 +972,38 @@ futex(&cond->__g_signals, FUTEX_REQUEUE,
       0);
 ```
 
-## Performance Considerations
+## 성능 고려사항
 
-### Cost of Operations
+### 연산 비용
 
 ```cpp
-// cv.wait() - Relatively expensive
+// cv.wait() - 비교적 비용이 큼
 // - Mutex unlock
-// - Thread context switch (to sleep)
-// - Thread context switch (when woken)
+// - 스레드 컨텍스트 스위치 (sleep으로)
+// - 스레드 컨텍스트 스위치 (깨어날 때)
 // - Mutex lock
 
-// Use wisely:
-// - GOOD for infrequent events
-// - BAD for high-frequency signaling (consider atomics instead)
+// 현명하게 사용:
+// - 좋음: 빈도가 낮은 이벤트에 적합
+// - 나쁨: 빈도가 높은 시그널링 (대신 atomic 고려)
 ```
 
-### Thundering Herd Problem
+### Thundering Herd 문제
 
 ```cpp
-// PROBLEM: notify_all wakes many threads, but only one can proceed
+// 문제: notify_all이 많은 스레드를 깨우지만 하나만 진행 가능
 std::condition_variable cv;
 bool work_available = false;
 
-// Many workers:
+// 다수의 워커:
 cv.wait(lock, [] { return work_available; });
-// All wake up, but only one gets work
+// 모두 깨어나지만, 하나만 작업을 가져감
 
-// SOLUTION: Use notify_one for work queue
-cv.notify_one();  // Wake only one worker
+// 해결책: 작업 큐에 notify_one 사용
+cv.notify_one();  // 워커 하나만 깨우기
 ```
 
-## Complete Example: Semaphore Implementation
+## 전체 예제: 세마포어 구현
 
 ```cpp
 #include <mutex>
@@ -1035,7 +1035,7 @@ public:
     }
 };
 
-Semaphore sem(2);  // Max 2 concurrent accesses
+Semaphore sem(2);  // 최대 2개의 동시 접근
 
 void worker(int id) {
     sem.acquire();
@@ -1058,14 +1058,14 @@ int main() {
 }
 ```
 
-## Further Reading
+## 추가 읽기
 
 - [C++ Reference: std::condition_variable](https://en.cppreference.com/w/cpp/thread/condition_variable)
-- [Mutex and Lock Guard](./02-mutex-lock-guard.md)
-- [Async and Future](./05-async-future.md)
+- [Mutex와 Lock Guard](./02-mutex-lock-guard.md)
+- [Async와 Future](./05-async-future.md)
 
-## Navigation
+## 탐색
 
-- [Back to C++ Overview](./README.md)
-- Previous: [Atomic Operations](./03-atomic.md)
-- Next: [Async and Future](./05-async-future.md)
+- [C++ 개요로 돌아가기](./README.md)
+- 이전: [Atomic 연산](./03-atomic.md)
+- 다음: [Async와 Future](./05-async-future.md)

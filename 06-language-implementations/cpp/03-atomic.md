@@ -1,43 +1,43 @@
-# Atomic Operations in C++
+# C++의 Atomic 연산
 
-Atomic operations provide lock-free synchronization for simple data types. They're essential for high-performance concurrent programming and understanding lock-free algorithms.
+Atomic 연산은 단순한 데이터 타입에 대해 Lock-Free 동기화를 제공합니다. 고성능 동시성 프로그래밍과 Lock-Free 알고리즘을 이해하는 데 필수적입니다.
 
-## Table of Contents
-- [Basic Concepts](#basic-concepts)
-- [std::atomic Types](#stdatomic-types)
-- [Memory Ordering](#memory-ordering)
-- [Atomic Operations](#atomic-operations)
+## 목차
+- [기본 개념](#기본-개념)
+- [std::atomic 타입](#stdatomic-타입)
+- [메모리 순서](#메모리-순서)
+- [Atomic 연산](#atomic-연산)
 - [Compare-and-Swap](#compare-and-swap)
-- [Comparison with Other Languages](#comparison-with-other-languages)
-- [Best Practices](#best-practices)
-- [Common Pitfalls](#common-pitfalls)
+- [다른 언어와의 비교](#다른-언어와의-비교)
+- [모범 사례](#모범-사례)
+- [일반적인 실수](#일반적인-실수)
 
-## Basic Concepts
+## 기본 개념
 
-### What are Atomics?
+### Atomic이란?
 
-Atomic operations are indivisible operations that complete without interference from other threads:
+Atomic 연산은 다른 스레드의 간섭 없이 완전히 수행되는 분리 불가능한 연산입니다:
 
 ```cpp
 #include <atomic>
 #include <thread>
 #include <iostream>
 
-// Non-atomic - race condition!
+// 비원자적 - 경쟁 조건!
 int counter = 0;
 
 void bad_increment() {
     for (int i = 0; i < 100000; ++i) {
-        ++counter;  // Read-modify-write - NOT atomic!
+        ++counter;  // Read-Modify-Write - 원자적이지 않음!
     }
 }
 
-// Atomic - safe without locks
+// 원자적 - 잠금 없이 안전
 std::atomic<int> atomic_counter{0};
 
 void good_increment() {
     for (int i = 0; i < 100000; ++i) {
-        ++atomic_counter;  // Atomic operation
+        ++atomic_counter;  // 원자적 연산
     }
 }
 
@@ -46,40 +46,40 @@ int main() {
     std::thread t2(good_increment);
     t1.join();
     t2.join();
-    std::cout << "Result: " << atomic_counter << "\n";  // Always 200000
+    std::cout << "Result: " << atomic_counter << "\n";  // 항상 200000
     return 0;
 }
 ```
 
-### Why Use Atomics?
+### Atomic을 사용하는 이유
 
-1. **Lock-Free**: No mutex overhead
-2. **Fast**: Hardware-supported operations
-3. **Simple**: For basic synchronization
-4. **Foundation**: Building block for complex lock-free structures
+1. **Lock-Free**: mutex 오버헤드 없음
+2. **빠름**: 하드웨어 지원 연산
+3. **간단함**: 기본적인 동기화에 적합
+4. **기반**: 복잡한 Lock-Free 구조의 빌딩 블록
 
-## std::atomic Types
+## std::atomic 타입
 
-### Basic Atomic Types
+### 기본 Atomic 타입
 
 ```cpp
 #include <atomic>
 #include <iostream>
 
 int main() {
-    // Integer types
+    // 정수 타입
     std::atomic<int> atomic_int{0};
     std::atomic<long> atomic_long{0};
     std::atomic<unsigned> atomic_uint{0};
 
-    // Boolean
+    // 불리언
     std::atomic<bool> atomic_flag{false};
 
-    // Pointer
+    // 포인터
     int value = 42;
     std::atomic<int*> atomic_ptr{&value};
 
-    // User-defined types (must be trivially copyable)
+    // 사용자 정의 타입 (trivially copyable이어야 함)
     struct Point {
         int x, y;
     };
@@ -89,18 +89,18 @@ int main() {
 }
 ```
 
-### Atomic Type Aliases
+### Atomic 타입 별칭
 
 ```cpp
 #include <atomic>
 
 int main() {
-    // Convenient type aliases
-    std::atomic_int ai{0};           // Same as std::atomic<int>
-    std::atomic_long al{0};          // Same as std::atomic<long>
-    std::atomic_bool ab{false};      // Same as std::atomic<bool>
+    // 편의 타입 별칭
+    std::atomic_int ai{0};           // std::atomic<int>과 동일
+    std::atomic_long al{0};          // std::atomic<long>과 동일
+    std::atomic_bool ab{false};      // std::atomic<bool>과 동일
 
-    // Fixed-width types
+    // 고정 너비 타입
     std::atomic_int32_t ai32{0};
     std::atomic_int64_t ai64{0};
 
@@ -110,7 +110,7 @@ int main() {
 
 ### std::atomic_flag
 
-The only guaranteed lock-free atomic:
+유일하게 Lock-Free가 보장되는 atomic:
 
 ```cpp
 #include <atomic>
@@ -123,7 +123,7 @@ class Spinlock {
 public:
     void lock() {
         while (flag.test_and_set(std::memory_order_acquire)) {
-            // Spin wait
+            // 스핀 대기
         }
     }
 
@@ -153,28 +153,28 @@ int main() {
 }
 ```
 
-## Memory Ordering
+## 메모리 순서
 
-### Memory Order Options
+### 메모리 순서 옵션
 
-C++ provides fine-grained control over memory synchronization:
+C++는 메모리 동기화에 대한 세밀한 제어를 제공합니다:
 
 ```cpp
 namespace std {
     enum memory_order {
-        memory_order_relaxed,   // No synchronization
-        memory_order_consume,   // Data dependency (rarely used)
-        memory_order_acquire,   // Acquire barrier
-        memory_order_release,   // Release barrier
-        memory_order_acq_rel,   // Both acquire and release
-        memory_order_seq_cst    // Sequential consistency (default)
+        memory_order_relaxed,   // 동기화 없음
+        memory_order_consume,   // 데이터 의존성 (거의 사용되지 않음)
+        memory_order_acquire,   // Acquire 배리어
+        memory_order_release,   // Release 배리어
+        memory_order_acq_rel,   // Acquire와 Release 모두
+        memory_order_seq_cst    // 순차적 일관성 (기본값)
     };
 }
 ```
 
-### Sequential Consistency (Default)
+### 순차적 일관성 (기본값)
 
-Strongest ordering - operations appear in same order to all threads:
+가장 강한 순서 - 모든 스레드에서 연산이 동일한 순서로 나타남:
 
 ```cpp
 #include <atomic>
@@ -184,7 +184,7 @@ Strongest ordering - operations appear in same order to all threads:
 std::atomic<int> x{0}, y{0};
 
 void write_x() {
-    x.store(1, std::memory_order_seq_cst);  // Default
+    x.store(1, std::memory_order_seq_cst);  // 기본값
 }
 
 void write_y() {
@@ -194,13 +194,13 @@ void write_y() {
 void read_values() {
     int r1 = y.load(std::memory_order_seq_cst);
     int r2 = x.load(std::memory_order_seq_cst);
-    // If r1 == 1, then r2 must be 1 (total order guaranteed)
+    // r1 == 1이면, r2도 반드시 1이어야 함 (전체 순서 보장)
 }
 ```
 
-### Relaxed Ordering
+### Relaxed 순서
 
-No synchronization, only atomicity:
+동기화 없음, 원자성만 보장:
 
 ```cpp
 #include <atomic>
@@ -219,14 +219,14 @@ int main() {
     std::thread t2(increment_relaxed);
     t1.join();
     t2.join();
-    // Counter is correct, but no ordering guarantees
+    // 카운터는 정확하지만, 순서 보장 없음
     return 0;
 }
 ```
 
-### Acquire-Release Ordering
+### Acquire-Release 순서
 
-Most common for synchronization:
+동기화에 가장 일반적으로 사용됨:
 
 ```cpp
 #include <atomic>
@@ -240,14 +240,14 @@ int data = 0;
 void producer() {
     data = 42;                                    // 1
     ready.store(true, std::memory_order_release); // 2
-    // All writes before release are visible after acquire
+    // release 전의 모든 쓰기가 acquire 후에 보임
 }
 
 void consumer() {
     while (!ready.load(std::memory_order_acquire)) {  // 3
-        // Wait
+        // 대기
     }
-    assert(data == 42);  // Guaranteed to see data = 42
+    assert(data == 42);  // data = 42를 볼 수 있음이 보장됨
 }
 
 int main() {
@@ -259,7 +259,7 @@ int main() {
 }
 ```
 
-### Memory Ordering Comparison
+### 메모리 순서 비교
 
 ```cpp
 #include <atomic>
@@ -268,23 +268,23 @@ int main() {
 std::atomic<int> value{0};
 
 void examples() {
-    // Sequential consistency - strongest, slowest
+    // 순차적 일관성 - 가장 강함, 가장 느림
     value.store(1, std::memory_order_seq_cst);
     int v1 = value.load(std::memory_order_seq_cst);
 
-    // Acquire-release - balanced
+    // Acquire-Release - 균형 잡힘
     value.store(2, std::memory_order_release);
     int v2 = value.load(std::memory_order_acquire);
 
-    // Relaxed - weakest, fastest
+    // Relaxed - 가장 약함, 가장 빠름
     value.store(3, std::memory_order_relaxed);
     int v3 = value.load(std::memory_order_relaxed);
 }
 ```
 
-## Atomic Operations
+## Atomic 연산
 
-### Load and Store
+### Load와 Store
 
 ```cpp
 #include <atomic>
@@ -295,11 +295,11 @@ int main() {
 
     // Load
     int v1 = value.load();
-    int v2 = value;  // Implicit load
+    int v2 = value;  // 암시적 load
 
     // Store
     value.store(100);
-    value = 200;  // Implicit store
+    value = 200;  // 암시적 store
 
     std::cout << "Value: " << value.load() << "\n";
     return 0;
@@ -318,8 +318,8 @@ std::atomic<int> counter{0};
 
 void increment_100k() {
     for (int i = 0; i < 100000; ++i) {
-        counter.fetch_add(1);  // Returns old value
-        // Equivalent to: counter += 1 or ++counter
+        counter.fetch_add(1);  // 이전 값 반환
+        // counter += 1 또는 ++counter와 동일
     }
 }
 
@@ -347,15 +347,15 @@ int main() {
 int main() {
     std::atomic<unsigned int> flags{0};
 
-    // Set bits atomically
-    flags.fetch_or(0b0001);   // Set bit 0
-    flags.fetch_or(0b0010);   // Set bit 1
+    // 비트를 원자적으로 설정
+    flags.fetch_or(0b0001);   // 비트 0 설정
+    flags.fetch_or(0b0010);   // 비트 1 설정
 
-    // Clear bits atomically
-    flags.fetch_and(~0b0001); // Clear bit 0
+    // 비트를 원자적으로 클리어
+    flags.fetch_and(~0b0001); // 비트 0 클리어
 
-    // Toggle bits atomically
-    flags.fetch_xor(0b0010);  // Toggle bit 1
+    // 비트를 원자적으로 토글
+    flags.fetch_xor(0b0010);  // 비트 1 토글
 
     std::cout << "Flags: " << flags << "\n";
     return 0;
@@ -372,7 +372,7 @@ int main() {
 std::atomic<int> value{0};
 
 void swap_values() {
-    int old_value = value.exchange(42);  // Set to 42, return old value
+    int old_value = value.exchange(42);  // 42로 설정하고 이전 값 반환
     std::cout << "Old value: " << old_value << "\n";
 }
 
@@ -400,8 +400,8 @@ std::atomic<int> value{0};
 void cas_increment() {
     int expected = value.load();
     while (!value.compare_exchange_weak(expected, expected + 1)) {
-        // expected updated with current value on failure
-        // Retry
+        // 실패 시 expected가 현재 값으로 업데이트됨
+        // 재시도
     }
 }
 
@@ -434,16 +434,16 @@ public:
         Node* new_node = new Node{value, nullptr};
         new_node->next = head.load();
 
-        // Keep trying until we successfully update head
+        // head를 성공적으로 업데이트할 때까지 계속 시도
         while (!head.compare_exchange_strong(new_node->next, new_node)) {
-            // new_node->next updated with current head on failure
+            // 실패 시 new_node->next가 현재 head로 업데이트됨
         }
     }
 
     bool pop(int& value) {
         Node* old_head = head.load();
         while (old_head && !head.compare_exchange_strong(old_head, old_head->next)) {
-            // old_head updated with current head on failure
+            // 실패 시 old_head가 현재 head로 업데이트됨
         }
 
         if (old_head) {
@@ -479,26 +479,26 @@ std::atomic<int> value{0};
 
 void example_weak() {
     int expected = 0;
-    // May fail spuriously (on some architectures)
-    // Use in loop
+    // 일부 아키텍처에서 가짜 실패(spurious failure) 가능
+    // 루프에서 사용
     while (!value.compare_exchange_weak(expected, 1)) {
-        // Retry
+        // 재시도
     }
 }
 
 void example_strong() {
     int expected = 0;
-    // Never fails spuriously
-    // Can use without loop (if you don't retry on failure)
+    // 가짜 실패 없음
+    // 루프 없이 사용 가능 (실패 시 재시도하지 않는 경우)
     if (value.compare_exchange_strong(expected, 1)) {
-        // Success
+        // 성공
     } else {
-        // Actual failure (expected != value)
+        // 실제 실패 (expected != value)
     }
 }
 ```
 
-## Comparison with Other Languages
+## 다른 언어와의 비교
 
 ### C++ vs. C#
 ```cpp
@@ -506,7 +506,7 @@ void example_strong() {
 std::atomic<int> counter{0};
 counter.fetch_add(1);
 
-// C# equivalent:
+// C# 동등 코드:
 // int counter = 0;
 // Interlocked.Increment(ref counter);
 ```
@@ -517,7 +517,7 @@ counter.fetch_add(1);
 std::atomic<int> counter{0};
 counter.store(42);
 
-// Go equivalent:
+// Go 동등 코드:
 // var counter int32
 // atomic.StoreInt32(&counter, 42)
 ```
@@ -534,16 +534,16 @@ counter.fetch_add(1);
 // Atomics.add(view, 0, 1);
 ```
 
-## Best Practices
+## 모범 사례
 
-### 1. Use Atomics for Simple Synchronization
+### 1. 간단한 동기화에 Atomic 사용
 
 ```cpp
-// GOOD: Simple counter
+// 좋음: 간단한 카운터
 std::atomic<int> counter{0};
 ++counter;
 
-// OVERKILL: Don't use mutex for simple counter
+// 과도함: 간단한 카운터에 mutex 사용하지 않기
 std::mutex mtx;
 int counter = 0;
 {
@@ -552,21 +552,21 @@ int counter = 0;
 }
 ```
 
-### 2. Prefer Sequential Consistency Initially
+### 2. 처음에는 순차적 일관성 선호
 
 ```cpp
-// GOOD: Start with seq_cst (default)
+// 좋음: seq_cst로 시작 (기본값)
 std::atomic<int> value{0};
-value.store(42);  // memory_order_seq_cst implied
+value.store(42);  // memory_order_seq_cst가 암시됨
 
-// ADVANCED: Optimize later if needed
+// 고급: 나중에 필요하면 최적화
 value.store(42, std::memory_order_release);
 ```
 
-### 3. Use Acquire-Release for Synchronization
+### 3. 동기화에 Acquire-Release 사용
 
 ```cpp
-// Producer-consumer pattern
+// 생산자-소비자 패턴
 std::atomic<bool> ready{false};
 int data;
 
@@ -577,23 +577,23 @@ void producer() {
 
 void consumer() {
     while (!ready.load(std::memory_order_acquire));
-    // data is visible here
+    // 여기서 data가 보임
 }
 ```
 
-### 4. Use Relaxed for Counters (When Order Doesn't Matter)
+### 4. 카운터에 Relaxed 사용 (순서가 중요하지 않을 때)
 
 ```cpp
-// GOOD: Relaxed for simple counters
+// 좋음: 간단한 카운터에 relaxed 사용
 std::atomic<long> request_count{0};
 
 void handle_request() {
-    // Just counting, order doesn't matter
+    // 단순 카운팅, 순서는 중요하지 않음
     request_count.fetch_add(1, std::memory_order_relaxed);
 }
 ```
 
-### 5. Check if Type is Lock-Free
+### 5. 타입이 Lock-Free인지 확인
 
 ```cpp
 #include <atomic>
@@ -612,64 +612,64 @@ int main() {
     std::cout << "LargeStruct is lock-free: "
               << atomic_large.is_lock_free() << "\n";
 
-    // Or at compile time (C++17)
+    // 또는 컴파일 타임에 (C++17)
     static_assert(std::atomic<int>::is_always_lock_free);
 
     return 0;
 }
 ```
 
-## Common Pitfalls
+## 일반적인 실수
 
-### 1. Assuming All Atomics are Lock-Free
+### 1. 모든 Atomic이 Lock-Free라고 가정하기
 
 ```cpp
-// BAD: Might not be lock-free!
+// 나쁨: Lock-Free가 아닐 수 있음!
 struct BigStruct {
     long data[1000];
 };
-std::atomic<BigStruct> big_atomic;  // Probably uses mutex internally!
+std::atomic<BigStruct> big_atomic;  // 내부적으로 mutex를 사용할 수 있음!
 
-// GOOD: Check first
+// 좋음: 먼저 확인
 if (!big_atomic.is_lock_free()) {
     std::cout << "Warning: Not lock-free!\n";
 }
 ```
 
-### 2. Mixing Atomic and Non-Atomic Access
+### 2. Atomic과 비원자적 접근 혼합
 
 ```cpp
-// BAD: Data race!
+// 나쁨: 데이터 경쟁!
 std::atomic<int> value{0};
 
 void thread1() {
-    value.store(42);  // Atomic
+    value.store(42);  // 원자적
 }
 
 void thread2() {
     int* ptr = reinterpret_cast<int*>(&value);
-    *ptr = 100;  // Non-atomic - UNDEFINED BEHAVIOR!
+    *ptr = 100;  // 비원자적 - 정의되지 않은 동작!
 }
 ```
 
-### 3. Forgetting Memory Ordering
+### 3. 메모리 순서 잊기
 
 ```cpp
-// BAD: Relaxed may not provide needed synchronization
+// 나쁨: relaxed가 필요한 동기화를 제공하지 않을 수 있음
 std::atomic<bool> ready{false};
 int data;
 
 void producer() {
     data = 42;
-    ready.store(true, std::memory_order_relaxed);  // TOO WEAK!
+    ready.store(true, std::memory_order_relaxed);  // 너무 약함!
 }
 
 void consumer() {
     while (!ready.load(std::memory_order_relaxed));
-    // data may not be visible!
+    // data가 보이지 않을 수 있음!
 }
 
-// GOOD: Use acquire-release
+// 좋음: acquire-release 사용
 void producer_fixed() {
     data = 42;
     ready.store(true, std::memory_order_release);
@@ -677,49 +677,49 @@ void producer_fixed() {
 
 void consumer_fixed() {
     while (!ready.load(std::memory_order_acquire));
-    // data is guaranteed visible
+    // data가 보임이 보장됨
 }
 ```
 
-### 4. ABA Problem
+### 4. ABA 문제
 
 ```cpp
-// BAD: ABA problem
+// 나쁨: ABA 문제
 class Stack {
     std::atomic<Node*> head;
 
     void pop() {
         Node* old_head = head.load();
-        // Thread 1 paused here
-        // Thread 2: pop A, pop B, push A (same address!)
-        // Thread 1 resumes:
+        // 스레드 1 여기서 일시 중지
+        // 스레드 2: A를 pop, B를 pop, A를 push (같은 주소!)
+        // 스레드 1 재개:
         head.compare_exchange_strong(old_head, old_head->next);
-        // Success, but B was lost!
+        // 성공, 하지만 B가 사라짐!
     }
 };
 
-// SOLUTION: Use tagged pointers or hazard pointers
+// 해결책: 태그 포인터 또는 hazard 포인터 사용
 ```
 
 ### 5. False Sharing
 
 ```cpp
-// BAD: False sharing - atomics on same cache line
+// 나쁨: False sharing - atomic들이 같은 캐시 라인에 있음
 struct Counters {
     std::atomic<int> counter1{0};
     std::atomic<int> counter2{0};
 };
 
-// GOOD: Separate cache lines
+// 좋음: 별도의 캐시 라인
 struct Counters {
     alignas(64) std::atomic<int> counter1{0};
     alignas(64) std::atomic<int> counter2{0};
 };
 ```
 
-## Internal Mechanisms
+## 내부 메커니즘
 
-### Lock-Free Guarantee and Implementation
+### Lock-Free 보장과 구현
 
 ```cpp
 // std::atomic<T>의 lock-free 여부 확인
@@ -750,7 +750,7 @@ static_assert(std::atomic<long long>::is_always_lock_free);  // x86-64
 | ARM64   | 1, 2, 4, 8 bytes |
 | ARM64 + LSE | 16 bytes 가능 (ldp/stp atomic) |
 
-### Memory Order to CPU Instruction Mapping
+### 메모리 순서에서 CPU 명령어로의 매핑
 
 **x86-64 (TSO 모델)**:
 ```cpp
@@ -790,7 +790,7 @@ int v = x.load(memory_order_acquire);
 // LDAR W0, [X1]  (Load-Acquire)
 ```
 
-### Fetch-and-Add Assembly
+### Fetch-and-Add 어셈블리
 
 ```cpp
 // x.fetch_add(1, memory_order_relaxed)
@@ -811,7 +811,7 @@ int v = x.load(memory_order_acquire);
 //   CBNZ W3, retry
 ```
 
-### Compare-Exchange Implementation Details
+### Compare-Exchange 구현 세부사항
 
 ```cpp
 // compare_exchange_weak vs strong
@@ -850,7 +850,7 @@ STXR W2, desired, [X1] ; Store-Exclusive (실패 가능!)
 CBNZ W2, spurious_fail ; Exclusive 실패 = spurious failure
 ```
 
-### atomic_flag: The Only Guaranteed Lock-Free
+### atomic_flag: 유일하게 Lock-Free가 보장되는 것
 
 ```cpp
 // atomic_flag는 항상 lock-free 보장
@@ -875,7 +875,7 @@ struct atomic_flag {
 bool test(memory_order order) const noexcept;
 ```
 
-### Atomic Reference Wrapper (C++20)
+### Atomic Reference 래퍼 (C++20)
 
 ```cpp
 // atomic_ref: 기존 객체를 원자적으로 접근
@@ -914,41 +914,41 @@ std::atomic<DoubleWord> dw;
 // 성공 시 ZF=1, 실패 시 RDX:RAX = 실제 값
 ```
 
-## Performance Considerations
+## 성능 고려사항
 
-### Operation Costs
+### 연산 비용
 
 ```cpp
-// Relative costs (very approximate):
+// 상대적 비용 (매우 대략적):
 // Relaxed atomic:  1x
 // Acquire-release: 1-2x
 // Seq_cst:        2-10x
-// Mutex lock:     25x (uncontended), 1000x+ (contended)
+// Mutex lock:     25x (비경합), 1000x+ (경합)
 ```
 
-### When to Use What
+### 언제 무엇을 사용할 것인가
 
 ```cpp
-// Simple counter: Relaxed
+// 간단한 카운터: Relaxed
 std::atomic<long> stats{0};
 stats.fetch_add(1, std::memory_order_relaxed);
 
-// Flag with data dependency: Acquire-release
+// 데이터 의존성이 있는 플래그: Acquire-release
 std::atomic<bool> ready{false};
 int data;
 ready.store(true, std::memory_order_release);
 
-// Multiple atomic variables: Sequential consistency
+// 여러 atomic 변수: 순차적 일관성
 std::atomic<int> x{0}, y{0};
-x.store(1);  // seq_cst ensures total order
+x.store(1);  // seq_cst가 전체 순서 보장
 y.store(1);
 
-// Complex data structure: Use mutex
+// 복잡한 데이터 구조: mutex 사용
 std::mutex mtx;
 ComplexStructure data;
 ```
 
-## Complete Example: Lock-Free Queue
+## 전체 예제: Lock-Free 큐
 
 ```cpp
 #include <atomic>
@@ -1026,15 +1026,15 @@ int main() {
 }
 ```
 
-## Further Reading
+## 추가 읽기
 
 - [C++ Reference: std::atomic](https://en.cppreference.com/w/cpp/atomic/atomic)
-- [C++ Memory Model](https://en.cppreference.com/w/cpp/atomic/memory_order)
+- [C++ 메모리 모델](https://en.cppreference.com/w/cpp/atomic/memory_order)
 - "C++ Concurrency in Action" by Anthony Williams
-- [Lock-Free Programming](../../05-advanced-patterns/)
+- [Lock-Free 프로그래밍](../../05-advanced-patterns/)
 
-## Navigation
+## 탐색
 
-- [Back to C++ Overview](./README.md)
-- Previous: [Mutex and Lock Guard](./02-mutex-lock-guard.md)
-- Next: [Condition Variables](./04-condition-variable.md)
+- [C++ 개요로 돌아가기](./README.md)
+- 이전: [Mutex와 Lock Guard](./02-mutex-lock-guard.md)
+- 다음: [Condition Variable](./04-condition-variable.md)
