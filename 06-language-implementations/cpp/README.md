@@ -43,6 +43,12 @@ C++ 동시성은 크게 발전해 왔습니다:
 - 실행 정책 (async vs. deferred)
 - shared_future와 packaged_task
 
+### 6. [Coroutine (C++20)](./06-coroutine.md)
+- `co_await`, `co_yield`, `co_return` 키워드
+- Promise Type과 Awaiter 구현
+- Generator 패턴과 비동기 Task
+- Symmetric Transfer와 HALO 최적화
+
 ## 다른 언어와의 비교
 
 | 기능 | C++ | 비교 |
@@ -284,3 +290,4 @@ thread apply all bt   # 모든 스레드의 백트레이스
   - [Atomic 연산](./03-atomic.md)
   - [Condition Variable](./04-condition-variable.md)
   - [Async와 Future](./05-async-future.md)
+  - [Coroutine (C++20)](./06-coroutine.md)
